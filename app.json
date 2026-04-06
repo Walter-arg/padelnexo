@@ -1,0 +1,22 @@
+{
+  "expo": {
+    "name": "PadelNexo",
+    "slug": "padelnexo",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "resizeMode": "contain",
+      "backgroundColor": "#F4F6F8"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "android": {
+      "package": "com.padelnexo.app"
+    },
+    "ios": {
+      "supportsTablet": true
+    }
+  }
+}
