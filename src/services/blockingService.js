@@ -7,7 +7,7 @@ import {
   collection,
   setDoc,
   where,
-} from "firebase/firestore";
+} from "../../services/firebaseFirestore";
 
 import { db } from "../../services/firebaseConfig";
 
@@ -81,3 +81,4 @@ export async function getConversationBlockStatus({ currentUserId, otherUserId })
     isBlocked: blockedByCurrentUser || blockedByOtherUser,
   };
 }
+

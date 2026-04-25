@@ -1,4 +1,4 @@
-import { collection, getDocs } from "firebase/firestore";
+import { collection, getDocs } from "../../services/firebaseFirestore";
 
 import { db } from "../../services/firebaseConfig";
 import { getProfileImageUri } from "../utils/defaultProfileImage";
@@ -78,6 +78,7 @@ export function mapUserDocToPlayer(docSnapshot) {
   return {
     id: docSnapshot.id,
     nombre: data.nombre || "Jugador",
+    apellido: data.apellido || data.lastName || "",
     categoria: data.categoria || "Iniciante",
     sexo: formatSex(data.sexo),
     ciudad: localidad.nombre || location.ciudad || "Buenos Aires",
@@ -85,6 +86,7 @@ export function mapUserDocToPlayer(docSnapshot) {
     disponibilidad: data.disponibilidad || getAvailabilityHeadline(availability),
     disponibleHoy: Boolean(data.disponibleHoy) || isAvailableToday(availability),
     manoHabil: formatDominantHand(data.manoHabil),
+    ladoJuego: data.ladoJuego || "ambos",
     ladoPreferido: formatSide(data.ladoJuego),
     descripcion: data.descripcion || "Perfil en crecimiento dentro de PadelNexo.",
     foto: getProfileImageUri(data.fotoURL),
@@ -104,3 +106,4 @@ export async function listPlayers() {
     .filter((docSnapshot) => docSnapshot.exists() && shouldIncludePlayerDoc(docSnapshot.data()))
     .map(mapUserDocToPlayer);
 }
+

@@ -19,3 +19,4 @@ export function getFirebaseErrorMessage(error, fallbackMessage) {
 
   return FIREBASE_ERROR_MESSAGES[error.code] || fallbackMessage;
 }
+

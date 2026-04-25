@@ -12,7 +12,7 @@ import {
   Timestamp,
   updateDoc,
   where,
-} from "firebase/firestore";
+} from "../../services/firebaseFirestore";
 
 import { db } from "../../services/firebaseConfig";
 import { getConversationBlockStatus } from "./blockingService";
@@ -216,3 +216,4 @@ export function subscribeToUnreadMessageCount({ currentUserId, onData, onError }
     onError,
   });
 }
+

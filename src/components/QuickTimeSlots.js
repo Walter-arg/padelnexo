@@ -36,18 +36,18 @@ const styles = StyleSheet.create({
   grid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: spacing.sm,
+    gap: spacing.xs,
     justifyContent: "center",
-    marginTop: spacing.md,
+    marginTop: spacing.sm,
   },
   slotCard: {
     backgroundColor: colors.surface,
     borderColor: colors.border,
-    borderRadius: 18,
+    borderRadius: 14,
     borderWidth: 1,
-    minHeight: 78,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
+    minHeight: 48,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
     width: "47%",
   },
   slotCardActive: {
@@ -59,7 +59,7 @@ const styles = StyleSheet.create({
   },
   slotTitle: {
     color: colors.text,
-    fontSize: 15,
+    fontSize: 13,
     fontWeight: "800",
     textAlign: "center",
   },
@@ -68,12 +68,13 @@ const styles = StyleSheet.create({
   },
   slotRange: {
     color: colors.muted,
-    fontSize: 12,
+    fontSize: 10,
     fontWeight: "600",
-    marginTop: 4,
+    marginTop: 1,
     textAlign: "center",
   },
   slotRangeActive: {
     color: colors.primaryDark,
   },
 });
+

@@ -9,6 +9,7 @@ import { colors, spacing } from "../config/theme";
 import { useAuth } from "../context/AuthContext";
 import { subscribeToUnreadMessageCount } from "../services/chatService";
 import { subscribeToUnreadInvitationsCount } from "../services/invitationsService";
+import { isApprovedOrganizer } from "../services/roleService";
 
 export const BOTTOM_QUICK_ACTIONS_SPACE = 108;
 
@@ -52,6 +53,7 @@ export default function BottomQuickActionsBar() {
   const [unreadInvitationsCount, setUnreadInvitationsCount] = useState(0);
   const [isAvailabilityVisible, setIsAvailabilityVisible] = useState(false);
   const [availabilitySaving, setAvailabilitySaving] = useState(false);
+  const isOrganizer = isApprovedOrganizer(userData);
 
   useEffect(() => {
     const unsubscribe = subscribeToUnreadMessageCount({
@@ -113,16 +115,29 @@ export default function BottomQuickActionsBar() {
             renderIcon={() => <InvitationsActionIcon />}
             showBadge={unreadInvitationsCount > 0}
           />
-          <QuickActionButton
-            label="Disponibilidad"
-            onPress={() => setIsAvailabilityVisible(true)}
-            renderIcon={() => (
-              <View style={styles.composedIconWrap}>
-                <Ionicons color="#2F7F96" name="calendar-outline" size={20} />
-                <Ionicons color="#2F7F96" name="time-outline" size={12} style={styles.timeIcon} />
-              </View>
-            )}
-          />
+          {isOrganizer ? (
+            <QuickActionButton
+              label="Remplazos"
+              onPress={() => navigation.navigate("OrganizerReplacements")}
+              renderIcon={() => (
+                <View style={styles.composedIconWrap}>
+                  <Ionicons color="#1E7A43" name="swap-horizontal-outline" size={21} />
+                  <Ionicons color="#FF8A00" name="alert-circle" size={12} style={styles.timeIcon} />
+                </View>
+              )}
+            />
+          ) : (
+            <QuickActionButton
+              label="Disponibilidad"
+              onPress={() => setIsAvailabilityVisible(true)}
+              renderIcon={() => (
+                <View style={styles.composedIconWrap}>
+                  <Ionicons color="#2F7F96" name="calendar-outline" size={20} />
+                  <Ionicons color="#2F7F96" name="time-outline" size={12} style={styles.timeIcon} />
+                </View>
+              )}
+            />
+          )}
         </View>
       </View>
 
@@ -225,3 +240,4 @@ const styles = StyleSheet.create({
     top: 10,
   },
 });
+

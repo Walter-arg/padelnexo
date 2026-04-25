@@ -14,6 +14,7 @@ export default function SelectField({
   containerStyle,
   fieldStyle,
   labelStyle,
+  renderModalFooter,
 }) {
   const selectedOption = options.find((option) => option.value === value);
   const displayValue = selectedOption?.label || value || placeholder;
@@ -56,6 +57,9 @@ export default function SelectField({
                   </Pressable>
                 );
               })}
+              {renderModalFooter ? (
+                <View style={styles.modalFooter}>{renderModalFooter()}</View>
+              ) : null}
             </ScrollView>
           </View>
         </View>
@@ -151,4 +155,8 @@ const styles = StyleSheet.create({
   optionTextSelected: {
     color: colors.primaryDark,
   },
+  modalFooter: {
+    paddingTop: spacing.xs,
+  },
 });
+

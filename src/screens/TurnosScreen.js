@@ -1,4 +1,4 @@
-﻿import { useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -60,7 +60,7 @@ export default function TurnosScreen({ navigation }) {
             <Text style={styles.locationsLabel}>Localidades activas</Text>
             <Text style={styles.locationsText}>
               {activeLocations.length > 0
-                ? activeLocations.map((location) => location.nombre).join(" · ")
+                ? activeLocations.map((location) => location.nombre).join(" � ")
                 : "Tu ciudad base aparecera aqui automaticamente."}
             </Text>
           </View>
@@ -79,7 +79,8 @@ const styles = StyleSheet.create({
   },
   container: {
     flex: 1,
-    padding: spacing.lg,
+    paddingHorizontal: spacing.lg,
+    paddingTop: 2,
     paddingBottom: spacing.lg + BOTTOM_QUICK_ACTIONS_SPACE,
   },
   card: {
@@ -146,3 +147,4 @@ const styles = StyleSheet.create({
     marginLeft: spacing.sm,
   },
 });
+

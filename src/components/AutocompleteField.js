@@ -28,7 +28,7 @@ export default function AutocompleteField({
         <View style={styles.suggestionsCard}>
           {suggestions.map((item) => (
             <Pressable
-              key={item.label}
+              key={item.key || item.value || item.label}
               onPress={() => onSelect(item)}
               style={styles.suggestionRow}
             >
@@ -95,3 +95,4 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
 });
+

@@ -11,12 +11,18 @@ export default function FeedbackModal({
   tone = "default",
 }) {
   const isDanger = tone === "danger";
+  const isWarning = tone === "warning";
 
   return (
     <Modal animationType="fade" onRequestClose={onClose} transparent visible={visible}>
       <View style={styles.overlay}>
         <Pressable onPress={onClose} style={styles.backdrop} />
-        <View style={styles.card}>
+        <View style={[styles.card, isWarning ? styles.cardWarning : null]}>
+          {isWarning ? (
+            <View style={styles.warningIcon}>
+              <Text style={styles.warningIconText}>!</Text>
+            </View>
+          ) : null}
           <Text style={styles.title}>{title}</Text>
           <Text style={styles.message}>{message}</Text>
           <Pressable
@@ -24,6 +30,7 @@ export default function FeedbackModal({
             style={({ pressed }) => [
               styles.button,
               isDanger ? styles.buttonDanger : null,
+              isWarning ? styles.buttonWarning : null,
               pressed ? styles.buttonPressed : null,
             ]}
           >
@@ -54,6 +61,28 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     width: "100%",
   },
+  cardWarning: {
+    borderColor: "#F2C94C",
+    borderWidth: 2,
+  },
+  warningIcon: {
+    alignItems: "center",
+    alignSelf: "center",
+    backgroundColor: "#FFD84D",
+    borderColor: "#E0A400",
+    borderRadius: 999,
+    borderWidth: 2,
+    height: 58,
+    justifyContent: "center",
+    marginBottom: spacing.sm,
+    width: 58,
+  },
+  warningIconText: {
+    color: "#7A4300",
+    fontSize: 34,
+    fontWeight: "900",
+    lineHeight: 38,
+  },
   title: {
     color: colors.text,
     fontSize: 22,
@@ -79,6 +108,9 @@ const styles = StyleSheet.create({
   buttonDanger: {
     backgroundColor: colors.danger,
   },
+  buttonWarning: {
+    backgroundColor: "#D99000",
+  },
   buttonText: {
     color: colors.surface,
     fontSize: 15,
@@ -88,3 +120,4 @@ const styles = StyleSheet.create({
     opacity: 0.9,
   },
 });
+

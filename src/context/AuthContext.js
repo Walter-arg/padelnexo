@@ -1,6 +1,6 @@
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { onAuthStateChanged } from "firebase/auth";
+import { onAuthStateChanged } from "../../services/firebaseAuth";
 
 import { auth } from "../../services/firebaseConfig";
 import {
@@ -19,6 +19,7 @@ import {
   updateUserProfile,
 } from "../services/userService";
 import {
+  submitComplexRequest as persistComplexRequest,
   submitOrganizerRequest,
   updateOrganizerComplexes as persistOrganizerComplexes,
 } from "../services/organizerService";
@@ -27,6 +28,7 @@ import {
   isApprovedOrganizer,
   isPendingOrganizer,
 } from "../services/roleService";
+import { registerForPushNotificationsAsync } from "../services/pushNotificationsService";
 
 const AuthContext = createContext(null);
 const LAST_LOGIN_EMAIL_KEY = "@padelnexo:last-login-email";
@@ -102,6 +104,7 @@ export function AuthProvider({ children }) {
   const [userData, setUserData] = useState(null);
   const [lastLoginEmail, setLastLoginEmail] = useState("");
   const [loading, setLoading] = useState(true);
+  const lastRegisteredPushUidRef = useRef("");
 
   const persistLastLoginEmail = async (email) => {
     const normalizedEmail = (email || "").trim().toLowerCase();
@@ -169,6 +172,19 @@ export function AuthProvider({ children }) {
 
     return unsubscribe;
   }, []);
+
+  useEffect(() => {
+    const uid = userData?.uid || user?.uid || "";
+
+    if (!uid || lastRegisteredPushUidRef.current === uid || userData?.accountDeleted) {
+      return;
+    }
+
+    lastRegisteredPushUidRef.current = uid;
+    registerForPushNotificationsAsync(uid).catch((error) => {
+      console.log("[AuthContext] No se pudo registrar push token:", error?.message || error);
+    });
+  }, [user?.uid, userData?.accountDeleted, userData?.uid]);
 
   const value = useMemo(
     () => ({
@@ -361,6 +377,23 @@ export function AuthProvider({ children }) {
           setLoading(false);
         }
       },
+      submitComplexRequest: async (complejos) => {
+        if (!auth.currentUser) {
+          throw new Error("No hay una sesion activa.");
+        }
+
+        setLoading(true);
+
+        try {
+          return await persistComplexRequest(auth.currentUser.uid, {
+            complejos,
+            organizerName: userData?.name || "",
+            organizerEmail: auth.currentUser.email || "",
+          });
+        } finally {
+          setLoading(false);
+        }
+      },
       isApprovedOrganizer: () => isApprovedOrganizer(userData),
       isOrganizerPending: () => isPendingOrganizer(userData),
       canAccessOrganizerFeatures: () => isApprovedOrganizer(userData),
@@ -381,3 +414,4 @@ export function useAuth() {
 
   return context;
 }
+

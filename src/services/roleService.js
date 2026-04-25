@@ -67,3 +67,4 @@ export function getAccountTypeLabel(profile) {
 
   return "Organizador (Pendiente)";
 }
+

@@ -274,6 +274,24 @@ export default function HomeScreen({ navigation }) {
           )}
         </View>
 
+        {user && currentUser ? (
+          <Pressable
+            onPress={() => navigation.navigate("Finanzas")}
+            style={({ pressed }) => [
+              styles.financeButton,
+              pressed ? styles.financeButtonPressed : null,
+            ]}
+          >
+            <View style={styles.financeIconWrap}>
+              <Text style={styles.financeIconText}>$</Text>
+            </View>
+            <View style={styles.financeCopy}>
+              <Text style={styles.financeTitle}>FINANZAS</Text>
+              <Text style={styles.financeText}>Pagos, valores y caja del organizador</Text>
+            </View>
+          </Pressable>
+        ) : null}
+
         <Pressable
           disabled={selectedMenuItem.key !== "Jugadores"}
           onPress={() => {
@@ -514,6 +532,54 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     textAlign: "left",
   },
+  financeButton: {
+    alignItems: "center",
+    backgroundColor: colors.primaryDark,
+    borderRadius: 18,
+    flexDirection: "row",
+    gap: spacing.sm,
+    marginBottom: spacing.lg,
+    minHeight: 62,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.15,
+    shadowRadius: 18,
+    elevation: 5,
+  },
+  financeButtonPressed: {
+    opacity: 0.92,
+    transform: [{ scale: 0.99 }],
+  },
+  financeIconWrap: {
+    alignItems: "center",
+    backgroundColor: "#F5C84B",
+    borderRadius: 8,
+    height: 42,
+    justifyContent: "center",
+    width: 42,
+  },
+  financeIconText: {
+    color: colors.primaryDark,
+    fontSize: 24,
+    fontWeight: "900",
+  },
+  financeCopy: {
+    flex: 1,
+  },
+  financeTitle: {
+    color: colors.surface,
+    fontSize: 16,
+    fontWeight: "900",
+    letterSpacing: 0,
+  },
+  financeText: {
+    color: "rgba(255,255,255,0.82)",
+    fontSize: 12,
+    fontWeight: "700",
+    marginTop: 2,
+  },
   heroCard: {
     backgroundColor: colors.surface,
     borderRadius: 28,
@@ -703,3 +769,4 @@ const styles = StyleSheet.create({
     lineHeight: 22,
   },
 });
+

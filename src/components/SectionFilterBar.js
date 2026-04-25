@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Modal,
   Pressable,
@@ -321,10 +321,10 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     borderWidth: 1,
     marginHorizontal: spacing.lg,
-    marginTop: -4,
-    minHeight: 56,
+    marginTop: -6,
+    minHeight: 50,
     paddingHorizontal: spacing.md,
-    paddingVertical: 10,
+    paddingVertical: 8,
     shadowColor: colors.shadow,
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.06,
@@ -348,10 +348,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: "#EAF6F1",
     borderRadius: 12,
-    height: 32,
+    height: 28,
     justifyContent: "center",
-    marginRight: 10,
-    width: 32,
+    marginRight: 8,
+    width: 28,
   },
   filterBarTextWrap: {
     flex: 1,
@@ -365,9 +365,9 @@ const styles = StyleSheet.create({
   },
   filterBarTitle: {
     color: colors.text,
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: "800",
-    marginTop: 1,
+    marginTop: 0,
   },
   summaryChipSecondary: {
     alignItems: "center",
@@ -375,12 +375,12 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     justifyContent: "center",
     marginLeft: spacing.sm,
-    minHeight: 28,
-    paddingHorizontal: 10,
+    minHeight: 24,
+    paddingHorizontal: 9,
   },
   summaryChipSecondaryText: {
     color: "#24537D",
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: "700",
   },
   modalOverlay: {
@@ -535,3 +535,4 @@ const styles = StyleSheet.create({
     fontWeight: "800",
   },
 });
+

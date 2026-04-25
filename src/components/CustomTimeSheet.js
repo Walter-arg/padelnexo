@@ -1,7 +1,23 @@
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useState } from "react";
+import { Modal, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import DateTimePicker from "@react-native-community/datetimepicker";
+import { Ionicons } from "@expo/vector-icons";
 
 import { colors, spacing } from "../config/theme";
-import { TIME_OPTIONS } from "../services/availabilityService";
+
+function buildDateFromTime(value = "") {
+  const baseDate = new Date();
+  const [hours = "19", minutes = "00"] = String(value || "19:00").split(":");
+  const nextDate = new Date(baseDate);
+  nextDate.setHours(Number.parseInt(hours, 10), Number.parseInt(minutes, 10), 0, 0);
+  return nextDate;
+}
+
+function formatTimeValue(date) {
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  return `${hours}:${minutes}`;
+}
 
 export default function CustomTimeSheet({
   dayLabel,
@@ -13,6 +29,31 @@ export default function CustomTimeSheet({
   to,
   visible,
 }) {
+  const [pickerTarget, setPickerTarget] = useState("");
+
+  const closePicker = () => setPickerTarget("");
+
+  const handlePickerChange = (_, selectedDate) => {
+    if (!selectedDate) {
+      closePicker();
+      return;
+    }
+
+    const nextValue = formatTimeValue(selectedDate);
+
+    if (pickerTarget === "from") {
+      onChangeFrom(nextValue);
+    }
+
+    if (pickerTarget === "to") {
+      onChangeTo(nextValue);
+    }
+
+    if (Platform.OS !== "ios") {
+      closePicker();
+    }
+  };
+
   return (
     <Modal animationType="slide" onRequestClose={onClose} transparent visible={visible}>
       <View style={styles.overlay}>
@@ -25,54 +66,42 @@ export default function CustomTimeSheet({
           <View style={styles.columns}>
             <View style={styles.column}>
               <Text style={styles.columnLabel}>Desde</Text>
-              <ScrollView
-                style={styles.optionsList}
-                contentContainerStyle={styles.optionsWrap}
-                showsVerticalScrollIndicator={false}
+              <Pressable
+                onPress={() => setPickerTarget("from")}
+                style={({ pressed }) => [
+                  styles.timeButton,
+                  pressed ? styles.optionChipPressed : null,
+                ]}
               >
-                {TIME_OPTIONS.map((value) => (
-                  <Pressable
-                    key={`from-${value}`}
-                    onPress={() => onChangeFrom(value)}
-                    style={({ pressed }) => [
-                      styles.optionChip,
-                      from === value && styles.optionChipActive,
-                      pressed && styles.optionChipPressed,
-                    ]}
-                  >
-                    <Text style={[styles.optionText, from === value && styles.optionTextActive]}>
-                      {value}
-                    </Text>
-                  </Pressable>
-                ))}
-              </ScrollView>
+                <Text style={styles.timeButtonText}>{from}</Text>
+                <Ionicons color={colors.primaryDark} name="time-outline" size={18} />
+              </Pressable>
             </View>
 
             <View style={styles.column}>
               <Text style={styles.columnLabel}>Hasta</Text>
-              <ScrollView
-                style={styles.optionsList}
-                contentContainerStyle={styles.optionsWrap}
-                showsVerticalScrollIndicator={false}
+              <Pressable
+                onPress={() => setPickerTarget("to")}
+                style={({ pressed }) => [
+                  styles.timeButton,
+                  pressed ? styles.optionChipPressed : null,
+                ]}
               >
-                {TIME_OPTIONS.map((value) => (
-                  <Pressable
-                    key={`to-${value}`}
-                    onPress={() => onChangeTo(value)}
-                    style={({ pressed }) => [
-                      styles.optionChip,
-                      to === value && styles.optionChipActive,
-                      pressed && styles.optionChipPressed,
-                    ]}
-                  >
-                    <Text style={[styles.optionText, to === value && styles.optionTextActive]}>
-                      {value}
-                    </Text>
-                  </Pressable>
-                ))}
-              </ScrollView>
+                <Text style={styles.timeButtonText}>{to}</Text>
+                <Ionicons color={colors.primaryDark} name="time-outline" size={18} />
+              </Pressable>
             </View>
           </View>
+
+          {pickerTarget ? (
+            <DateTimePicker
+              display={Platform.OS === "ios" ? "spinner" : "clock"}
+              is24Hour
+              mode="time"
+              onChange={handlePickerChange}
+              value={buildDateFromTime(pickerTarget === "from" ? from : to)}
+            />
+          ) : null}
 
           <View style={styles.actions}>
             <Pressable onPress={onClose} style={styles.secondaryButton}>
@@ -134,9 +163,6 @@ const styles = StyleSheet.create({
   column: {
     flex: 1,
   },
-  optionsList: {
-    maxHeight: 320,
-  },
   columnLabel: {
     color: colors.primaryDark,
     fontSize: 12,
@@ -145,33 +171,28 @@ const styles = StyleSheet.create({
     textAlign: "center",
     textTransform: "uppercase",
   },
-  optionsWrap: {
-    gap: spacing.xs,
-    paddingBottom: spacing.sm,
-  },
-  optionChip: {
+  timeButton: {
     alignItems: "center",
-    backgroundColor: "#F4F7F8",
-    borderColor: "#D8E1E5",
-    borderRadius: 16,
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 18,
     borderWidth: 1,
-    justifyContent: "center",
-    minHeight: 38,
-  },
-  optionChipActive: {
-    backgroundColor: "#2F7F96",
-    borderColor: "#2F7F96",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    minHeight: 44,
+    paddingHorizontal: spacing.md,
   },
   optionChipPressed: {
     opacity: 0.92,
   },
-  optionText: {
+  timeButtonText: {
     color: colors.text,
     fontSize: 14,
     fontWeight: "700",
-  },
-  optionTextActive: {
-    color: colors.surface,
+    left: 9,
+    position: "absolute",
+    right: 9,
+    textAlign: "center",
   },
   actions: {
     flexDirection: "row",
@@ -207,3 +228,4 @@ const styles = StyleSheet.create({
     fontWeight: "800",
   },
 });
+

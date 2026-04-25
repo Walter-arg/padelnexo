@@ -1,4 +1,4 @@
-ï»¿import { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
 
@@ -45,7 +45,7 @@ export default function LoginScreen({ navigation }) {
     }
 
     if (!password.trim()) {
-      Alert.alert("Datos incompletos", "Ingresa tu contraseÃ±a para continuar.");
+      Alert.alert("Datos incompletos", "Ingresa tu contraseña para continuar.");
       return;
     }
 
@@ -82,7 +82,7 @@ export default function LoginScreen({ navigation }) {
         <Text style={styles.subtitle}>
           {mode === "login"
             ? "Ingresa con tu email para entrar rapido a PadelNexo."
-            : "Te enviaremos un link para restablecer tu contraseÃ±a."}
+            : "Te enviaremos un link para restablecer tu contraseña."}
         </Text>
 
         <AppInput
@@ -100,13 +100,13 @@ export default function LoginScreen({ navigation }) {
           <AppInput
             autoComplete="password"
             containerStyle={styles.compactField}
-            label="ContraseÃ±a"
+            label="Contraseña"
             onChangeText={setPassword}
-            placeholder="Ingrese contraseÃ±a"
+            placeholder="Ingrese contraseña"
             rightElement={
               <Pressable
                 accessibilityLabel={
-                  isPasswordVisible ? "Ocultar contraseÃ±a" : "Mostrar contraseÃ±a"
+                  isPasswordVisible ? "Ocultar contraseña" : "Mostrar contraseña"
                 }
                 hitSlop={8}
                 onPress={() => setIsPasswordVisible((current) => !current)}
@@ -128,7 +128,7 @@ export default function LoginScreen({ navigation }) {
           <>
             <AppButton title="Ingresar" onPress={handleLogin} />
             <Pressable onPress={handleRequestRecovery} style={styles.recoverLink}>
-              <Text style={styles.recoverText}>OlvidÃ© mi contraseÃ±a</Text>
+              <Text style={styles.recoverText}>Olvidé mi contraseña</Text>
             </Pressable>
           </>
         ) : (
@@ -194,4 +194,5 @@ const styles = StyleSheet.create({
     color: colors.text,
   },
 });
+
 

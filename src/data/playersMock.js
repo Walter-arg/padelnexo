@@ -1,4 +1,4 @@
-﻿export const playersMock = [
+export const playersMock = [
   {
     id: "player-1",
     nombre: "Agustin Romero",
@@ -124,3 +124,4 @@
     ]
   }
 ];
+

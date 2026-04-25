@@ -5,3 +5,4 @@ export function hasProfileImage(uri) {
 export function getProfileImageUri(uri) {
   return hasProfileImage(uri) ? uri : "";
 }
+

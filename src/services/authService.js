@@ -4,7 +4,7 @@ import {
   sendPasswordResetEmail,
   signInWithEmailAndPassword,
   signOut,
-} from "firebase/auth";
+} from "../../services/firebaseAuth";
 
 import { auth } from "../../services/firebaseConfig";
 import { getFirebaseErrorMessage } from "./firebaseErrors";
@@ -77,3 +77,4 @@ export const authService = {
   logout: logoutUser,
   deleteCurrentUserAccount,
 };
+

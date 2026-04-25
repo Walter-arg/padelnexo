@@ -3,6 +3,7 @@
     "name": "PadelNexo",
     "slug": "padelnexo",
     "version": "1.0.0",
+    "scheme": "padelnexo",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "splash": {
@@ -17,6 +18,12 @@
     },
     "ios": {
       "supportsTablet": true
-    }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "70621faf-0db4-4145-b973-4803e2eb209d"
+      }
+    },
+    "owner": "waltwr"
   }
 }

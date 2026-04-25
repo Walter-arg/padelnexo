@@ -6,7 +6,7 @@ import {
   limit,
   query,
   where,
-} from "firebase/firestore";
+} from "../../services/firebaseFirestore";
 
 import { db } from "../../services/firebaseConfig";
 import { colors, spacing } from "../config/theme";
@@ -285,3 +285,4 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
 });
+

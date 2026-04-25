@@ -16,8 +16,11 @@ import { ADMIN_EMAIL, isAdminEmail } from "../config/admin";
 import { colors, spacing } from "../config/theme";
 import { useAuth } from "../context/AuthContext";
 import {
+  approveComplexRequest,
   approveOrganizerRequest,
+  listComplexRequests,
   listOrganizerRequests,
+  rejectComplexRequest,
   rejectOrganizerRequest,
 } from "../services/organizerService";
 
@@ -34,7 +37,20 @@ export default function AdminScreen() {
 
     try {
       const organizerRequests = await listOrganizerRequests();
-      setRequests(organizerRequests);
+      const complexRequests = await listComplexRequests();
+      const combinedRequests = [
+        ...organizerRequests.map((item) => ({ ...item, requestType: "organizer" })),
+        ...complexRequests.map((item) => ({ ...item, requestType: "complex" })),
+      ].sort((first, second) => {
+        const firstTime =
+          typeof first.createdAt?.toMillis === "function" ? first.createdAt.toMillis() : 0;
+        const secondTime =
+          typeof second.createdAt?.toMillis === "function" ? second.createdAt.toMillis() : 0;
+
+        return secondTime - firstTime;
+      });
+
+      setRequests(combinedRequests);
     } catch (error) {
       Alert.alert("No pudimos cargar solicitudes", error.message);
     } finally {
@@ -56,8 +72,13 @@ export default function AdminScreen() {
     }
 
     try {
-      await approveOrganizerRequest(selectedRequest.userId);
-      Alert.alert("Solicitud aprobada", "El organizador ya quedo habilitado.");
+      if (selectedRequest.requestType === "complex") {
+        await approveComplexRequest(selectedRequest.id);
+        Alert.alert("Complejo aprobado", "El complejo ya quedo disponible para el organizador.");
+      } else {
+        await approveOrganizerRequest(selectedRequest.userId);
+        Alert.alert("Solicitud aprobada", "El organizador ya quedo habilitado.");
+      }
       setSelectedRequest(null);
       loadRequests();
     } catch (error) {
@@ -71,8 +92,13 @@ export default function AdminScreen() {
     }
 
     try {
-      await rejectOrganizerRequest(selectedRequest.userId);
-      Alert.alert("Solicitud rechazada", "La solicitud fue marcada como rechazada.");
+      if (selectedRequest.requestType === "complex") {
+        await rejectComplexRequest(selectedRequest.id);
+        Alert.alert("Solicitud rechazada", "El complejo no fue aprobado.");
+      } else {
+        await rejectOrganizerRequest(selectedRequest.userId);
+        Alert.alert("Solicitud rechazada", "La solicitud fue marcada como rechazada.");
+      }
       setSelectedRequest(null);
       loadRequests();
     } catch (error) {
@@ -102,11 +128,20 @@ export default function AdminScreen() {
       ]}
     >
       <View style={styles.requestTopRow}>
-        <Text style={styles.requestName}>{item.nombre}</Text>
+        <Text style={styles.requestName}>{item.nombre || item.organizerName || "Solicitud"}</Text>
         <Text style={styles.statusBadge}>{item.status}</Text>
       </View>
-      <Text style={styles.requestMeta}>DNI: {item.dni}</Text>
-      <Text style={styles.requestMeta}>Telefono: {item.telefono}</Text>
+      <Text style={styles.requestMeta}>
+        Tipo: {item.requestType === "complex" ? "Nuevo complejo" : "Organizador"}
+      </Text>
+      {item.requestType === "organizer" ? (
+        <>
+          <Text style={styles.requestMeta}>DNI: {item.dni}</Text>
+          <Text style={styles.requestMeta}>Telefono: {item.telefono}</Text>
+        </>
+      ) : (
+        <Text style={styles.requestMeta}>Email: {item.organizerEmail || "-"}</Text>
+      )}
       <Text style={styles.requestMeta}>Complejos: {item.complejos?.length || 0}</Text>
     </Pressable>
   );
@@ -157,12 +192,29 @@ export default function AdminScreen() {
                 showsVerticalScrollIndicator={false}
               >
                 <View style={styles.detailCard}>
+                  <Text style={styles.detailLabel}>Tipo</Text>
+                  <Text style={styles.detailValue}>
+                    {selectedRequest.requestType === "complex"
+                      ? "Solicitud de nuevo complejo"
+                      : "Solicitud de organizador"}
+                  </Text>
                   <Text style={styles.detailLabel}>Nombre</Text>
-                  <Text style={styles.detailValue}>{selectedRequest.nombre}</Text>
-                  <Text style={styles.detailLabel}>DNI</Text>
-                  <Text style={styles.detailValue}>{selectedRequest.dni}</Text>
-                  <Text style={styles.detailLabel}>Telefono</Text>
-                  <Text style={styles.detailValue}>{selectedRequest.telefono}</Text>
+                  <Text style={styles.detailValue}>
+                    {selectedRequest.nombre || selectedRequest.organizerName || "-"}
+                  </Text>
+                  {selectedRequest.requestType === "organizer" ? (
+                    <>
+                      <Text style={styles.detailLabel}>DNI</Text>
+                      <Text style={styles.detailValue}>{selectedRequest.dni}</Text>
+                      <Text style={styles.detailLabel}>Telefono</Text>
+                      <Text style={styles.detailValue}>{selectedRequest.telefono}</Text>
+                    </>
+                  ) : (
+                    <>
+                      <Text style={styles.detailLabel}>Email</Text>
+                      <Text style={styles.detailValue}>{selectedRequest.organizerEmail || "-"}</Text>
+                    </>
+                  )}
                 </View>
 
                 {(selectedRequest.complejos || []).map((complex, index) => (
@@ -358,3 +410,4 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
 });
+

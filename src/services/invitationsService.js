@@ -7,7 +7,7 @@ import {
   serverTimestamp,
   updateDoc,
   where,
-} from "firebase/firestore";
+} from "../../services/firebaseFirestore";
 
 import { db } from "../../services/firebaseConfig";
 
@@ -164,3 +164,4 @@ export function subscribeToUnreadInvitationsCount({ currentUserId, onData, onErr
     onError
   );
 }
+

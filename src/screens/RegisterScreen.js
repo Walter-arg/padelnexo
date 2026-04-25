@@ -1,4 +1,4 @@
-﻿import { useState } from "react";
+import { useState } from "react";
 import { Alert, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import AppButton from "../components/AppButton";
@@ -187,13 +187,13 @@ export default function RegisterScreen({ navigation }) {
     }
 
     if (!password.trim()) {
-      showFeedback("Falta la contraseña", "Ingresa una contraseña para continuar.", "danger");
+      showFeedback("Falta la contrase�a", "Ingresa una contrase�a para continuar.", "danger");
       return;
     }
 
     if (password.length < MIN_PASSWORD_LENGTH) {
       showFeedback(
-        "Contraseña muy corta",
+        "Contrase�a muy corta",
         `Debe tener al menos ${MIN_PASSWORD_LENGTH} caracteres.`,
         "danger"
       );
@@ -203,7 +203,7 @@ export default function RegisterScreen({ navigation }) {
     const email = trimmedIdentifier.toLowerCase();
 
     if (!email.includes("@")) {
-      showFeedback("Email no valido", "Debe ingresar un email válido.", "danger");
+      showFeedback("Email no valido", "Debe ingresar un email v�lido.", "danger");
       return;
     }
 
@@ -359,10 +359,10 @@ export default function RegisterScreen({ navigation }) {
           <AppInput
             containerStyle={styles.compactField}
             inputStyle={styles.compactInput}
-            label="Contraseña"
+            label="Contrase�a"
             labelStyle={styles.centeredLabel}
             onChangeText={setPassword}
-            placeholder="Ingrese contraseña"
+            placeholder="Ingrese contrase�a"
             secureTextEntry
             value={password}
           />
@@ -443,3 +443,4 @@ const styles = StyleSheet.create({
     color: colors.text,
   },
 });
+

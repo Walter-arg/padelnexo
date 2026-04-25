@@ -297,3 +297,4 @@ export function validateCustomSlot(from, to) {
     slot: normalizedSlot,
   };
 }
+

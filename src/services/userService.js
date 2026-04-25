@@ -5,10 +5,10 @@ import {
   serverTimestamp,
   setDoc,
   updateDoc,
-} from "firebase/firestore";
-import { deleteObject, getDownloadURL, ref, uploadBytes } from "firebase/storage";
+} from "../../services/firebaseFirestore";
+import { deleteObject, getDownloadURL, ref, uploadBytes } from "../../services/firebaseStorage";
 
-import { db, storage } from "../../services/firebaseConfig";
+import { db, ensureDb, ensureStorage, storage } from "../../services/firebaseConfig";
 import { argentinaCities, avatarColors } from "../data/profileOptions";
 import {
   availabilityToFirestore,
@@ -131,6 +131,9 @@ function mapDocToUserData(uid, profileDoc = {}, fallbackEmail = "") {
   const complejos = Array.isArray(profileDoc.complejos)
     ? profileDoc.complejos.map(normalizeComplex)
     : [];
+  const tournamentComplexes = Array.isArray(profileDoc.tournamentComplexes)
+    ? profileDoc.tournamentComplexes.map(normalizeComplex)
+    : [];
   const localidad = resolveLocalidadFromDoc(profileDoc);
   const resolvedCity =
     localidad?.nombre || profileDoc.location?.ciudad || DEFAULT_LOCATION.ciudad;
@@ -174,23 +177,37 @@ function mapDocToUserData(uid, profileDoc = {}, fallbackEmail = "") {
     role: profileDoc.role || roleData.role,
     organizerStatus: profileDoc.organizerStatus || roleData.organizerStatus,
     leagueDefaults: profileDoc.leagueDefaults || null,
+    leaguePaymentDefaults: profileDoc.leaguePaymentDefaults || null,
     availability,
     complejos,
+    tournamentComplexes,
     createdAt: profileDoc.createdAt || null,
   };
 }
 
 async function getProfileImageDownloadUrl(userId) {
-  const imageRef = ref(storage, `profileImages/${userId}`);
+  const activeStorage = await ensureStorage();
+
+  if (!activeStorage) {
+    throw new Error("Storage no esta disponible en este momento.");
+  }
+
+  const imageRef = ref(activeStorage, `profileImages/${userId}`);
   return getDownloadURL(imageRef);
 }
 
 async function uploadProfileImage(userId, imageUri) {
   try {
+    const activeStorage = await ensureStorage();
+
+    if (!activeStorage) {
+      throw new Error("Storage no esta disponible en este momento.");
+    }
+
     console.log("[userService] Preparando imagen de perfil:", imageUri);
     const response = await fetch(imageUri);
     const blob = await response.blob();
-    const imageRef = ref(storage, `profileImages/${userId}`);
+    const imageRef = ref(activeStorage, `profileImages/${userId}`);
 
     console.log("[userService] Subiendo imagen a Firebase Storage");
     await uploadBytes(imageRef, blob, {
@@ -209,12 +226,21 @@ async function uploadProfileImage(userId, imageUri) {
 }
 
 export async function removeUserProfilePhoto(uid) {
-  const userRef = doc(db, "users", uid);
-  const imageRef = ref(storage, `profileImages/${uid}`);
+  const activeDb = await ensureDb();
+  const activeStorage = await ensureStorage();
+
+  if (!activeDb) {
+    throw new Error("Firestore no esta disponible en este momento.");
+  }
+
+  const userRef = doc(activeDb, "users", uid);
+  const imageRef = activeStorage ? ref(activeStorage, `profileImages/${uid}`) : null;
 
   try {
-    console.log("[userService] Eliminando foto de Firebase Storage");
-    await deleteObject(imageRef);
+    if (imageRef) {
+      console.log("[userService] Eliminando foto de Firebase Storage");
+      await deleteObject(imageRef);
+    }
   } catch (error) {
     if (error?.code !== "storage/object-not-found") {
       console.log("[userService] Error al eliminar foto de Storage:", error);
@@ -231,7 +257,13 @@ export async function removeUserProfilePhoto(uid) {
 }
 
 export async function hideUserProfile(uid) {
-  const userRef = doc(db, "users", uid);
+  const activeDb = await ensureDb();
+
+  if (!activeDb) {
+    throw new Error("Firestore no esta disponible en este momento.");
+  }
+
+  const userRef = doc(activeDb, "users", uid);
 
   await updateDoc(userRef, {
     accountDeleted: true,
@@ -240,12 +272,21 @@ export async function hideUserProfile(uid) {
 }
 
 export async function deleteUserProfileData(uid) {
-  const userRef = doc(db, "users", uid);
-  const organizerRequestRef = doc(db, "organizerRequests", uid);
-  const imageRef = ref(storage, `profileImages/${uid}`);
+  const activeDb = await ensureDb();
+  const activeStorage = await ensureStorage();
+
+  if (!activeDb) {
+    throw new Error("Firestore no esta disponible en este momento.");
+  }
+
+  const userRef = doc(activeDb, "users", uid);
+  const organizerRequestRef = doc(activeDb, "organizerRequests", uid);
+  const imageRef = activeStorage ? ref(activeStorage, `profileImages/${uid}`) : null;
 
   try {
-    await deleteObject(imageRef);
+    if (imageRef) {
+      await deleteObject(imageRef);
+    }
   } catch (error) {
     if (error?.code !== "storage/object-not-found") {
       console.log("[userService] Error al eliminar foto durante baja de cuenta:", error);
@@ -272,8 +313,16 @@ async function normalizeProfileImage(uid, profileDoc) {
 
   try {
     const downloadURL = await getProfileImageDownloadUrl(uid);
+    const activeDb = await ensureDb();
 
-    await updateDoc(doc(db, "users", uid), {
+    if (!activeDb) {
+      return {
+        ...profileDoc,
+        fotoURL: "",
+      };
+    }
+
+    await updateDoc(doc(activeDb, "users", uid), {
       fotoURL: downloadURL,
     });
 
@@ -323,7 +372,18 @@ async function syncOrganizerApproval(uid, profileDoc) {
     !hasUserComplexes;
 
   if (shouldSyncUserDoc) {
-    await updateDoc(doc(db, "users", uid), {
+    const activeDb = await ensureDb();
+
+    if (!activeDb) {
+      return {
+        ...profileDoc,
+        role: "organizer",
+        organizerStatus: "approved",
+        complejos,
+      };
+    }
+
+    await updateDoc(doc(activeDb, "users", uid), {
       role: "organizer",
       organizerStatus: "approved",
       complejos,
@@ -339,7 +399,13 @@ async function syncOrganizerApproval(uid, profileDoc) {
 }
 
 export async function createUserProfile(uid, payload) {
-  const userRef = doc(db, "users", uid);
+  const activeDb = await ensureDb();
+
+  if (!activeDb) {
+    throw new Error("Firestore no esta disponible en este momento.");
+  }
+
+  const userRef = doc(activeDb, "users", uid);
   const localidad =
     normalizeLocalidadPayload(payload.localidad) ||
     normalizeLocalidadPayload(
@@ -374,6 +440,7 @@ export async function createUserProfile(uid, payload) {
     role: roleData.role,
     organizerStatus: roleData.organizerStatus,
     availability,
+    tournamentComplexes: [],
     createdAt: serverTimestamp(),
   });
 
@@ -396,11 +463,18 @@ export async function createUserProfile(uid, payload) {
     role: roleData.role,
     organizerStatus: roleData.organizerStatus,
     availability,
+    tournamentComplexes: [],
   });
 }
 
 export async function getUserProfile(uid, fallbackEmail = "") {
-  const userRef = doc(db, "users", uid);
+  const activeDb = await ensureDb();
+
+  if (!activeDb) {
+    throw new Error("Firestore no esta disponible en este momento.");
+  }
+
+  const userRef = doc(activeDb, "users", uid);
   const snapshot = await getDoc(userRef);
 
   if (!snapshot.exists()) {
@@ -414,7 +488,13 @@ export async function getUserProfile(uid, fallbackEmail = "") {
 }
 
 export async function updateUserProfile(uid, updates) {
-  const userRef = doc(db, "users", uid);
+  const activeDb = await ensureDb();
+
+  if (!activeDb) {
+    throw new Error("Firestore no esta disponible en este momento.");
+  }
+
+  const userRef = doc(activeDb, "users", uid);
   const payload = {};
 
   if (typeof updates.name === "string") {
@@ -473,6 +553,14 @@ export async function updateUserProfile(uid, updates) {
     payload.leagueDefaults = updates.leagueDefaults;
   }
 
+  if (updates.leaguePaymentDefaults && typeof updates.leaguePaymentDefaults === "object") {
+    payload.leaguePaymentDefaults = updates.leaguePaymentDefaults;
+  }
+
+  if (Array.isArray(updates.tournamentComplexes)) {
+    payload.tournamentComplexes = updates.tournamentComplexes.map(normalizeComplex);
+  }
+
   const localidadFromUpdates =
     normalizeLocalidadPayload(updates.localidad) ||
     normalizeLocalidadPayload({
@@ -510,3 +598,4 @@ export async function updateUserProfile(uid, updates) {
 
   return profile;
 }
+

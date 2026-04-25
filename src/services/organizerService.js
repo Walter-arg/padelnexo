@@ -1,4 +1,5 @@
 import {
+  addDoc,
   collection,
   doc,
   getDoc,
@@ -9,7 +10,7 @@ import {
   setDoc,
   updateDoc,
   writeBatch,
-} from "firebase/firestore";
+} from "../../services/firebaseFirestore";
 
 import { db } from "../../services/firebaseConfig";
 import { ORGANIZER_ROLE, ORGANIZER_STATUS, USER_ROLE } from "./roleService";
@@ -114,8 +115,54 @@ export async function updateOrganizerComplexes(userId, complejos) {
   return normalizedComplexes;
 }
 
+export async function submitComplexRequest(userId, payload) {
+  const normalizedComplexes = (payload.complejos || []).map(normalizeComplex).filter((complex) =>
+    Boolean(complex.nombre)
+  );
+
+  if (normalizedComplexes.length === 0) {
+    throw new Error("Agrega al menos un complejo para enviar la solicitud.");
+  }
+
+  const requestRef = await addDoc(collection(db, "complexRequests"), {
+    userId,
+    organizerName: payload.organizerName?.trim() || "",
+    organizerEmail: payload.organizerEmail?.trim().toLowerCase() || "",
+    complejos: normalizedComplexes,
+    status: ORGANIZER_STATUS.PENDING,
+    createdAt: serverTimestamp(),
+  });
+
+  return {
+    id: requestRef.id,
+    userId,
+    organizerName: payload.organizerName?.trim() || "",
+    organizerEmail: payload.organizerEmail?.trim().toLowerCase() || "",
+    complejos: normalizedComplexes,
+    status: ORGANIZER_STATUS.PENDING,
+  };
+}
+
 export async function listOrganizerRequests() {
   const requestsRef = collection(db, "organizerRequests");
+  const requestsQuery = query(requestsRef, orderBy("createdAt", "desc"));
+  const snapshot = await getDocs(requestsQuery);
+
+  return snapshot.docs.map((requestDoc) => {
+    const data = requestDoc.data();
+
+    return {
+      id: requestDoc.id,
+      ...data,
+      complejos: Array.isArray(data.complejos)
+        ? data.complejos.map(normalizeComplex)
+        : [],
+    };
+  });
+}
+
+export async function listComplexRequests() {
+  const requestsRef = collection(db, "complexRequests");
   const requestsQuery = query(requestsRef, orderBy("createdAt", "desc"));
   const snapshot = await getDocs(requestsQuery);
 
@@ -177,3 +224,70 @@ export async function rejectOrganizerRequest(userId) {
 
   await batch.commit();
 }
+
+export async function approveComplexRequest(requestId) {
+  const requestRef = doc(db, "complexRequests", requestId);
+  const requestSnapshot = await getDoc(requestRef);
+
+  if (!requestSnapshot.exists()) {
+    throw new Error("No encontramos la solicitud de complejo.");
+  }
+
+  const requestData = requestSnapshot.data();
+  const userId = String(requestData.userId || "").trim();
+
+  if (!userId) {
+    throw new Error("La solicitud no tiene un organizador asociado.");
+  }
+
+  const userRef = doc(db, "users", userId);
+  const userSnapshot = await getDoc(userRef);
+
+  if (!userSnapshot.exists()) {
+    throw new Error("No encontramos el perfil del organizador.");
+  }
+
+  const currentComplexes = Array.isArray(userSnapshot.data()?.complejos)
+    ? userSnapshot.data().complejos.map(normalizeComplex)
+    : [];
+  const requestedComplexes = Array.isArray(requestData.complejos)
+    ? requestData.complejos.map(normalizeComplex)
+    : [];
+
+  const mergedComplexes = [...currentComplexes];
+
+  requestedComplexes.forEach((complex) => {
+    const alreadyExists = mergedComplexes.some(
+      (item) =>
+        item.nombre.trim().toLowerCase() === complex.nombre.trim().toLowerCase() &&
+        item.direccion.trim().toLowerCase() === complex.direccion.trim().toLowerCase()
+    );
+
+    if (!alreadyExists) {
+      mergedComplexes.push(complex);
+    }
+  });
+
+  const batch = writeBatch(db);
+
+  batch.update(userRef, {
+    complejos: mergedComplexes,
+  });
+
+  batch.update(requestRef, {
+    status: ORGANIZER_STATUS.APPROVED,
+    approvedAt: serverTimestamp(),
+  });
+
+  await batch.commit();
+}
+
+export async function rejectComplexRequest(requestId) {
+  const requestRef = doc(db, "complexRequests", requestId);
+
+  await updateDoc(requestRef, {
+    status: ORGANIZER_STATUS.REJECTED,
+    reviewedAt: serverTimestamp(),
+  });
+}
+

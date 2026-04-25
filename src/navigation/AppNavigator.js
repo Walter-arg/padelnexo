@@ -1,17 +1,28 @@
-﻿import { createNativeStackNavigator } from "@react-navigation/native-stack";
+import { createNativeStackNavigator } from "@react-navigation/native-stack";
 
 import { colors } from "../config/theme";
 import AdminScreen from "../screens/AdminScreen";
 import CreateLeagueScreen from "../screens/CreateLeagueScreen";
+import CreateTournamentScreen from "../screens/CreateTournamentScreen";
 import FavoritosScreen from "../screens/FavoritosScreen";
+import FinanzasScreen from "../screens/FinanzasScreen";
 import HomeScreen from "../screens/HomeScreen";
 import InvitacionesScreen from "../screens/InvitacionesScreen";
+import LeagueDetailScreen from "../screens/LeagueDetailScreen";
+import LeagueFixtureScreen from "../screens/LeagueFixtureScreen";
+import LeaguePaymentsScreen from "../screens/LeaguePaymentsScreen";
 import JugadoresScreen from "../screens/JugadoresScreen";
+import LeaguePlayersScreen from "../screens/LeaguePlayersScreen";
+import LeagueStandingsScreen from "../screens/LeagueStandingsScreen";
 import LigasHubScreen from "../screens/LigasHubScreen";
 import LoginScreen from "../screens/LoginScreen";
 import MensajesScreen from "../screens/MensajesScreen";
+import MyLeaguesScreen from "../screens/MyLeaguesScreen";
+import OrganizerReplacementsScreen from "../screens/OrganizerReplacementsScreen";
 import PlayerDetailScreen from "../screens/PlayerDetailScreen";
+import PlayerLeaguesScreen from "../screens/PlayerLeaguesScreen";
 import RegisterScreen from "../screens/RegisterScreen";
+import TournamentDetailScreen from "../screens/TournamentDetailScreen";
 import TorneosScreen from "../screens/TorneosScreen";
 import TurnosScreen from "../screens/TurnosScreen";
 
@@ -55,9 +66,59 @@ export default function AppNavigator() {
         options={{ headerShown: false }}
       />
       <Stack.Screen
+        component={MyLeaguesScreen}
+        name="MyLeagues"
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        component={PlayerLeaguesScreen}
+        name="PlayerLeagues"
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        component={OrganizerReplacementsScreen}
+        name="OrganizerReplacements"
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        component={LeagueDetailScreen}
+        name="LeagueDetail"
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        component={LeaguePlayersScreen}
+        name="LeaguePlayers"
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        component={LeagueFixtureScreen}
+        name="LeagueFixture"
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        component={LeaguePaymentsScreen}
+        name="LeaguePayments"
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        component={LeagueStandingsScreen}
+        name="LeagueStandings"
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
         component={TorneosScreen}
         name="Torneos"
         options={{ title: "Torneos" }}
+      />
+      <Stack.Screen
+        component={CreateTournamentScreen}
+        name="CreateTournament"
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        component={TournamentDetailScreen}
+        name="TournamentDetail"
+        options={{ headerShown: false }}
       />
       <Stack.Screen
         component={TurnosScreen}
@@ -67,6 +128,13 @@ export default function AppNavigator() {
       <Stack.Screen
         component={JugadoresScreen}
         name="Jugadores"
+        options={{
+          headerShown: false,
+        }}
+      />
+      <Stack.Screen
+        component={FinanzasScreen}
+        name="Finanzas"
         options={{
           headerShown: false,
         }}
@@ -112,3 +180,4 @@ export default function AppNavigator() {
     </Stack.Navigator>
   );
 }
+

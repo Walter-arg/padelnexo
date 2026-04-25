@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Alert,
   KeyboardAvoidingView,
@@ -1117,4 +1117,5 @@ const styles = StyleSheet.create({
     opacity: 0.9,
   },
 });
+
 

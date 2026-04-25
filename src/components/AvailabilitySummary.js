@@ -15,9 +15,12 @@ export default function AvailabilitySummary({ items, onRemoveDay }) {
     <View style={styles.wrap}>
       {items.map((item) => (
         <View key={item.key} style={styles.itemCard}>
+          <View style={styles.dayBadge}>
+            <Text style={styles.dayBadgeText}>{item.dayShortLabel}</Text>
+          </View>
           <View style={styles.itemCopy}>
             <Text numberOfLines={2} style={styles.itemText}>
-              {item.dayShortLabel} - {item.text}
+              {item.text}
             </Text>
           </View>
           {onRemoveDay ? (
@@ -63,6 +66,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs,
   },
+  dayBadge: {
+    alignItems: "center",
+    backgroundColor: colors.primary,
+    borderRadius: 12,
+    justifyContent: "center",
+    marginRight: spacing.sm,
+    minHeight: 30,
+    minWidth: 44,
+    paddingHorizontal: 8,
+  },
+  dayBadgeText: {
+    color: colors.surface,
+    fontSize: 12,
+    fontWeight: "800",
+  },
   itemCopy: {
     flex: 1,
     paddingRight: spacing.xs,
@@ -80,7 +98,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     borderWidth: 1,
     justifyContent: "center",
-    minHeight: 26,
+    minHeight: 28,
     paddingHorizontal: 10,
   },
   removeButtonText: {
@@ -89,3 +107,4 @@ const styles = StyleSheet.create({
     fontWeight: "800",
   },
 });
+

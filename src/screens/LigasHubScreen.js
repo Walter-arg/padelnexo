@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  Alert,
   FlatList,
+  Modal,
   Pressable,
   StyleSheet,
   Text,
@@ -29,12 +29,24 @@ import {
 } from "../services/leagueFavoritesService";
 import {
   archiveLeague,
+  canManageLeague,
   getLeagueComplexOptions,
+  isLeagueParticipant,
   listLeagues,
 } from "../services/leaguesService";
 import { isApprovedOrganizer } from "../services/roleService";
 
 const SEX_FILTER_OPTIONS = ["Todos", "Masculino", "Femenino", "Mixto"];
+const DAY_FILTER_OPTIONS = [
+  { label: "Todos", value: "" },
+  { label: "Lunes", value: "monday" },
+  { label: "Martes", value: "tuesday" },
+  { label: "Miercoles", value: "wednesday" },
+  { label: "Jueves", value: "thursday" },
+  { label: "Viernes", value: "friday" },
+  { label: "Sabado", value: "saturday" },
+  { label: "Domingo", value: "sunday" },
+];
 
 function normalizeText(value = "") {
   return String(value).trim().toLowerCase();
@@ -56,6 +68,8 @@ export default function LigasHubScreen({ navigation }) {
     message: "",
     tone: "default",
   });
+  const [leaguePendingDelete, setLeaguePendingDelete] = useState(null);
+  const [deletingLeague, setDeletingLeague] = useState(false);
 
   const userLocalidad = useMemo(() => {
     const name = userData?.localidad?.nombre || userData?.city || "";
@@ -76,18 +90,27 @@ export default function LigasHubScreen({ navigation }) {
     sexo: "Todos",
     categoria: "",
     complejo: "",
+    dia: "",
     localidades: userLocalidad ? [userLocalidad] : [],
   });
   const [draftSexo, setDraftSexo] = useState("Todos");
   const [draftCategoria, setDraftCategoria] = useState("");
   const [draftComplejo, setDraftComplejo] = useState("");
+  const [draftDia, setDraftDia] = useState("");
   const canCreateLeague = isApprovedOrganizer(userData);
 
   const hasActiveFilters =
     query.trim().length > 0 ||
     appliedFilters.sexo !== "Todos" ||
     Boolean(appliedFilters.categoria) ||
-    Boolean(appliedFilters.complejo);
+    Boolean(appliedFilters.complejo) ||
+    Boolean(appliedFilters.dia);
+
+  useEffect(() => {
+    if (canCreateLeague) {
+      navigation.replace("MyLeagues");
+    }
+  }, [canCreateLeague, navigation]);
 
   useEffect(() => {
     let isCancelled = false;
@@ -151,11 +174,18 @@ export default function LigasHubScreen({ navigation }) {
         return false;
       }
 
-      if (appliedFilters.categoria && league.categoria !== appliedFilters.categoria) {
+      if (
+        appliedFilters.categoria &&
+        !normalizeText(league.categoria).includes(normalizeText(appliedFilters.categoria))
+      ) {
         return false;
       }
 
       if (appliedFilters.complejo && league.complejoNombre !== appliedFilters.complejo) {
+        return false;
+      }
+
+      if (appliedFilters.dia && league.scheduleConfig?.dayKey !== appliedFilters.dia) {
         return false;
       }
 
@@ -199,6 +229,7 @@ export default function LigasHubScreen({ navigation }) {
     setDraftSexo(appliedFilters.sexo);
     setDraftCategoria(appliedFilters.categoria);
     setDraftComplejo(appliedFilters.complejo);
+    setDraftDia(appliedFilters.dia);
   };
 
   const handleApplyFilters = async () => {
@@ -207,6 +238,7 @@ export default function LigasHubScreen({ navigation }) {
       sexo: draftSexo,
       categoria: draftCategoria,
       complejo: draftComplejo,
+      dia: draftDia,
     }));
   };
 
@@ -223,32 +255,40 @@ export default function LigasHubScreen({ navigation }) {
   };
 
   const handleDeleteLeague = (league) => {
-    Alert.alert(
-      "Eliminar liga",
-      `Vas a eliminar ${league.nombre}. Esta accion la oculta de la app.`,
-      [
-        { text: "Cancelar", style: "cancel" },
-        {
-          text: "Eliminar",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              await archiveLeague(league.id);
-              setLeaguesSource((current) =>
-                current.filter((currentLeague) => currentLeague.id !== league.id)
-              );
-              showFeedback("Liga eliminada", "La liga se elimino correctamente.", "success");
-            } catch (error) {
-              showFeedback(
-                "No pudimos eliminar la liga",
-                "Intenta nuevamente en unos instantes.",
-                "danger"
-              );
-            }
-          },
-        },
-      ]
-    );
+    if (!canManageLeague(league, userData)) {
+      showFeedback(
+        "Acceso restringido",
+        "Solo el organizador creador o el administrador pueden eliminar esta liga.",
+        "danger"
+      );
+      return;
+    }
+
+    setLeaguePendingDelete(league);
+  };
+
+  const confirmDeleteLeague = async () => {
+    if (!leaguePendingDelete || deletingLeague) {
+      return;
+    }
+
+    try {
+      setDeletingLeague(true);
+      await archiveLeague(leaguePendingDelete.id);
+      setLeaguesSource((current) =>
+        current.filter((currentLeague) => currentLeague.id !== leaguePendingDelete.id)
+      );
+      setLeaguePendingDelete(null);
+      showFeedback("Liga eliminada", "La liga se elimino correctamente.", "success");
+    } catch (error) {
+      showFeedback(
+        "No pudimos eliminar la liga",
+        "Intenta nuevamente en unos instantes.",
+        "danger"
+      );
+    } finally {
+      setDeletingLeague(false);
+    }
   };
 
   const handleCreateLeague = () => {
@@ -261,6 +301,30 @@ export default function LigasHubScreen({ navigation }) {
     }
 
     navigation.navigate("CreateLeague");
+  };
+
+  const handleOpenMyLeagues = () => {
+    if (!canCreateLeague) {
+      showFeedback(
+        "Acceso restringido",
+        "Solo los organizadores pueden acceder a Mis ligas desde esta seccion.",
+        "danger"
+      );
+      return;
+    }
+
+    navigation.navigate("MyLeagues");
+  };
+
+  const handleOpenPlayerLeagues = () => {
+    navigation.navigate("PlayerLeagues");
+  };
+
+  const handleOpenParticipantLeague = (league) => {
+    navigation.navigate("LeagueDetail", {
+      leagueId: league.id,
+      leagueName: league.nombre,
+    });
   };
 
   const emptyTitle = loading
@@ -330,6 +394,26 @@ export default function LigasHubScreen({ navigation }) {
                         ]}
                       >
                         {category}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+
+                <Text style={styles.modalLabel}>Dia de juego</Text>
+                <View style={styles.modalRow}>
+                  {DAY_FILTER_OPTIONS.map((day) => (
+                    <Pressable
+                      key={day.value || "all-days"}
+                      onPress={() => setDraftDia(day.value)}
+                      style={[styles.filterChip, draftDia === day.value && styles.filterChipActive]}
+                    >
+                      <Text
+                        style={[
+                          styles.filterChipText,
+                          draftDia === day.value && styles.filterChipTextActive,
+                        ]}
+                      >
+                        {day.label}
                       </Text>
                     </Pressable>
                   ))}
@@ -425,32 +509,60 @@ export default function LigasHubScreen({ navigation }) {
           </Pressable>
         </View>
 
-        <Pressable
-          onPress={handleCreateLeague}
-          style={({ pressed }) => [
-            styles.createLeagueButton,
-            !canCreateLeague && styles.createLeagueButtonDisabled,
-            pressed && styles.createLeagueButtonPressed,
-          ]}
-        >
-          <View
-            style={[
-              styles.createLeagueIconWrap,
-              !canCreateLeague && styles.createLeagueIconWrapDisabled,
+        {canCreateLeague ? (
+          <View style={styles.organizerActionsRow}>
+            <Pressable
+              onPress={handleCreateLeague}
+              style={({ pressed }) => [
+                styles.createLeagueButton,
+                styles.organizerActionButton,
+                pressed && styles.createLeagueButtonPressed,
+              ]}
+            >
+              <View style={styles.createLeagueIconWrap}>
+                <Ionicons color={colors.surface} name="add" size={18} />
+              </View>
+              <View style={styles.createLeagueTextWrap}>
+                <Text style={styles.createLeagueTitle}>CREAR LIGA</Text>
+              </View>
+              <Ionicons color={colors.surface} name="chevron-forward" size={16} />
+            </Pressable>
+
+            <Pressable
+              onPress={handleOpenMyLeagues}
+              style={({ pressed }) => [
+                styles.myLeaguesButton,
+                styles.organizerActionButton,
+                pressed && styles.createLeagueButtonPressed,
+              ]}
+            >
+              <View style={styles.myLeaguesIconWrap}>
+                <Ionicons color={colors.primaryDark} name="grid-outline" size={18} />
+              </View>
+              <View style={styles.createLeagueTextWrap}>
+                <Text style={styles.myLeaguesTitle}>MIS LIGAS</Text>
+              </View>
+              <Ionicons color={colors.primaryDark} name="chevron-forward" size={16} />
+            </Pressable>
+          </View>
+        ) : (
+          <Pressable
+            onPress={handleOpenPlayerLeagues}
+            style={({ pressed }) => [
+              styles.playerLeaguesButton,
+              pressed && styles.createLeagueButtonPressed,
             ]}
           >
-            <Ionicons color={colors.surface} name="add" size={20} />
-          </View>
-          <View style={styles.createLeagueTextWrap}>
-            <Text style={styles.createLeagueTitle}>Crear liga</Text>
-            <Text style={styles.createLeagueSubtitle}>
-              {canCreateLeague
-                ? "Organiza una nueva competencia para tu comunidad"
-                : "Disponible para cuentas con perfil de organizador"}
-            </Text>
-          </View>
-          <Ionicons color={colors.surface} name="chevron-forward" size={18} />
-        </Pressable>
+            <View style={styles.playerLeaguesIconWrap}>
+              <Ionicons color={colors.primaryDark} name="tennisball-outline" size={18} />
+            </View>
+            <View style={styles.createLeagueTextWrap}>
+              <Text style={styles.playerLeaguesTitle}>MIS LIGAS</Text>
+              <Text style={styles.playerLeaguesSubtitle}>Fixture, puntajes y remplazos</Text>
+            </View>
+            <Ionicons color={colors.primaryDark} name="chevron-forward" size={16} />
+          </Pressable>
+        )}
 
         <FlatList
           contentContainerStyle={styles.listContent}
@@ -465,9 +577,9 @@ export default function LigasHubScreen({ navigation }) {
           renderItem={({ item }) => (
             <LeagueCard
               league={item}
-              onDelete={
-                item.organizerId && item.organizerId === currentUserId
-                  ? () => handleDeleteLeague(item)
+              onDetails={
+                isLeagueParticipant(item, userData)
+                  ? () => handleOpenParticipantLeague(item)
                   : undefined
               }
               onToggleFavorite={() => handleToggleFavorite(item)}
@@ -489,6 +601,55 @@ export default function LigasHubScreen({ navigation }) {
         tone={feedback.tone}
         visible={feedback.visible}
       />
+      <Modal
+        animationType="fade"
+        onRequestClose={() => (deletingLeague ? null : setLeaguePendingDelete(null))}
+        transparent
+        visible={Boolean(leaguePendingDelete)}
+      >
+        <View style={styles.confirmOverlay}>
+          <Pressable
+            onPress={() => (deletingLeague ? null : setLeaguePendingDelete(null))}
+            style={styles.confirmBackdrop}
+          />
+          <View style={styles.confirmCard}>
+            <Text style={styles.confirmTitle}>Eliminar liga</Text>
+            <Text style={styles.confirmMessage}>
+              {leaguePendingDelete
+                ? `Vas a eliminar ${leaguePendingDelete.nombre}. Esta accion es irreversible.`
+                : ""}
+            </Text>
+            <View style={styles.confirmActions}>
+              <Pressable
+                disabled={deletingLeague}
+                onPress={() => setLeaguePendingDelete(null)}
+                style={({ pressed }) => [
+                  styles.confirmButton,
+                  styles.confirmButtonSecondary,
+                  pressed && !deletingLeague ? styles.confirmButtonPressed : null,
+                  deletingLeague ? styles.confirmButtonDisabled : null,
+                ]}
+              >
+                <Text style={styles.confirmButtonSecondaryText}>Cancelar</Text>
+              </Pressable>
+              <Pressable
+                disabled={deletingLeague}
+                onPress={confirmDeleteLeague}
+                style={({ pressed }) => [
+                  styles.confirmButton,
+                  styles.confirmButtonDanger,
+                  pressed && !deletingLeague ? styles.confirmButtonPressed : null,
+                  deletingLeague ? styles.confirmButtonDisabled : null,
+                ]}
+              >
+                <Text style={styles.confirmButtonDangerText}>
+                  {deletingLeague ? "Eliminando..." : "Eliminar"}
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
       <BottomQuickActionsBar />
     </SafeAreaView>
   );
@@ -580,19 +741,70 @@ const styles = StyleSheet.create({
   favoriteInlineButtonTextActive: {
     color: colors.surface,
   },
+  organizerActionsRow: {
+    flexDirection: "row",
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  organizerActionButton: {
+    flex: 1,
+    marginTop: 0,
+  },
   createLeagueButton: {
     alignItems: "center",
     backgroundColor: colors.primaryDark,
-    borderRadius: 24,
+    borderRadius: 18,
     flexDirection: "row",
+    justifyContent: "space-between",
     marginTop: spacing.sm,
     paddingHorizontal: spacing.md,
-    paddingVertical: 14,
+    paddingVertical: 9,
     shadowColor: colors.shadow,
     shadowOffset: { width: 0, height: 12 },
     shadowOpacity: 0.14,
     shadowRadius: 16,
     elevation: 4,
+  },
+  myLeaguesButton: {
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 18,
+    borderWidth: 1,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingHorizontal: spacing.md,
+    paddingVertical: 9,
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.1,
+    shadowRadius: 16,
+    elevation: 4,
+  },
+  playerLeaguesButton: {
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderColor: "#8EE6A3",
+    borderRadius: 18,
+    borderWidth: 1,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 9,
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.1,
+    shadowRadius: 16,
+    elevation: 4,
+  },
+  playerLeaguesIconWrap: {
+    alignItems: "center",
+    backgroundColor: "#E8FFF0",
+    borderRadius: 12,
+    height: 30,
+    justifyContent: "center",
+    width: 30,
   },
   createLeagueButtonDisabled: {
     backgroundColor: "#7EA495",
@@ -603,29 +815,50 @@ const styles = StyleSheet.create({
   createLeagueIconWrap: {
     alignItems: "center",
     backgroundColor: "rgba(255,255,255,0.16)",
-    borderRadius: 16,
-    height: 38,
+    borderRadius: 12,
+    height: 30,
     justifyContent: "center",
-    marginRight: spacing.sm,
-    width: 38,
+    width: 30,
+  },
+  myLeaguesIconWrap: {
+    alignItems: "center",
+    backgroundColor: "#EAF6F1",
+    borderRadius: 12,
+    height: 30,
+    justifyContent: "center",
+    width: 30,
   },
   createLeagueIconWrapDisabled: {
     backgroundColor: "rgba(255,255,255,0.12)",
   },
   createLeagueTextWrap: {
     flex: 1,
-    paddingRight: spacing.sm,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: spacing.sm,
   },
   createLeagueTitle: {
     color: colors.surface,
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: "800",
   },
-  createLeagueSubtitle: {
-    color: "rgba(255,255,255,0.82)",
-    fontSize: 12,
-    fontWeight: "600",
-    marginTop: 2,
+  myLeaguesTitle: {
+    color: colors.primaryDark,
+    fontSize: 15,
+    fontWeight: "800",
+  },
+  playerLeaguesTitle: {
+    color: colors.primaryDark,
+    fontSize: 15,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  playerLeaguesSubtitle: {
+    color: colors.muted,
+    fontSize: 10,
+    fontWeight: "700",
+    marginTop: 1,
+    textAlign: "center",
   },
   listContent: {
     paddingBottom: BOTTOM_QUICK_ACTIONS_SPACE,
@@ -705,4 +938,73 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     marginLeft: spacing.sm,
   },
+  confirmOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: spacing.lg,
+  },
+  confirmBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: colors.overlay,
+  },
+  confirmCard: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 24,
+    borderWidth: 1,
+    padding: spacing.lg,
+    width: "100%",
+  },
+  confirmTitle: {
+    color: colors.text,
+    fontSize: 22,
+    fontWeight: "800",
+    textAlign: "center",
+  },
+  confirmMessage: {
+    color: colors.muted,
+    fontSize: 15,
+    lineHeight: 22,
+    marginTop: spacing.sm,
+    textAlign: "center",
+  },
+  confirmActions: {
+    flexDirection: "row",
+    gap: spacing.sm,
+    marginTop: spacing.lg,
+  },
+  confirmButton: {
+    alignItems: "center",
+    borderRadius: 16,
+    flex: 1,
+    justifyContent: "center",
+    minHeight: 46,
+    paddingHorizontal: spacing.md,
+  },
+  confirmButtonSecondary: {
+    backgroundColor: colors.surfaceAlt,
+    borderColor: colors.border,
+    borderWidth: 1,
+  },
+  confirmButtonDanger: {
+    backgroundColor: colors.danger,
+  },
+  confirmButtonSecondaryText: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: "800",
+  },
+  confirmButtonDangerText: {
+    color: colors.surface,
+    fontSize: 15,
+    fontWeight: "800",
+  },
+  confirmButtonPressed: {
+    opacity: 0.9,
+  },
+  confirmButtonDisabled: {
+    opacity: 0.7,
+  },
 });
+

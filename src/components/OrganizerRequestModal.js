@@ -76,6 +76,7 @@ export default function OrganizerRequestModal({
   visible,
 }) {
   const {
+    submitComplexRequest,
     submitOrganizerRequest,
     updateOrganizerComplexes,
   } = useAuth();
@@ -102,11 +103,18 @@ export default function OrganizerRequestModal({
   }, [mode, user?.uid, visible]);
 
   const isEditMode = mode === "edit";
+  const isAddComplexRequestMode = mode === "add-complex-request";
 
-  const title = isEditMode ? "Editar complejos" : "Solicitud de organizador";
+  const title = isEditMode
+    ? "Editar complejos"
+    : isAddComplexRequestMode
+      ? "Solicitar complejo"
+      : "Solicitud de organizador";
   const subtitle = isEditMode
     ? "Actualiza tus complejos y la cantidad de canchas sin salir del perfil."
-    : "Completa tus datos y registra tus complejos para que el equipo revise tu solicitud.";
+    : isAddComplexRequestMode
+      ? "Carga el nuevo complejo para que el administrador lo revise antes de habilitarlo."
+      : "Completa tus datos y registra tus complejos para que el equipo revise tu solicitud.";
 
   const complexesWithTotals = useMemo(
     () =>
@@ -181,7 +189,7 @@ export default function OrganizerRequestModal({
   };
 
   const validateForm = () => {
-    if (!isEditMode) {
+    if (!isEditMode && !isAddComplexRequestMode) {
       if (!form.nombre.trim()) {
         showFeedback("Falta tu nombre", "Ingresa nombre y apellido para continuar.", "danger");
         return false;
@@ -254,26 +262,36 @@ export default function OrganizerRequestModal({
     try {
       const profile = isEditMode
         ? await updateOrganizerComplexes(complejos)
-        : await submitOrganizerRequest({
-            nombre: form.nombre,
-            dni: form.dni,
-            telefono: form.telefono,
-            countryCode: form.countryCode,
-            phoneCountry: form.phoneCountry,
-            complejos,
-          });
+        : isAddComplexRequestMode
+          ? await submitComplexRequest(complejos)
+          : await submitOrganizerRequest({
+              nombre: form.nombre,
+              dni: form.dni,
+              telefono: form.telefono,
+              countryCode: form.countryCode,
+              phoneCountry: form.phoneCountry,
+              complejos,
+            });
 
       showFeedback(
-        isEditMode ? "Complejos actualizados" : "Solicitud enviada",
+        isEditMode
+          ? "Complejos actualizados"
+          : isAddComplexRequestMode
+            ? "Solicitud enviada"
+            : "Solicitud enviada",
         isEditMode
           ? "Tus complejos fueron actualizados correctamente."
-          : "Tu solicitud fue enviada y esta en revision por el equipo de PadelNexo",
+          : isAddComplexRequestMode
+            ? "El nuevo complejo quedo pendiente de revision. Solo aparecera cuando el administrador lo apruebe."
+            : "Tu solicitud fue enviada y esta en revision por el equipo de PadelNexo",
         "success"
       );
       setPendingSavedProfile(profile);
     } catch (error) {
       showFeedback(
-        isEditMode ? "No pudimos guardar los complejos" : "No pudimos enviar la solicitud",
+        isEditMode
+          ? "No pudimos guardar los complejos"
+          : "No pudimos enviar la solicitud",
         error.message,
         "danger"
       );
@@ -293,7 +311,7 @@ export default function OrganizerRequestModal({
           <Text style={styles.subtitle}>{subtitle}</Text>
 
           <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-            {!isEditMode ? (
+            {!isEditMode && !isAddComplexRequestMode ? (
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>DATOS PERSONALES</Text>
                 <AppInput
@@ -415,7 +433,13 @@ export default function OrganizerRequestModal({
 
             <View style={styles.actionsBlock}>
               <AppButton
-                title={isEditMode ? "Guardar complejos" : "Enviar solicitud"}
+                title={
+                  isEditMode
+                    ? "Guardar complejos"
+                    : isAddComplexRequestMode
+                      ? "Enviar para aprobacion"
+                      : "Enviar solicitud"
+                }
                 onPress={handleSubmit}
                 style={styles.compactButton}
               />
@@ -572,3 +596,4 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
 });
+

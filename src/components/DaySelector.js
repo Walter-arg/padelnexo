@@ -2,11 +2,14 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { colors, spacing } from "../config/theme";
 
-export default function DaySelector({ days, selectedDayKey, onSelect }) {
+export default function DaySelector({ activeDayKeys = [], days, selectedDayKey, onSelect }) {
+  const activeDays = new Set(activeDayKeys);
+
   return (
     <View style={styles.wrap}>
       {days.map((day) => {
         const isSelected = day.key === selectedDayKey;
+        const hasAvailability = activeDays.has(day.key);
 
         return (
           <Pressable
@@ -14,11 +17,20 @@ export default function DaySelector({ days, selectedDayKey, onSelect }) {
             onPress={() => onSelect(day.key)}
             style={({ pressed }) => [
               styles.dayChip,
+              hasAvailability && styles.dayChipMarked,
               isSelected && styles.dayChipActive,
               pressed && styles.dayChipPressed,
             ]}
           >
-            <Text style={[styles.dayText, isSelected && styles.dayTextActive]}>{day.label}</Text>
+            <Text
+              style={[
+                styles.dayText,
+                hasAvailability && styles.dayTextMarked,
+                isSelected && styles.dayTextActive,
+              ]}
+            >
+              {day.label}
+            </Text>
           </Pressable>
         );
       })}
@@ -49,6 +61,15 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary,
     borderColor: colors.primary,
   },
+  dayChipMarked: {
+    backgroundColor: "#E6F3F7",
+    borderColor: "#7EB7C9",
+    shadowColor: "rgba(63, 127, 152, 0.18)",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.18,
+    shadowRadius: 8,
+    elevation: 1,
+  },
   dayChipPressed: {
     opacity: 0.92,
   },
@@ -61,4 +82,8 @@ const styles = StyleSheet.create({
   dayTextActive: {
     color: colors.surface,
   },
+  dayTextMarked: {
+    color: "#245B6A",
+  },
 });
+

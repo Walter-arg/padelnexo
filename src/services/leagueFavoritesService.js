@@ -7,7 +7,7 @@ import {
   serverTimestamp,
   setDoc,
   where,
-} from "firebase/firestore";
+} from "../../services/firebaseFirestore";
 
 import { db } from "../../services/firebaseConfig";
 
@@ -69,3 +69,4 @@ export function subscribeToFavoriteLeagueIds({ currentUserId, onData, onError })
     }
   );
 }
+
