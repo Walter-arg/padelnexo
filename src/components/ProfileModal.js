@@ -6,7 +6,6 @@ import {
   Platform,
   Pressable,
   ScrollView,
-  Switch,
   StyleSheet,
   Text,
   TextInput,
@@ -55,6 +54,7 @@ const defaultProfile = {
   description: "",
   avatarColor: avatarColors[0],
   avatarUrl: "",
+  organizerLogoUrl: "",
   role: "user",
   organizerStatus: "none",
   complejos: [],
@@ -224,6 +224,31 @@ export default function ProfileModal({
     } catch (error) {
       console.log("[ProfileModal] Error al seleccionar imagen:", error);
       showFeedback("No pudimos seleccionar la imagen", "Intenta nuevamente.");
+    }
+  };
+
+  const handlePickOrganizerLogo = async () => {
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+      if (!permission.granted) {
+        showFeedback("Permiso necesario", "Se necesita permiso para acceder a la galeria.");
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        quality: 0.8,
+      });
+
+      if (result.canceled || !result.assets?.[0]?.uri) {
+        return;
+      }
+
+      updateField("organizerLogoUrl", result.assets[0].uri);
+    } catch (error) {
+      showFeedback("No pudimos seleccionar el logo", "Intenta nuevamente.");
     }
   };
 
@@ -438,6 +463,34 @@ export default function ProfileModal({
 
               {isApprovedOrganizer(profile) ? (
                 <View style={styles.complexesSection}>
+                  <View style={styles.organizerLogoSection}>
+                    <Text style={styles.organizerLogoTitle}>Logo del organizador</Text>
+                    <View style={styles.organizerLogoRow}>
+                      <AvatarBadge
+                        color={profile.avatarColor}
+                        size={68}
+                        uri={profile.organizerLogoUrl}
+                      />
+                      <View style={styles.organizerLogoActions}>
+                        <AppButton
+                          title={profile.organizerLogoUrl ? "Cambiar logo" : "Cargar logo"}
+                          onPress={handlePickOrganizerLogo}
+                          style={styles.organizerLogoButton}
+                          textStyle={styles.organizerLogoButtonText}
+                        />
+                        {profile.organizerLogoUrl ? (
+                          <AppButton
+                            title="Quitar logo"
+                            onPress={() => updateField("organizerLogoUrl", "")}
+                            style={[styles.organizerLogoButton, styles.deletePhotoButton]}
+                            textStyle={styles.organizerLogoDeleteButtonText}
+                            variant="secondary"
+                          />
+                        ) : null}
+                      </View>
+                    </View>
+                  </View>
+
                   <View style={styles.complexesHeader}>
                     <Text style={styles.complexesTitle}>Tus complejos</Text>
                     <Pressable
@@ -512,22 +565,28 @@ export default function ProfileModal({
                   value={profile.phone}
                 />
                 <View style={styles.phoneVisibilityBox}>
-                  <Text
-                    style={[
-                      styles.phoneVisibilityState,
+                  <Text style={styles.phoneVisibilityLabel}>Mostrar celular</Text>
+                  <Pressable
+                    onPress={() => updateField("isPhonePublic", !profile.isPhonePublic)}
+                    style={({ pressed }) => [
+                      styles.phoneVisibilityButton,
                       profile.isPhonePublic
-                        ? styles.phoneVisibilityStateActive
-                        : styles.phoneVisibilityStateInactive,
+                        ? styles.phoneVisibilityButtonActive
+                        : styles.phoneVisibilityButtonInactive,
+                      pressed ? styles.phoneVisibilityButtonPressed : null,
                     ]}
                   >
-                    {profile.isPhonePublic ? "Mostrar" : "Oculto"}
-                  </Text>
-                  <Switch
-                    onValueChange={(value) => updateField("isPhonePublic", value)}
-                    thumbColor={profile.isPhonePublic ? "#FFFFFF" : "#F4F4F5"}
-                    trackColor={{ false: "#D6DDD9", true: colors.primary }}
-                    value={Boolean(profile.isPhonePublic)}
-                  />
+                    <Text
+                      style={[
+                        styles.phoneVisibilityButtonText,
+                        profile.isPhonePublic
+                          ? styles.phoneVisibilityButtonTextActive
+                          : styles.phoneVisibilityButtonTextInactive,
+                      ]}
+                    >
+                      {profile.isPhonePublic ? "ON" : "OFF"}
+                    </Text>
+                  </Pressable>
                 </View>
               </View>
               <LocationPicker
@@ -899,6 +958,48 @@ const styles = StyleSheet.create({
   adminButton: {
     marginTop: 0,
   },
+  organizerLogoSection: {
+    marginBottom: spacing.md,
+  },
+  organizerLogoTitle: {
+    color: colors.text,
+    fontSize: 18,
+    fontWeight: "800",
+    marginBottom: spacing.sm,
+    textAlign: "center",
+  },
+  organizerLogoRow: {
+    alignItems: "center",
+    alignSelf: "center",
+    flexDirection: "row",
+    gap: spacing.md,
+    justifyContent: "center",
+  },
+  organizerLogoActions: {
+    alignItems: "flex-start",
+    gap: spacing.xs,
+  },
+  organizerLogoButton: {
+    alignSelf: "flex-start",
+    borderRadius: 999,
+    height: 32,
+    marginBottom: 0,
+    minHeight: 0,
+    minWidth: 108,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 0,
+  },
+  organizerLogoButtonText: {
+    fontSize: 11,
+    fontWeight: "700",
+    textAlign: "center",
+  },
+  organizerLogoDeleteButtonText: {
+    color: "#A64747",
+    fontSize: 11,
+    fontWeight: "700",
+    textAlign: "center",
+  },
   complexesSection: {
     marginBottom: spacing.md,
   },
@@ -985,27 +1086,54 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xs,
   },
   phoneField: {
-    flex: 1.35,
+    flex: 1,
     marginBottom: 0,
   },
   phoneVisibilityBox: {
     alignItems: "center",
-    flex: 0.65,
-    justifyContent: "center",
-    marginBottom: 2,
-    minHeight: 42,
+    flex: 0.72,
+    justifyContent: "flex-end",
+    marginBottom: 0,
   },
-  phoneVisibilityState: {
-    fontSize: 14,
+  phoneVisibilityLabel: {
+    color: colors.muted,
+    fontSize: 10,
     fontWeight: "800",
-    marginBottom: 4,
+    marginBottom: 6,
     textAlign: "center",
+    textTransform: "uppercase",
   },
-  phoneVisibilityStateActive: {
+  phoneVisibilityButton: {
+    alignItems: "center",
+    borderRadius: 14,
+    borderWidth: 1,
+    justifyContent: "center",
+    minHeight: 42,
+    paddingHorizontal: spacing.md,
+    width: "100%",
+  },
+  phoneVisibilityButtonActive: {
+    backgroundColor: "#E8F5EE",
+    borderColor: "#B8DCC7",
+  },
+  phoneVisibilityButtonInactive: {
+    backgroundColor: "#F3F5F7",
+    borderColor: "#D4DBE2",
+  },
+  phoneVisibilityButtonPressed: {
+    opacity: 0.86,
+  },
+  phoneVisibilityButtonText: {
+    fontSize: 12,
+    fontWeight: "900",
+    textAlign: "center",
+    textTransform: "uppercase",
+  },
+  phoneVisibilityButtonTextActive: {
     color: colors.primaryDark,
   },
-  phoneVisibilityStateInactive: {
-    color: colors.muted,
+  phoneVisibilityButtonTextInactive: {
+    color: "#667482",
   },
   actionBlock: {
     gap: spacing.xs,

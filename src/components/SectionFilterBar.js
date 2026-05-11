@@ -43,6 +43,8 @@ function LocationChip({ location, onRemove, removable = true }) {
 }
 
 export default function SectionFilterBar({
+  containerStyle,
+  disablePersistedDefaults = false,
   extraSummary,
   onChange,
   onApply,
@@ -80,6 +82,18 @@ export default function SectionFilterBar({
     let isMounted = true;
 
     const hydratePreferences = async () => {
+      if (disablePersistedDefaults) {
+        if (!isMounted) {
+          return;
+        }
+
+        setIncludeBaseLocation(false);
+        setRememberByDefault(false);
+        setExtraLocations([]);
+        setIsHydrated(true);
+        return;
+      }
+
       const preferences = await loadSectionFilterPreferences();
 
       if (!isMounted) {
@@ -97,7 +111,7 @@ export default function SectionFilterBar({
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [disablePersistedDefaults]);
 
   useEffect(() => {
     if (!isHydrated) {
@@ -187,7 +201,11 @@ export default function SectionFilterBar({
     <>
       <Pressable
         onPress={openModal}
-        style={({ pressed }) => [styles.filterBar, pressed && styles.filterBarPressed]}
+        style={({ pressed }) => [
+          styles.filterBar,
+          containerStyle,
+          pressed && styles.filterBarPressed,
+        ]}
       >
         <View style={styles.filterBarHeader}>
           <View style={styles.filterBarTitleWrap}>
@@ -250,6 +268,17 @@ export default function SectionFilterBar({
                     removable
                   />
                 ))}
+                {draftSelectedLocation ? (
+                  <LocationChip
+                    key={`selected-${draftSelectedLocation.nombre}-${draftSelectedLocation.provincia}`}
+                    location={draftSelectedLocation}
+                    onRemove={() => {
+                      setDraftSelectedLocation(null);
+                      setLocationInput("");
+                    }}
+                    removable
+                  />
+                ) : null}
               </View>
             </View>
 

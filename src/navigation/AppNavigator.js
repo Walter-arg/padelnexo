@@ -23,6 +23,12 @@ import PlayerDetailScreen from "../screens/PlayerDetailScreen";
 import PlayerLeaguesScreen from "../screens/PlayerLeaguesScreen";
 import RegisterScreen from "../screens/RegisterScreen";
 import TournamentDetailScreen from "../screens/TournamentDetailScreen";
+import TournamentBracketFullscreenScreen from "../screens/TournamentBracketFullscreenScreen";
+import TournamentFixtureScreen from "../screens/TournamentFixtureScreen";
+import TournamentPaymentsScreen from "../screens/TournamentPaymentsScreen";
+import TournamentPosterViewerScreen from "../screens/TournamentPosterViewerScreen";
+import TournamentRegistrationScreen from "../screens/TournamentRegistrationScreen";
+import TournamentRegistrationsScreen from "../screens/TournamentRegistrationsScreen";
 import TorneosScreen from "../screens/TorneosScreen";
 import TurnosScreen from "../screens/TurnosScreen";
 
@@ -108,7 +114,7 @@ export default function AppNavigator() {
       <Stack.Screen
         component={TorneosScreen}
         name="Torneos"
-        options={{ title: "Torneos" }}
+        options={{ headerShown: false, title: "Torneos" }}
       />
       <Stack.Screen
         component={CreateTournamentScreen}
@@ -118,6 +124,36 @@ export default function AppNavigator() {
       <Stack.Screen
         component={TournamentDetailScreen}
         name="TournamentDetail"
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        component={TournamentFixtureScreen}
+        name="TournamentFixture"
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        component={TournamentBracketFullscreenScreen}
+        name="TournamentBracketFullscreen"
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        component={TournamentRegistrationScreen}
+        name="TournamentRegistration"
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        component={TournamentRegistrationsScreen}
+        name="TournamentRegistrations"
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        component={TournamentPaymentsScreen}
+        name="TournamentPayments"
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        component={TournamentPosterViewerScreen}
+        name="TournamentPosterViewer"
         options={{ headerShown: false }}
       />
       <Stack.Screen

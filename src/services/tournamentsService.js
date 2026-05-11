@@ -1,6 +1,7 @@
 import {
   addDoc,
   collection,
+  deleteDoc,
   doc,
   getDoc,
   getDocs,
@@ -22,7 +23,7 @@ import {
   LEAGUE_SUM_RULE_OPTIONS,
   LEAGUE_SUM_TARGET_OPTIONS,
 } from "./leaguesService";
-import { createEmptyAvailability, normalizeAvailability } from "./availabilityService";
+import { buildTournamentDayOptions, normalizeTournamentAvailability } from "./tournamentAvailabilityService";
 
 export const TOURNAMENT_STATUS_OPTIONS = [
   { label: "Borrador", value: "draft" },
@@ -42,6 +43,12 @@ export const TOURNAMENT_REGISTRATION_STATUS_OPTIONS = [
   { label: "Rechazada", value: "rejected" },
 ];
 
+export const TOURNAMENT_WITHDRAWAL_STATUS_OPTIONS = [
+  { label: "Sin baja", value: "none" },
+  { label: "Baja solicitada", value: "requested" },
+  { label: "Baja confirmada", value: "confirmed" },
+];
+
 export const TOURNAMENT_PAYMENT_STATUS_OPTIONS = [
   { label: "Pendiente", value: "pending" },
   { label: "En revision", value: "in_review" },
@@ -57,6 +64,7 @@ export const TOURNAMENT_PAIR_CONFIRMATION_OPTIONS = [
 
 export const TOURNAMENT_BUILD_MODE_OPTIONS = [
   { label: "Automatico", value: "automatic" },
+  { label: "Semiautomatico", value: "semiautomatic" },
   { label: "Manual", value: "manual" },
 ];
 
@@ -73,8 +81,6 @@ export const TOURNAMENT_GROUP_SIZE_OPTIONS = [
 const DEFAULT_MATCH_FORMAT = "best_of_3";
 const DEFAULT_THIRD_SET_MODE = "super_tiebreak";
 const DEFAULT_RECOMMENDED_GROUP_SIZE = 3;
-const DEFAULT_MAX_DAYS = 2;
-const DEFAULT_MAX_WINDOWS_PER_DAY = 2;
 const DEFAULT_PAYMENT_METHODS = ["transferencia"];
 
 const DAY_KEYS = new Set([
@@ -204,7 +210,10 @@ function normalizePairConfirmationMode(value) {
 }
 
 function normalizeBuildMode(value) {
-  return String(value || "").trim().toLowerCase() === "manual" ? "manual" : "automatic";
+  const normalized = String(value || "").trim().toLowerCase();
+  return TOURNAMENT_BUILD_MODE_OPTIONS.some((item) => item.value === normalized)
+    ? normalized
+    : "automatic";
 }
 
 function normalizeMatchFormat(value) {
@@ -333,19 +342,14 @@ function buildTournamentCompositionValue(payload = {}) {
 
 function normalizeTournamentAvailabilityDay(dayKey, dayValue = {}) {
   const normalizedDay = {
-    quickSlots: uniqueStrings(dayValue.quickSlots || []).slice(0, DEFAULT_MAX_WINDOWS_PER_DAY),
+    quickSlots: uniqueStrings(dayValue.quickSlots || []),
     customSlots: (Array.isArray(dayValue.customSlots) ? dayValue.customSlots : [])
       .map((slot) => ({
         from: normalizeString(slot?.from),
         to: normalizeString(slot?.to),
       }))
-      .filter((slot) => slot.from && slot.to && slot.from !== slot.to)
-      .slice(0, DEFAULT_MAX_WINDOWS_PER_DAY),
+      .filter((slot) => slot.from && slot.to && slot.from !== slot.to),
   };
-
-  if (!DAY_KEYS.has(dayKey)) {
-    return null;
-  }
 
   if (!normalizedDay.quickSlots.length && !normalizedDay.customSlots.length) {
     return null;
@@ -354,12 +358,16 @@ function normalizeTournamentAvailabilityDay(dayKey, dayValue = {}) {
   return normalizedDay;
 }
 
-export function normalizeTournamentPairAvailability(rawAvailability = {}) {
-  const availability = normalizeAvailability(rawAvailability);
-  const activeDayEntries = Object.entries(availability)
+export function normalizeTournamentPairAvailability(rawAvailability = {}, tournament = {}) {
+  const tournamentDayOptions = buildTournamentDayOptions(tournament);
+  const hasTournamentDates = tournamentDayOptions.length > 0;
+  const availability = hasTournamentDates
+    ? normalizeTournamentAvailability(rawAvailability, tournamentDayOptions)
+    : rawAvailability;
+  const activeDayEntries = Object.entries(availability || {})
+    .filter(([dayKey]) => (hasTournamentDates ? true : DAY_KEYS.has(dayKey)))
     .map(([dayKey, dayValue]) => [dayKey, normalizeTournamentAvailabilityDay(dayKey, dayValue)])
-    .filter(([, dayValue]) => Boolean(dayValue))
-    .slice(0, DEFAULT_MAX_DAYS);
+    .filter(([, dayValue]) => Boolean(dayValue));
 
   return activeDayEntries.reduce((accumulator, [dayKey, dayValue]) => {
     accumulator[dayKey] = dayValue;
@@ -387,6 +395,8 @@ function buildTournamentPayload(organizer, payload = {}, batchId = "") {
   const playDays = normalizeDayKeys(payload.playDays || []);
   const groupStageDays = normalizeDayKeys(payload.groupStageDays || playDays);
   const knockoutDays = normalizeDayKeys(payload.knockoutDays || playDays);
+  const startDateMillis = Math.max(normalizeCount(payload.startDateMillis, 0), 0);
+  const endDateMillis = Math.max(normalizeCount(payload.endDateMillis, startDateMillis), 0);
   const maxPairs = Math.max(normalizeCount(payload.maxPairs, 8), 2);
   const minPairs = Math.max(Math.min(normalizeCount(payload.minPairs, 4), maxPairs), 2);
   const entryFee = normalizeMoneyValue(payload.entryFee, 0);
@@ -395,6 +405,7 @@ function buildTournamentPayload(organizer, payload = {}, batchId = "") {
     name: normalizeString(payload.name, "Torneo sin nombre"),
     organizerId: organizer?.uid || payload.organizerId || "",
     organizerName: organizer?.name || payload.organizerName || "Organizador",
+    organizerLogoUrl: normalizeString(organizer?.organizerLogoUrl || payload.organizerLogoUrl),
     status: normalizeTournamentStatus(payload.status, "draft"),
     description: normalizeString(payload.description),
     coverImage: normalizeString(payload.coverImage),
@@ -416,6 +427,8 @@ function buildTournamentPayload(organizer, payload = {}, batchId = "") {
     playDays,
     groupStageDays,
     knockoutDays,
+    startDateMillis,
+    endDateMillis,
     buildMode: normalizeBuildMode(payload.buildMode),
     recommendedGroupSize: [2, 3, 4].includes(Number(payload.recommendedGroupSize))
       ? Number(payload.recommendedGroupSize)
@@ -460,10 +473,13 @@ function mapTournamentDoc(docSnapshot) {
 }
 
 function normalizePlayerRegistrationSide(player = {}, index = 0) {
+  const userId = normalizeString(player.userId || player.linkedUserId || player.id);
+  const fallbackName = userId ? `Jugador ${index + 1}` : "";
+
   return {
     playerId: normalizeString(player.playerId || player.id, `player-${index + 1}`),
-    userId: normalizeString(player.userId || player.linkedUserId || player.id),
-    name: normalizeString(player.name || player.nombre, `Jugador ${index + 1}`),
+    userId,
+    name: normalizeString(player.name || player.nombre, fallbackName),
     category: normalizeCategoryValue(player.category || player.categoria),
     sex: normalizeBranch(player.sex || player.sexo),
   };
@@ -487,8 +503,36 @@ function buildPaymentEntry(player = {}, entryFee = 0) {
   };
 }
 
+function normalizePaymentMethod(value = "") {
+  const normalized = String(value || "").trim().toLowerCase();
+  return ["efectivo", "transferencia"].includes(normalized) ? normalized : "";
+}
+
+function applyPaymentDraft(basePayment = {}, draft = {}) {
+  const nextMethod = normalizePaymentMethod(draft?.method || basePayment.method);
+
+  return {
+    ...basePayment,
+    method: nextMethod,
+  };
+}
+
 function buildRegistrationPairLabel(registration = {}) {
   return [registration.player1Name, registration.player2Name].filter(Boolean).join(" / ");
+}
+
+function normalizeWithdrawalStatus(value = "") {
+  const normalized = String(value || "").trim().toLowerCase();
+
+  if (normalized === "requested" || normalized === "confirmed") {
+    return normalized;
+  }
+
+  return "none";
+}
+
+function isRegistrationWithdrawnConfirmed(registration = {}) {
+  return normalizeWithdrawalStatus(registration?.withdrawalStatus) === "confirmed";
 }
 
 function normalizeRegistrationDoc(docSnapshot) {
@@ -500,6 +544,9 @@ function normalizeRegistrationDoc(docSnapshot) {
     ...data,
     createdAtMillis: resolveTimestampMillis(data.createdAt),
     updatedAtMillis: resolveTimestampMillis(data.updatedAt),
+    withdrawalRequestedAtMillis: resolveTimestampMillis(data.withdrawalRequestedAt),
+    withdrawalConfirmedAtMillis: resolveTimestampMillis(data.withdrawalConfirmedAt),
+    withdrawalStatus: normalizeWithdrawalStatus(data.withdrawalStatus),
     payments,
     pairLabel:
       data.pairLabel ||
@@ -597,11 +644,27 @@ function getPlayerCategoryNumericValue(value = "") {
 }
 
 export function validateTournamentRegistrationPair(tournament = {}, registration = {}) {
+  const allowGuestPlayers = Boolean(registration?.allowGuestPlayers);
   const player1 = normalizePlayerRegistrationSide(registration.player1, 0);
   const player2 = normalizePlayerRegistrationSide(registration.player2, 1);
 
-  if (!player1.userId || !player2.userId) {
-    return { valid: false, message: "La pareja debe estar compuesta por dos usuarios registrados." };
+  if (!player1.userId && !allowGuestPlayers) {
+    return { valid: false, message: "Necesitamos al menos un jugador registrado para la solicitud." };
+  }
+
+  if (allowGuestPlayers && !player1.name) {
+    return { valid: false, message: "Completa al menos el nombre del jugador principal." };
+  }
+
+  if (!player2.userId) {
+    const composition = tournament.compositionConfig || {};
+    const branch = normalizeBranch(composition.branch);
+
+    if (branch === "Femenino" && player1.sex !== "Femenino") {
+      return { valid: false, message: "Este torneo es de damas." };
+    }
+
+    return { valid: true, message: "" };
   }
 
   if (player1.userId === player2.userId) {
@@ -622,59 +685,12 @@ export function validateTournamentRegistrationPair(tournament = {}, registration
     }
   }
 
-  if (branch === "Masculino" && [player1.sex, player2.sex].some((value) => value === "Femenino")) {
-    return { valid: false, message: "Este torneo es de caballeros." };
-  }
-
   if (branch === "Femenino" && [player1.sex, player2.sex].some((value) => value !== "Femenino")) {
     return { valid: false, message: "Este torneo es de damas." };
   }
 
   if (composition.categoryFormat !== "suma") {
-    if (composition.fixedCategoryA) {
-      const invalidPlayer = [player1, player2].find(
-        (player) => normalizeCategoryValue(player.category) !== composition.fixedCategoryA
-      );
-
-      if (invalidPlayer) {
-        return {
-          valid: false,
-          message: `La categoria ${invalidPlayer.name} no coincide con la categoria del torneo.`,
-        };
-      }
-    }
-
     return { valid: true, message: "" };
-  }
-
-  const player1Value = getPlayerCategoryNumericValue(player1.category);
-  const player2Value = getPlayerCategoryNumericValue(player2.category);
-  const targetValue = Number(composition.sumTarget || 0);
-
-  if (!player1Value || !player2Value || !targetValue) {
-    return {
-      valid: false,
-      message: "Necesitamos categorias validas en ambos jugadores para validar la suma.",
-    };
-  }
-
-  if (player1Value + player2Value !== targetValue) {
-    return {
-      valid: false,
-      message: `La pareja no cumple con la suma ${composition.sumTarget}.`,
-    };
-  }
-
-  if (composition.sumRule === "fixed") {
-    const validCategories = [composition.fixedCategoryA, composition.fixedCategoryB].filter(Boolean).sort();
-    const playerCategories = [player1.category, player2.category].map(normalizeCategoryValue).sort();
-
-    if (validCategories.length === 2 && validCategories.join("|") !== playerCategories.join("|")) {
-      return {
-        valid: false,
-        message: "La combinacion de categorias no coincide con la configuracion del torneo.",
-      };
-    }
   }
 
   return { valid: true, message: "" };
@@ -698,8 +714,8 @@ function ensureTournamentCanBuild(tournament = {}) {
   }
 }
 
-function normalizeRegistrationAvailability(availability = {}) {
-  const normalized = normalizeTournamentPairAvailability(availability);
+function normalizeRegistrationAvailability(availability = {}, tournament = {}) {
+  const normalized = normalizeTournamentPairAvailability(availability, tournament);
   return Object.keys(normalized).length ? normalized : {};
 }
 
@@ -1588,10 +1604,13 @@ export async function listTournamentsWithRegistrationCounts() {
 
       return {
         ...tournament,
-        registrationsCount: registrations.filter((registration) => registration.status !== "rejected")
-          .length,
+        registrationsCount: registrations.filter(
+          (registration) =>
+            registration.status !== "rejected" && !isRegistrationWithdrawnConfirmed(registration)
+        ).length,
         confirmedRegistrationsCount: registrations.filter(
-          (registration) => registration.status === "confirmed"
+          (registration) =>
+            registration.status === "confirmed" && !isRegistrationWithdrawnConfirmed(registration)
         ).length,
       };
     })
@@ -1669,15 +1688,25 @@ export async function updateTournament(tournamentId, organizer, payload, current
     playDays: normalizedPayload.playDays,
     groupStageDays: normalizedPayload.groupStageDays,
     knockoutDays: normalizedPayload.knockoutDays,
+    startDateMillis: normalizedPayload.startDateMillis,
+    endDateMillis: normalizedPayload.endDateMillis,
     buildMode: normalizedPayload.buildMode,
     recommendedGroupSize: normalizedPayload.recommendedGroupSize,
     allowManualCorrection: normalizedPayload.allowManualCorrection,
+    fixtureSetup:
+      payload?.fixtureSetup !== undefined
+        ? payload.fixtureSetup
+        : tournament.fixtureSetup || null,
     updatedAt: serverTimestamp(),
   });
 
   return {
     ...tournament,
     ...normalizedPayload,
+    fixtureSetup:
+      payload?.fixtureSetup !== undefined
+        ? payload.fixtureSetup
+        : tournament.fixtureSetup || null,
     id: tournamentId,
   };
 }
@@ -1736,21 +1765,27 @@ export async function registerPairToTournament(tournamentId, payload = {}) {
     throw new Error("No encontramos el torneo.");
   }
 
-  if (tournament.registrationStatus !== "open" || tournament.status !== "registration_open") {
-    throw new Error("La inscripcion del torneo todavia no esta abierta.");
+  if (!["published", "registration_open"].includes(tournament.status)) {
+    throw new Error("La inscripcion del torneo todavia no esta disponible.");
   }
 
   const registrations = await listRegistrationDocs(tournamentId);
   const player1 = normalizePlayerRegistrationSide(payload.player1, 0);
   const player2 = normalizePlayerRegistrationSide(payload.player2, 1);
-  const validation = validateTournamentRegistrationPair(tournament, { player1, player2 });
+  const allowGuestPlayers = Boolean(payload.allowGuestPlayers);
+  const validation = validateTournamentRegistrationPair(tournament, {
+    allowGuestPlayers,
+    player1,
+    player2,
+  });
 
   if (!validation.valid) {
     throw new Error(validation.message);
   }
 
-  const playerIdsToCheck = new Set([player1.userId, player2.userId]);
+  const playerIdsToCheck = new Set([player1.userId, player2.userId].filter(Boolean));
   const alreadyRegistered = registrations.find((registration) =>
+    !isRegistrationWithdrawnConfirmed(registration) &&
     [registration.player1Id, registration.player2Id].some((playerId) => playerIdsToCheck.has(playerId))
   );
 
@@ -1758,27 +1793,49 @@ export async function registerPairToTournament(tournamentId, payload = {}) {
     throw new Error("Uno de los jugadores ya esta inscripto en este torneo.");
   }
 
-  const activeRegistrationsCount = registrations.filter((registration) => registration.status !== "rejected").length;
+  const activeRegistrationsCount = registrations.filter(
+    (registration) =>
+      registration.status !== "rejected" && !isRegistrationWithdrawnConfirmed(registration)
+  ).length;
 
   if (activeRegistrationsCount >= Number(tournament.maxPairs || 0)) {
     throw new Error("El torneo ya alcanzo el cupo maximo de parejas.");
   }
 
-  const availability = normalizeRegistrationAvailability(payload.availability || createEmptyAvailability());
-  const payments = [buildPaymentEntry(player1, tournament.entryFee), buildPaymentEntry(player2, tournament.entryFee)];
-  const registrationStatus = getRegistrationStatusFromPayments(tournament, payments, false);
+  const availability = normalizeRegistrationAvailability(payload.availability || {}, tournament);
+  const paymentDrafts = Array.isArray(payload.paymentsOverride) ? payload.paymentsOverride : [];
+  const findPaymentDraft = (player) =>
+    paymentDrafts.find(
+      (draft) =>
+        draft?.playerId === player.playerId ||
+        (draft?.userId && draft.userId === player.userId)
+    );
+  const payments = [player1, player2]
+    .filter((player) => player?.playerId)
+    .map((player) => applyPaymentDraft(buildPaymentEntry(player, tournament.entryFee), findPaymentDraft(player)));
+  const organizerConfirmed = Boolean(payload.organizerConfirmed);
+  const registrationStatus = organizerConfirmed
+    ? "confirmed"
+    : getRegistrationStatusFromPayments(tournament, payments, false);
   const registrationPayload = {
     player1Id: player1.userId,
     player1Name: player1.name,
     player2Id: player2.userId,
     player2Name: player2.name,
-    pairLabel: [player1.name, player2.name].join(" / "),
+    pairLabel: [player1.name, player2.name].filter(Boolean).join(" / "),
     status: registrationStatus,
     availability,
     payments,
     groupId: "",
     groupPosition: 0,
     qualifiedToKnockout: false,
+    withdrawalStatus: "none",
+    withdrawalRequestedAt: null,
+    withdrawalRequestedBy: "",
+    withdrawalRequestedByName: "",
+    withdrawalConfirmedAt: null,
+    withdrawalConfirmedBy: "",
+    withdrawalConfirmedByName: "",
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
     confirmedAt: registrationStatus === "confirmed" ? serverTimestamp() : null,
@@ -1793,6 +1850,117 @@ export async function registerPairToTournament(tournamentId, payload = {}) {
   return {
     id: createdRef.id,
     ...registrationPayload,
+  };
+}
+
+export async function updateTournamentRegistration(tournamentId, registrationId, payload = {}) {
+  const tournament = await getTournamentById(tournamentId);
+
+  if (!tournament) {
+    throw new Error("No encontramos el torneo.");
+  }
+
+  if (!["published", "registration_open"].includes(tournament.status)) {
+    throw new Error("La inscripcion del torneo ya no esta disponible para editar.");
+  }
+
+  const registrationRef = doc(db, "tournaments", tournamentId, "registrations", registrationId);
+  const registrationSnapshot = await getDoc(registrationRef);
+
+  if (!registrationSnapshot.exists()) {
+    throw new Error("No encontramos la inscripcion.");
+  }
+
+  const currentRegistration = normalizeRegistrationDoc(registrationSnapshot);
+  const registrations = await listRegistrationDocs(tournamentId);
+  const player1 = normalizePlayerRegistrationSide(payload.player1, 0);
+  const player2 = normalizePlayerRegistrationSide(payload.player2, 1);
+  const allowGuestPlayers = Boolean(payload.allowGuestPlayers);
+  const validation = validateTournamentRegistrationPair(tournament, {
+    allowGuestPlayers,
+    player1,
+    player2,
+  });
+
+  if (!validation.valid) {
+    throw new Error(validation.message);
+  }
+
+  const playerIdsToCheck = new Set([player1.userId, player2.userId].filter(Boolean));
+  const conflictingRegistration = registrations.find((registration) => {
+    if (registration.id === registrationId) {
+      return false;
+    }
+
+    if (isRegistrationWithdrawnConfirmed(registration)) {
+      return false;
+    }
+
+    return [registration.player1Id, registration.player2Id].some((playerId) =>
+      playerIdsToCheck.has(playerId)
+    );
+  });
+
+  if (conflictingRegistration) {
+    throw new Error("Uno de los jugadores ya esta inscripto en este torneo.");
+  }
+
+  const availability = normalizeRegistrationAvailability(payload.availability || {}, tournament);
+  const currentPayments = Array.isArray(currentRegistration.payments) ? currentRegistration.payments : [];
+  const findExistingPayment = (player) =>
+    currentPayments.find(
+      (payment) =>
+        (player.userId && (payment.userId === player.userId || payment.playerId === player.userId)) ||
+        payment.playerId === player.playerId
+    );
+  const paymentDrafts = Array.isArray(payload.paymentsOverride) ? payload.paymentsOverride : [];
+  const findPaymentDraft = (player) =>
+    paymentDrafts.find(
+      (draft) =>
+        draft?.playerId === player.playerId ||
+        (draft?.userId && draft.userId === player.userId)
+    );
+  const nextPayments = [player1, player2]
+    .filter((player) => player?.playerId)
+    .map((player) => {
+      const existingPayment = findExistingPayment(player);
+      const nextPayment = existingPayment
+        ? {
+            ...existingPayment,
+            userId: player.userId,
+            playerId: player.playerId,
+            playerName: player.name,
+          }
+        : buildPaymentEntry(player, tournament.entryFee);
+
+      return applyPaymentDraft(nextPayment, findPaymentDraft(player));
+    });
+  const statusMeta = getRegistrationStatusMeta(tournament, nextPayments, currentRegistration);
+
+  await updateDoc(registrationRef, {
+    player1Id: player1.userId,
+    player1Name: player1.name,
+    player2Id: player2.userId,
+    player2Name: player2.name,
+    pairLabel: [player1.name, player2.name].filter(Boolean).join(" / "),
+    availability,
+    payments: nextPayments,
+    status: statusMeta.status,
+    confirmedAt: statusMeta.confirmedAt,
+    rejectedAt: statusMeta.rejectedAt,
+    updatedAt: serverTimestamp(),
+  });
+
+  return {
+    ...currentRegistration,
+    player1Id: player1.userId,
+    player1Name: player1.name,
+    player2Id: player2.userId,
+    player2Name: player2.name,
+    pairLabel: [player1.name, player2.name].filter(Boolean).join(" / "),
+    availability,
+    payments: nextPayments,
+    status: statusMeta.status,
   };
 }
 
@@ -1830,11 +1998,15 @@ export async function uploadTournamentPaymentReceipt({
   const response = await fetch(receiptUri);
   const blob = await response.blob();
   const extension = String(fileName || "comprobante.jpg").split(".").pop() || "jpg";
+  const receiptContentType =
+    blob.type ||
+    (extension.toLowerCase() === "pdf" ? "application/pdf" : "image/jpeg");
   const receiptPath = `tournaments/${tournamentId}/registrations/${registrationId}/${targetPayment.userId || targetPayment.playerId}-${Date.now()}.${extension}`;
   const receiptRef = ref(storage, receiptPath);
+  const uploadedAtMillis = buildClientTimestampMillis();
 
   await uploadBytes(receiptRef, blob, {
-    contentType: blob.type || "image/jpeg",
+    contentType: receiptContentType,
   });
 
   const receiptUrl = await getDownloadURL(receiptRef);
@@ -1847,7 +2019,7 @@ export async function uploadTournamentPaymentReceipt({
           receiptUrl,
           receiptPath,
           receiptFileName: normalizeString(fileName, "comprobante"),
-          uploadedAt: serverTimestamp(),
+          uploadedAt: uploadedAtMillis,
           reviewedAt: null,
           reviewedBy: "",
           reviewedByName: "",
@@ -1869,6 +2041,24 @@ export async function uploadTournamentPaymentReceipt({
   };
 }
 
+export async function uploadTournamentCoverImage(organizerId, imageUri, fileName = "afiche.jpg") {
+  if (!imageUri) {
+    throw new Error("Necesitamos una imagen para cargar el afiche.");
+  }
+
+  const response = await fetch(imageUri);
+  const blob = await response.blob();
+  const extension = String(fileName || "afiche.jpg").split(".").pop() || "jpg";
+  const coverPath = `tournaments/covers/${organizerId || "organizer"}/${Date.now()}.${extension}`;
+  const coverRef = ref(storage, coverPath);
+
+  await uploadBytes(coverRef, blob, {
+    contentType: blob.type || "image/jpeg",
+  });
+
+  return getDownloadURL(coverRef);
+}
+
 export async function reviewTournamentPayment({
   tournamentId,
   registrationId,
@@ -1886,17 +2076,67 @@ export async function reviewTournamentPayment({
   }
 
   const registration = normalizeRegistrationDoc(registrationSnapshot);
+  const reviewedAtMillis = buildClientTimestampMillis();
   const nextPayments = registration.payments.map((payment) =>
     payment.playerId === playerId || payment.userId === playerId
       ? {
           ...payment,
           status: approved ? "approved" : "rejected",
-          reviewedAt: serverTimestamp(),
+          reviewedAt: reviewedAtMillis,
           reviewedBy: reviewerId || "",
           reviewedByName: reviewerName || "Organizador",
         }
       : payment
   );
+  const statusMeta = getRegistrationStatusMeta(tournament, nextPayments, registration);
+
+  await updateDoc(registrationRef, {
+    payments: nextPayments,
+    status: statusMeta.status,
+    confirmedAt: statusMeta.status === "confirmed" ? serverTimestamp() : null,
+    rejectedAt: statusMeta.status === "rejected" ? serverTimestamp() : null,
+    updatedAt: serverTimestamp(),
+  });
+
+  return {
+    status: statusMeta.status,
+    payments: nextPayments,
+  };
+}
+
+export async function recordTournamentOrganizerPayment({
+  tournamentId,
+  registrationId,
+  playerId,
+  organizerId,
+  organizerName,
+  method = "",
+}) {
+  const tournament = await getTournamentById(tournamentId);
+  const registrationRef = doc(db, "tournaments", tournamentId, "registrations", registrationId);
+  const registrationSnapshot = await getDoc(registrationRef);
+
+  if (!tournament || !registrationSnapshot.exists()) {
+    throw new Error("No encontramos el pago que queres actualizar.");
+  }
+
+  const registration = normalizeRegistrationDoc(registrationSnapshot);
+  const normalizedMethod = normalizePaymentMethod(method);
+  const reviewedAtMillis = buildClientTimestampMillis();
+  const nextPayments = registration.payments.map((payment) => {
+    if (payment.playerId !== playerId && payment.userId !== playerId) {
+      return payment;
+    }
+
+    return {
+      ...payment,
+      method: normalizedMethod,
+      status: normalizedMethod ? "approved" : payment.amount > 0 ? "pending" : "approved",
+      reviewedAt: normalizedMethod ? reviewedAtMillis : null,
+      reviewedBy: normalizedMethod ? organizerId || "" : "",
+      reviewedByName: normalizedMethod ? organizerName || "Organizador" : "",
+    };
+  });
   const statusMeta = getRegistrationStatusMeta(tournament, nextPayments, registration);
 
   await updateDoc(registrationRef, {
@@ -1932,7 +2172,10 @@ export async function confirmTournamentRegistration({
 
   const registration = normalizeRegistrationDoc(registrationSnapshot);
   const currentConfirmedCount = registrations.filter(
-    (entry) => entry.status === "confirmed" && entry.id !== registrationId
+    (entry) =>
+      entry.status === "confirmed" &&
+      entry.id !== registrationId &&
+      !isRegistrationWithdrawnConfirmed(entry)
   ).length;
 
   if (currentConfirmedCount >= Number(tournament.maxPairs || 0)) {
@@ -1956,6 +2199,113 @@ export async function confirmTournamentRegistration({
   });
 }
 
+export async function requestTournamentRegistrationWithdrawal({
+  tournamentId,
+  registrationId,
+  requestedById,
+  requestedByName,
+}) {
+  if (!tournamentId || !registrationId) {
+    throw new Error("No encontramos la inscripcion para solicitar la baja.");
+  }
+
+  const registrationRef = doc(db, "tournaments", tournamentId, "registrations", registrationId);
+  const registrationSnapshot = await getDoc(registrationRef);
+
+  if (!registrationSnapshot.exists()) {
+    throw new Error("No encontramos la inscripcion para solicitar la baja.");
+  }
+
+  const registration = normalizeRegistrationDoc(registrationSnapshot);
+
+  if (registration.withdrawalStatus === "confirmed") {
+    throw new Error("La baja de esta inscripcion ya fue confirmada.");
+  }
+
+  await updateDoc(registrationRef, {
+    withdrawalStatus: "requested",
+    withdrawalRequestedAt: serverTimestamp(),
+    withdrawalRequestedBy: requestedById || "",
+    withdrawalRequestedByName: requestedByName || "Jugador",
+    updatedAt: serverTimestamp(),
+  });
+}
+
+export async function cancelTournamentRegistrationWithdrawal({
+  tournamentId,
+  registrationId,
+}) {
+  if (!tournamentId || !registrationId) {
+    throw new Error("No encontramos la inscripcion para cancelar la baja.");
+  }
+
+  const registrationRef = doc(db, "tournaments", tournamentId, "registrations", registrationId);
+  const registrationSnapshot = await getDoc(registrationRef);
+
+  if (!registrationSnapshot.exists()) {
+    throw new Error("No encontramos la inscripcion para cancelar la baja.");
+  }
+
+  const registration = normalizeRegistrationDoc(registrationSnapshot);
+
+  if (registration.withdrawalStatus !== "requested") {
+    throw new Error("La baja ya no se puede cancelar.");
+  }
+
+  await updateDoc(registrationRef, {
+    withdrawalStatus: "none",
+    withdrawalRequestedAt: null,
+    withdrawalRequestedBy: "",
+    withdrawalRequestedByName: "",
+    updatedAt: serverTimestamp(),
+  });
+}
+
+export async function confirmTournamentRegistrationWithdrawal({
+  tournamentId,
+  registrationId,
+  organizerId,
+  organizerName,
+}) {
+  if (!tournamentId || !registrationId) {
+    throw new Error("No encontramos la inscripcion para confirmar la baja.");
+  }
+
+  const registrationRef = doc(db, "tournaments", tournamentId, "registrations", registrationId);
+  const registrationSnapshot = await getDoc(registrationRef);
+
+  if (!registrationSnapshot.exists()) {
+    throw new Error("No encontramos la inscripcion para confirmar la baja.");
+  }
+
+  const registration = normalizeRegistrationDoc(registrationSnapshot);
+
+  if (registration.withdrawalStatus !== "requested") {
+    throw new Error("La pareja todavia no solicito la baja.");
+  }
+
+  await updateDoc(registrationRef, {
+    withdrawalStatus: "confirmed",
+    withdrawalConfirmedAt: serverTimestamp(),
+    withdrawalConfirmedBy: organizerId || "",
+    withdrawalConfirmedByName: organizerName || "Organizador",
+    updatedAt: serverTimestamp(),
+  });
+}
+
+export async function deleteTournamentRegistration({
+  tournamentId,
+  registrationId,
+}) {
+  if (!tournamentId || !registrationId) {
+    throw new Error("No encontramos la inscripcion que queres eliminar.");
+  }
+
+  await deleteDoc(doc(db, "tournaments", tournamentId, "registrations", registrationId));
+
+  return { success: true };
+}
+
 export async function buildTournamentGroups(tournamentId, options = {}) {
   const tournament = await getTournamentById(tournamentId);
 
@@ -1966,7 +2316,8 @@ export async function buildTournamentGroups(tournamentId, options = {}) {
   ensureTournamentCanBuild(tournament);
 
   const registrations = (await listRegistrationDocs(tournamentId)).filter(
-    (registration) => registration.status === "confirmed"
+    (registration) =>
+      registration.status === "confirmed" && !isRegistrationWithdrawnConfirmed(registration)
   );
 
   if (registrations.length < Number(tournament.minPairs || 2)) {
@@ -1976,7 +2327,7 @@ export async function buildTournamentGroups(tournamentId, options = {}) {
   let groupedRegistrations = [];
   const createdByMode = options.mode || tournament.buildMode || "automatic";
 
-  if (createdByMode === "manual") {
+  if (createdByMode === "manual" || createdByMode === "semiautomatic") {
     const manualGroups = Array.isArray(options.manualGroups) ? options.manualGroups : [];
 
     if (!manualGroups.length) {
@@ -2240,6 +2591,58 @@ export async function cancelTournament({
     cancelledByName: organizerName || "Organizador",
     updatedAt: serverTimestamp(),
   });
+}
+
+export async function deleteDraftTournament({ tournamentId, organizerId = "" }) {
+  if (!tournamentId) {
+    throw new Error("No encontramos el borrador que queres eliminar.");
+  }
+
+  const tournament = await getTournamentById(tournamentId);
+
+  if (!tournament) {
+    throw new Error("No encontramos el torneo.");
+  }
+
+  const isOwner =
+    normalizeString(tournament.organizerId) === normalizeString(organizerId) ||
+    normalizeString(tournament.createdBy) === normalizeString(organizerId);
+
+  if (!isOwner) {
+    throw new Error("Solo el organizador del borrador puede eliminarlo.");
+  }
+
+  if (normalizeTournamentStatus(tournament.status) !== "draft") {
+    throw new Error("Solo se pueden eliminar torneos en borrador.");
+  }
+
+  await deleteDoc(doc(db, "tournaments", tournamentId));
+}
+
+export async function deleteCancelledTournament({ tournamentId, organizerId = "" }) {
+  if (!tournamentId) {
+    throw new Error("No encontramos el torneo que queres eliminar.");
+  }
+
+  const tournament = await getTournamentById(tournamentId);
+
+  if (!tournament) {
+    throw new Error("No encontramos el torneo.");
+  }
+
+  const isOwner =
+    normalizeString(tournament.organizerId) === normalizeString(organizerId) ||
+    normalizeString(tournament.createdBy) === normalizeString(organizerId);
+
+  if (!isOwner) {
+    throw new Error("Solo el organizador del torneo puede eliminarlo.");
+  }
+
+  if (normalizeTournamentStatus(tournament.status) !== "cancelled") {
+    throw new Error("Solo se pueden eliminar definitivamente torneos cancelados.");
+  }
+
+  await deleteDoc(doc(db, "tournaments", tournamentId));
 }
 
 export async function findTournamentRegistrationsByPlayer(playerId) {

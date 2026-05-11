@@ -101,9 +101,6 @@ export default function LeagueDetailScreen({ navigation, route }) {
   const leagueCategory = league?.categoria || route?.params?.leagueCategory || "";
   const leagueSex = league?.sexo || route?.params?.leagueSex || "";
   const leaguePlayers = Array.isArray(league?.players) ? league.players : [];
-  const playersCount = leaguePlayers.length || route?.params?.playersCount || 0;
-  const isPairLeague = league?.teamType === "pair";
-  const pairsCount = isPairLeague ? countCompletePairs(leaguePlayers) : 0;
   const canManage = league ? canManageLeague(league, userData) : false;
   const canAccessAsParticipant = league ? isLeagueParticipant(league, userData) : false;
   const canAccessLeague = canManage || canAccessAsParticipant;
@@ -239,13 +236,7 @@ export default function LeagueDetailScreen({ navigation, route }) {
               sex={leagueSex}
               title={leagueName}
               teamType={league?.teamType}
-            >
-              <Text style={styles.summaryCountText}>
-                {isPairLeague
-                  ? `${pairsCount} pareja${pairsCount === 1 ? "" : "s"}`
-                  : `${playersCount} jugadores`}
-              </Text>
-            </LeagueHeaderCard>
+            />
 
             <Text style={styles.actionsTitle}>
               {canManage ? "Herramientas de esta liga" : "Tu acceso de jugador"}
@@ -402,12 +393,6 @@ const styles = StyleSheet.create({
     height: 30,
     justifyContent: "center",
     width: 30,
-  },
-  summaryCountText: {
-    color: colors.primaryDark,
-    fontSize: 12,
-    fontWeight: "800",
-    textAlign: "center",
   },
   actionsTitle: {
     color: colors.text,

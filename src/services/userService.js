@@ -1,7 +1,9 @@
 import {
+  collection,
   deleteDoc,
   doc,
   getDoc,
+  getDocs,
   serverTimestamp,
   setDoc,
   updateDoc,
@@ -169,6 +171,7 @@ function mapDocToUserData(uid, profileDoc = {}, fallbackEmail = "") {
     manoHabil: profileDoc.manoHabil || "",
     description: profileDoc.descripcion || "",
     avatarUrl: profileDoc.fotoURL || "",
+    organizerLogoUrl: profileDoc.organizerLogoURL || "",
     avatarColor: profileDoc.avatarColor || avatarColors[0],
     city: resolvedCity,
     province: resolvedProvince,
@@ -178,6 +181,7 @@ function mapDocToUserData(uid, profileDoc = {}, fallbackEmail = "") {
     organizerStatus: profileDoc.organizerStatus || roleData.organizerStatus,
     leagueDefaults: profileDoc.leagueDefaults || null,
     leaguePaymentDefaults: profileDoc.leaguePaymentDefaults || null,
+    tournamentFixtureDefaults: profileDoc.tournamentFixtureDefaults || null,
     availability,
     complejos,
     tournamentComplexes,
@@ -196,7 +200,7 @@ async function getProfileImageDownloadUrl(userId) {
   return getDownloadURL(imageRef);
 }
 
-async function uploadProfileImage(userId, imageUri) {
+async function uploadUserImage(userId, imageUri, folder = "profileImages", errorMessage) {
   try {
     const activeStorage = await ensureStorage();
 
@@ -207,7 +211,7 @@ async function uploadProfileImage(userId, imageUri) {
     console.log("[userService] Preparando imagen de perfil:", imageUri);
     const response = await fetch(imageUri);
     const blob = await response.blob();
-    const imageRef = ref(activeStorage, `profileImages/${userId}`);
+    const imageRef = ref(activeStorage, `${folder}/${userId}`);
 
     console.log("[userService] Subiendo imagen a Firebase Storage");
     await uploadBytes(imageRef, blob, {
@@ -221,8 +225,21 @@ async function uploadProfileImage(userId, imageUri) {
     return downloadURL;
   } catch (error) {
     console.log("[userService] Error al subir imagen:", error);
-    throw new Error("No pudimos subir tu foto de perfil.");
+    throw new Error(errorMessage || "No pudimos subir tu imagen.");
   }
+}
+
+async function uploadProfileImage(userId, imageUri) {
+  return uploadUserImage(userId, imageUri, "profileImages", "No pudimos subir tu foto de perfil.");
+}
+
+async function uploadOrganizerLogo(userId, imageUri) {
+  return uploadUserImage(
+    userId,
+    imageUri,
+    "organizerLogos",
+    "No pudimos subir el logo del organizador."
+  );
 }
 
 export async function removeUserProfilePhoto(uid) {
@@ -434,6 +451,7 @@ export async function createUserProfile(uid, payload) {
     manoHabil: payload.manoHabil || "",
     descripcion: payload.description || "",
     fotoURL: payload.avatarUrl || "",
+    organizerLogoURL: payload.organizerLogoUrl || "",
     avatarColor: payload.avatarColor || avatarColors[0],
     localidad,
     location,
@@ -457,6 +475,7 @@ export async function createUserProfile(uid, payload) {
     manoHabil: payload.manoHabil || "",
     descripcion: payload.description || "",
     fotoURL: payload.avatarUrl || "",
+    organizerLogoURL: payload.organizerLogoUrl || "",
     avatarColor: payload.avatarColor || avatarColors[0],
     localidad,
     location,
@@ -557,6 +576,10 @@ export async function updateUserProfile(uid, updates) {
     payload.leaguePaymentDefaults = updates.leaguePaymentDefaults;
   }
 
+  if (updates.tournamentFixtureDefaults && typeof updates.tournamentFixtureDefaults === "object") {
+    payload.tournamentFixtureDefaults = updates.tournamentFixtureDefaults;
+  }
+
   if (Array.isArray(updates.tournamentComplexes)) {
     payload.tournamentComplexes = updates.tournamentComplexes.map(normalizeComplex);
   }
@@ -591,11 +614,38 @@ export async function updateUserProfile(uid, updates) {
     }
   }
 
+  if (typeof updates.organizerLogoUrl === "string") {
+    if (!updates.organizerLogoUrl.trim()) {
+      payload.organizerLogoURL = "";
+    } else if (updates.organizerLogoUrl.startsWith("file:")) {
+      payload.organizerLogoURL = await uploadOrganizerLogo(uid, updates.organizerLogoUrl);
+    } else {
+      payload.organizerLogoURL = updates.organizerLogoUrl;
+    }
+  }
+
   console.log("[userService] Actualizando perfil de usuario");
   await updateDoc(userRef, payload);
 
   const profile = await getUserProfile(uid, updates.email || "");
 
   return profile;
+}
+
+export async function listUserBrandingProfiles() {
+  const activeDb = await ensureDb();
+
+  if (!activeDb) {
+    throw new Error("Firestore no esta disponible en este momento.");
+  }
+
+  const snapshot = await getDocs(collection(activeDb, "users"));
+
+  return snapshot.docs
+    .filter((docSnapshot) => docSnapshot.exists())
+    .map((docSnapshot) => ({
+      uid: docSnapshot.id,
+      organizerLogoUrl: docSnapshot.data()?.organizerLogoURL || "",
+    }));
 }
 

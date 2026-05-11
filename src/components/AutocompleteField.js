@@ -1,6 +1,8 @@
-import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Image, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 
 import { colors, spacing } from "../config/theme";
+import { hasProfileImage } from "../utils/defaultProfileImage";
 
 export default function AutocompleteField({
   label,
@@ -32,8 +34,17 @@ export default function AutocompleteField({
               onPress={() => onSelect(item)}
               style={styles.suggestionRow}
             >
-              <Text style={styles.suggestionTitle}>{item.value}</Text>
-              <Text style={styles.suggestionSubtitle}>{item.label}</Text>
+              {hasProfileImage(item.avatarUri) ? (
+                <Image source={{ uri: item.avatarUri }} style={styles.suggestionAvatar} />
+              ) : (
+                <View style={styles.suggestionAvatarPlaceholder}>
+                  <Ionicons color="#9CA3AF" name="person" size={18} />
+                </View>
+              )}
+              <View style={styles.suggestionCopy}>
+                <Text style={styles.suggestionTitle}>{item.value}</Text>
+                <Text style={styles.suggestionSubtitle}>{item.label}</Text>
+              </View>
             </Pressable>
           ))}
         </View>
@@ -79,10 +90,30 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   suggestionRow: {
+    alignItems: "center",
     borderBottomColor: colors.border,
     borderBottomWidth: 1,
+    flexDirection: "row",
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
+  },
+  suggestionAvatar: {
+    borderRadius: 20,
+    height: 40,
+    marginRight: spacing.sm,
+    width: 40,
+  },
+  suggestionAvatarPlaceholder: {
+    alignItems: "center",
+    backgroundColor: "#E5E7EB",
+    borderRadius: 20,
+    height: 40,
+    justifyContent: "center",
+    marginRight: spacing.sm,
+    width: 40,
+  },
+  suggestionCopy: {
+    flex: 1,
   },
   suggestionTitle: {
     color: colors.text,

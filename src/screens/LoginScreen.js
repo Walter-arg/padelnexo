@@ -45,7 +45,7 @@ export default function LoginScreen({ navigation }) {
     }
 
     if (!password.trim()) {
-      Alert.alert("Datos incompletos", "Ingresa tu contraseña para continuar.");
+      Alert.alert("Datos incompletos", "Ingresa tu contrase\u00f1a para continuar.");
       return;
     }
 
@@ -82,7 +82,7 @@ export default function LoginScreen({ navigation }) {
         <Text style={styles.subtitle}>
           {mode === "login"
             ? "Ingresa con tu email para entrar rapido a PadelNexo."
-            : "Te enviaremos un link para restablecer tu contraseña."}
+            : "Te enviaremos un link para restablecer tu contrase\u00f1a."}
         </Text>
 
         <AppInput
@@ -100,13 +100,13 @@ export default function LoginScreen({ navigation }) {
           <AppInput
             autoComplete="password"
             containerStyle={styles.compactField}
-            label="Contraseña"
+            label={"Contrase\u00f1a"}
             onChangeText={setPassword}
-            placeholder="Ingrese contraseña"
+            placeholder={"Ingrese contrase\u00f1a"}
             rightElement={
               <Pressable
                 accessibilityLabel={
-                  isPasswordVisible ? "Ocultar contraseña" : "Mostrar contraseña"
+                  isPasswordVisible ? "Ocultar contrase\u00f1a" : "Mostrar contrase\u00f1a"
                 }
                 hitSlop={8}
                 onPress={() => setIsPasswordVisible((current) => !current)}
@@ -128,7 +128,7 @@ export default function LoginScreen({ navigation }) {
           <>
             <AppButton title="Ingresar" onPress={handleLogin} />
             <Pressable onPress={handleRequestRecovery} style={styles.recoverLink}>
-              <Text style={styles.recoverText}>Olvidé mi contraseña</Text>
+              <Text style={styles.recoverText}>{"Olvid\u00e9 mi contrase\u00f1a"}</Text>
             </Pressable>
           </>
         ) : (

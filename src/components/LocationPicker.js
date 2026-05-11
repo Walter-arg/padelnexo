@@ -10,8 +10,47 @@ import {
 
 import { db } from "../../services/firebaseConfig";
 import { colors, spacing } from "../config/theme";
+import locationsData from "../../data/locations.json";
 
 const MIN_QUERY_LENGTH = 2;
+const MAX_RESULTS = 10;
+
+function normalizeSearchText(value = "") {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+const LOCAL_LOCATIONS = Array.isArray(locationsData)
+  ? locationsData.map((location, index) => ({
+      id: `${location?.provincia || "provincia"}-${location?.nombre || "localidad"}-${index}`,
+      nombre: location?.nombre || "",
+      provincia: location?.provincia || "",
+      pais: location?.pais || "Argentina",
+      normalizedName: normalizeSearchText(location?.nombre || ""),
+      normalizedProvince: normalizeSearchText(location?.provincia || ""),
+    }))
+  : [];
+
+function searchLocationsLocally(queryText = "") {
+  const normalizedQuery = normalizeSearchText(queryText);
+
+  if (normalizedQuery.length < MIN_QUERY_LENGTH) {
+    return [];
+  }
+
+  return LOCAL_LOCATIONS.filter((location) => {
+    return (
+      location.normalizedName.startsWith(normalizedQuery) ||
+      `${location.normalizedName} ${location.normalizedProvince}`.startsWith(normalizedQuery)
+    );
+  })
+    .slice(0, MAX_RESULTS)
+    .map(({ normalizedName, normalizedProvince, ...location }) => location);
+}
 
 export default function LocationPicker({
   label = "Localidad",
@@ -83,10 +122,19 @@ export default function LocationPicker({
       try {
         setLoading(true);
 
+        const localResults = searchLocationsLocally(trimmedValue);
+
+        if (localResults.length > 0) {
+          if (!isCancelled) {
+            setResults(localResults);
+          }
+          return;
+        }
+
         const locationsQuery = query(
           collection(db, "locations"),
           where("search", "array-contains", trimmedValue),
-          limit(10)
+          limit(MAX_RESULTS)
         );
 
         const snapshot = await getDocs(locationsQuery);
@@ -285,4 +333,5 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
 });
+
 

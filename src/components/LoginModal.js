@@ -7,6 +7,7 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  Switch,
   StyleSheet,
   Text,
   View,
@@ -45,11 +46,18 @@ const preferredSideOptions = [
   { label: "Ambos lados", value: "ambos" },
 ];
 
+const dominantHandOptions = [
+  { label: "Derecha", value: "Derecha" },
+  { label: "Izquierda", value: "Izquierda" },
+];
+
 const sanitizeName = (value) => value.replace(/[^A-Za-z\u00c0-\u00ff\s]/g, "");
 const MIN_PASSWORD_LENGTH = 4;
 const sanitizePhoneValue = (value) => value.replace(/\D/g, "").slice(0, 16);
 const hasValidPhoneDigits = (value) => value.replace(/\D/g, "").length >= 8;
-const sanitizeLocalidadValue = (value) => value.replace(/[^A-Za-z\u00c0-\u00ff\s]/g, "");
+const sanitizeLocalidadValue = (value) =>
+  value.replace(/[^0-9A-Za-z\u00c0-\u00ff\s.'-]/g, "");
+
 
 function sanitizeFullName(value) {
   const normalizedValue = sanitizeName(value)
@@ -117,6 +125,7 @@ export default function LoginModal({ onClose, onLogin, visible }) {
   const [name, setName] = useState("");
   const [identifier, setIdentifier] = useState("");
   const [phone, setPhone] = useState("");
+  const [isPhonePublic, setIsPhonePublic] = useState(false);
   const [selectedPhoneCountry, setSelectedPhoneCountry] = useState(
     defaultPhoneCountry?.country || "Argentina"
   );
@@ -126,11 +135,13 @@ export default function LoginModal({ onClose, onLogin, visible }) {
   const [category, setCategory] = useState("");
   const [sex, setSex] = useState("");
   const [ladoJuego, setLadoJuego] = useState("ambos");
+  const [manoHabil, setManoHabil] = useState("");
   const [password, setPassword] = useState("");
   const [isPasswordVisible, setIsPasswordVisible] = useState(false);
   const [isCategoryVisible, setIsCategoryVisible] = useState(false);
   const [isSexVisible, setIsSexVisible] = useState(false);
   const [isPreferredSideVisible, setIsPreferredSideVisible] = useState(false);
+  const [isDominantHandVisible, setIsDominantHandVisible] = useState(false);
 
   useEffect(() => {
     if (!visible) {
@@ -144,6 +155,7 @@ export default function LoginModal({ onClose, onLogin, visible }) {
       setName("");
       setIdentifier(lastLoginEmail || "");
       setPhone("");
+      setIsPhonePublic(false);
       setSelectedPhoneCountry(defaultPhoneCountry?.country || "Argentina");
       setCountryCode(defaultPhoneCountry?.code || "+54");
       setLocalidadInput("");
@@ -151,11 +163,13 @@ export default function LoginModal({ onClose, onLogin, visible }) {
       setCategory("");
       setSex("");
       setLadoJuego("ambos");
+      setManoHabil("");
       setPassword("");
       setIsPasswordVisible(false);
       setIsCategoryVisible(false);
       setIsSexVisible(false);
       setIsPreferredSideVisible(false);
+      setIsDominantHandVisible(false);
     }
   }, [lastLoginEmail, visible]);
 
@@ -188,7 +202,7 @@ export default function LoginModal({ onClose, onLogin, visible }) {
       setFeedback({
         visible: true,
         title: "Email no valido",
-        message: "Debe ingresar un email válido.",
+        message: "Debe ingresar un email vï¿½lido.",
         tone: "danger",
       });
       return null;
@@ -219,7 +233,7 @@ export default function LoginModal({ onClose, onLogin, visible }) {
         setFeedback({
           visible: true,
           title: "Link enviado",
-          message: "Revisa tu email para restablecer la contraseña.",
+          message: "Revisa tu email para restablecer la contrase\u00f1a.",
           tone: "success",
         });
         setMode("login");
@@ -335,8 +349,8 @@ export default function LoginModal({ onClose, onLogin, visible }) {
       if (!password.trim()) {
         setFeedback({
           visible: true,
-          title: "Falta la contraseña",
-          message: "Ingresa una contraseña para crear tu cuenta.",
+          title: "Falta la contrase\u00f1a",
+          message: "Ingresa una contrase\u00f1a para crear tu cuenta.",
           tone: "danger",
         });
         return;
@@ -345,7 +359,7 @@ export default function LoginModal({ onClose, onLogin, visible }) {
       if (password.length < MIN_PASSWORD_LENGTH) {
         setFeedback({
           visible: true,
-          title: "Contraseña muy corta",
+          title: "Contrase\u00f1a muy corta",
           message: `Debe tener al menos ${MIN_PASSWORD_LENGTH} caracteres.`,
           tone: "danger",
         });
@@ -365,11 +379,12 @@ export default function LoginModal({ onClose, onLogin, visible }) {
           phone: phone.trim(),
           countryCode,
           phoneCountry: selectedPhoneCountry,
-          isPhonePublic: false,
+          isPhonePublic,
           localidad: normalizedLocalidad,
           category,
           sex,
           ladoJuego,
+          manoHabil,
           password,
           description: "",
           avatarColor: avatarColors[0],
@@ -393,7 +408,7 @@ export default function LoginModal({ onClose, onLogin, visible }) {
       setFeedback({
         visible: true,
         title: "Datos incompletos",
-        message: "Ingresa tu email y tu contraseña.",
+        message: "Ingresa tu email y tu contrase\u00f1a.",
         tone: "danger",
       });
       return;
@@ -425,7 +440,7 @@ export default function LoginModal({ onClose, onLogin, visible }) {
       ? ""
       : mode === "register"
         ? "Estas a un paso de hacer tu juego mas facil, todo en un mismo lugar."
-        : "Recibe un link de recuperacion para restablecer tu contraseña.";
+        : "Recibe un link de recuperacion para restablecer tu contrase\u00f1a.";
 
   const actionLabel =
     mode === "recover"
@@ -473,26 +488,38 @@ export default function LoginModal({ onClose, onLogin, visible }) {
                   placeholder="tuemail@mail.com"
                   value={identifier}
                 />
-                <AppInput
-                  helperText="Tu numero no sera visible a otros usuarios"
-                  inputStyle={styles.compactInput}
-                  keyboardType="phone-pad"
-                  label="Celular"
-                  labelStyle={styles.centeredLabel}
-                  leftElement={
-                    <CountryCodeSelector
-                      onChange={(option) => {
-                        setSelectedPhoneCountry(option.country);
-                        setCountryCode(option.code);
-                      }}
-                      options={phoneCountryOptions}
-                      value={selectedPhoneCountry}
+                <View style={styles.phoneRow}>
+                  <AppInput
+                    containerStyle={styles.phoneField}
+                    helperText="Tu numero no sera visible a otros usuarios"
+                    inputStyle={styles.compactInput}
+                    keyboardType="phone-pad"
+                    label="Celular"
+                    labelStyle={styles.centeredLabel}
+                    leftElement={
+                      <CountryCodeSelector
+                        onChange={(option) => {
+                          setSelectedPhoneCountry(option.country);
+                          setCountryCode(option.code);
+                        }}
+                        options={phoneCountryOptions}
+                        value={selectedPhoneCountry}
+                      />
+                    }
+                    onChangeText={(value) => setPhone(sanitizePhoneValue(value))}
+                    placeholder="Numero de celular"
+                    value={phone}
+                  />
+                  <View style={styles.phoneVisibilityBox}>
+                    <Text style={styles.phoneVisibilityLabel}>Mostrar celular</Text>
+                    <Switch
+                      onValueChange={setIsPhonePublic}
+                      thumbColor={isPhonePublic ? "#FFFFFF" : "#F4F4F5"}
+                      trackColor={{ false: "#D6DDD9", true: colors.primary }}
+                      value={Boolean(isPhonePublic)}
                     />
-                  }
-                  onChangeText={(value) => setPhone(sanitizePhoneValue(value))}
-                  placeholder="Numero de celular"
-                  value={phone}
-                />
+                  </View>
+                </View>
                 <LocationPicker
                   label="Localidad"
                   labelStyle={styles.centeredLabel}
@@ -550,6 +577,17 @@ export default function LoginModal({ onClose, onLogin, visible }) {
                   value={ladoJuego}
                   visible={isPreferredSideVisible}
                 />
+                <SelectField
+                  label="Mano habil"
+                  labelStyle={styles.centeredLabel}
+                  onClose={() => setIsDominantHandVisible(false)}
+                  onOpen={() => setIsDominantHandVisible(true)}
+                  onSelect={setManoHabil}
+                  options={dominantHandOptions}
+                  placeholder="Selecciona una opcion"
+                  value={manoHabil}
+                  visible={isDominantHandVisible}
+                />
               </>
             ) : (
               <AppInput
@@ -571,14 +609,14 @@ export default function LoginModal({ onClose, onLogin, visible }) {
                 autoComplete="password"
                 containerStyle={styles.passwordField}
                 inputStyle={styles.compactInput}
-                label="Contraseña"
+                label={"Contrase\u00f1a"}
                 labelStyle={styles.centeredLabel}
                 onChangeText={setPassword}
-                placeholder="Ingrese contraseña"
+                placeholder={"Ingrese contrase\u00f1a"}
                 rightElement={
                   <Pressable
                     accessibilityLabel={
-                      isPasswordVisible ? "Ocultar contraseña" : "Mostrar contraseña"
+                      isPasswordVisible ? "Ocultar contrase\u00f1a" : "Mostrar contrase\u00f1a"
                     }
                     hitSlop={8}
                     onPress={() => setIsPasswordVisible((current) => !current)}
@@ -600,7 +638,7 @@ export default function LoginModal({ onClose, onLogin, visible }) {
 
             {mode === "login" ? (
               <Pressable onPress={() => setMode("recover")} style={styles.recoverLink}>
-                <Text style={styles.recoverLinkText}>Olvidé mi contraseña</Text>
+                <Text style={styles.recoverLinkText}>{"Olvid\u00e9 mi contrase\u00f1a"}</Text>
               </Pressable>
             ) : null}
 
@@ -718,8 +756,35 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     width: 28,
   },
+  phoneRow: {
+    alignItems: "flex-end",
+    flexDirection: "row",
+    gap: spacing.xs,
+    marginBottom: spacing.xs,
+  },
+  phoneField: {
+    flex: 1.18,
+    marginBottom: 0,
+  },
+  phoneVisibilityBox: {
+    alignItems: "center",
+    flex: 0.54,
+    justifyContent: "flex-end",
+    marginBottom: 0,
+  },
+  phoneVisibilityLabel: {
+    color: colors.muted,
+    fontSize: 10,
+    fontWeight: "800",
+    marginBottom: 6,
+    textAlign: "center",
+    textTransform: "uppercase",
+  },
   centeredLabel: {
     textAlign: "center",
   },
 });
+
+
+
 

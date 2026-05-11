@@ -30,6 +30,13 @@ try {
     persistence: getReactNativePersistence(AsyncStorage),
   });
 } catch (error) {
+  if (error?.code !== "auth/already-initialized") {
+    console.log(
+      "[firebaseConfig] No se pudo inicializar Auth con persistencia:",
+      error?.message || error
+    );
+  }
+
   authInstance = getAuth(app);
 }
 

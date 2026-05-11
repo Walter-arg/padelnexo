@@ -1,8 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Image,
-  Linking,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -26,8 +25,12 @@ import SectionHeader from "../components/SectionHeader";
 import TournamentHeaderCard from "../components/TournamentHeaderCard";
 import { colors, spacing } from "../config/theme";
 import { useAuth } from "../context/AuthContext";
-import { getAvailabilitySummaryItems } from "../services/availabilityService";
 import { listPlayers } from "../services/playersService";
+import {
+  buildTournamentDayOptions,
+  formatTournamentAvailabilitySummary,
+  getTournamentAvailabilitySummaryItems,
+} from "../services/tournamentAvailabilityService";
 import {
   cancelTournament,
   closeTournamentRegistration,
@@ -41,16 +44,43 @@ import {
   registerPairToTournament,
   reviewTournamentPayment,
   uploadTournamentPaymentReceipt,
+  updateTournament,
 } from "../services/tournamentsService";
 
 const TAB_LABELS = {
-  info: "Informacion",
   registration: "Inscripcion",
-  participants: "Participantes",
-  bracket: "Grupos / llaves",
-  matches: "Partidos",
+  fixture: "Fixture",
+  payments: "Pagos",
   management: "Gestion",
 };
+
+const TAB_ICONS = {
+  registration: "clipboard-outline",
+  fixture: "grid-outline",
+  payments: "card-outline",
+  management: "settings-outline",
+};
+
+const ORGANIZER_AREA_KEYS = ["registration", "fixture", "payments", "management"];
+
+const FIXTURE_MODE_OPTIONS = [
+  { label: "Automatico", value: "automatic" },
+  { label: "Semiautomatico", value: "semiautomatic" },
+  { label: "Manual", value: "manual" },
+];
+
+const FIXTURE_PATH_OPTIONS = [
+  {
+    label: "A: ESTRICTO",
+    value: "strict",
+    description: "Menos cantidad de partidos, mas eliminados.",
+  },
+  {
+    label: "B: FLEXIBILIDAD",
+    value: "flex",
+    description: "Menos eliminados directos y mas continuidad deportiva.",
+  },
+];
 
 function normalizeText(value = "") {
   return String(value || "").trim().toLowerCase();
@@ -64,55 +94,100 @@ function formatMoney(value = 0) {
   });
 }
 
-function formatDateTime(value = 0) {
-  if (!value) {
-    return "";
+async function handleOpenTournamentPoster(navigation, posterUrl = "", tournamentName = "Torneo") {
+  if (!posterUrl) {
+    return;
   }
 
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return "";
-  }
-
-  return date.toLocaleDateString("es-AR", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
+  navigation.navigate("TournamentPosterViewer", {
+    posterUrl,
+    tournamentName,
   });
 }
 
-function formatAvailabilitySummary(availability = {}) {
-  const days = Object.entries(availability || {});
+function formatAvailabilitySummary(availability = {}, tournamentDayOptions = []) {
+  if (!Array.isArray(tournamentDayOptions) || tournamentDayOptions.length === 0) {
+    const days = Object.entries(availability || {});
 
-  if (!days.length) {
-    return "Sin disponibilidad cargada";
+    if (!days.length) {
+      return "Sin disponibilidad cargada";
+    }
+
+    return days
+      .map(([dayKey, dayValue]) => {
+        const label =
+          dayKey === "monday"
+            ? "Lunes"
+            : dayKey === "tuesday"
+            ? "Martes"
+            : dayKey === "wednesday"
+            ? "Miercoles"
+            : dayKey === "thursday"
+            ? "Jueves"
+            : dayKey === "friday"
+            ? "Viernes"
+            : dayKey === "saturday"
+            ? "Sabado"
+            : "Domingo";
+        const quick = Array.isArray(dayValue?.quickSlots) ? dayValue.quickSlots : [];
+        const custom = Array.isArray(dayValue?.customSlots)
+          ? dayValue.customSlots.map((slot) => `${slot.from} a ${slot.to}`)
+          : [];
+
+        return `${label}: ${[...quick, ...custom].join(" / ")}`;
+      })
+      .join(" · ");
   }
 
-  return days
-    .map(([dayKey, dayValue]) => {
-      const label =
-        dayKey === "monday"
-          ? "Lunes"
-          : dayKey === "tuesday"
-          ? "Martes"
-          : dayKey === "wednesday"
-          ? "Miercoles"
-          : dayKey === "thursday"
-          ? "Jueves"
-          : dayKey === "friday"
-          ? "Viernes"
-          : dayKey === "saturday"
-          ? "Sabado"
-          : "Domingo";
-      const quick = Array.isArray(dayValue?.quickSlots) ? dayValue.quickSlots : [];
-      const custom = Array.isArray(dayValue?.customSlots)
-        ? dayValue.customSlots.map((slot) => `${slot.from} a ${slot.to}`)
-        : [];
+  return formatTournamentAvailabilitySummary(availability, tournamentDayOptions);
+}
 
-      return `${label}: ${[...quick, ...custom].join(" / ")}`;
+function getWeeklyAvailabilitySummaryItems(availability = {}) {
+  const dayLabels = {
+    monday: { full: "Lunes", short: "Lun" },
+    tuesday: { full: "Martes", short: "Mar" },
+    wednesday: { full: "Miercoles", short: "Mie" },
+    thursday: { full: "Jueves", short: "Jue" },
+    friday: { full: "Viernes", short: "Vie" },
+    saturday: { full: "Sabado", short: "Sab" },
+    sunday: { full: "Domingo", short: "Dom" },
+  };
+  const quickSlotLabels = {
+    morning: "Manana",
+    afternoon: "Tarde",
+    night: "Noche",
+    late_night: "Madrugada",
+  };
+
+  return Object.entries(availability || {})
+    .map(([dayKey, dayValue]) => {
+      const dayMeta = dayLabels[dayKey];
+
+      if (!dayMeta) {
+        return null;
+      }
+
+      const quickLabels = (Array.isArray(dayValue?.quickSlots) ? dayValue.quickSlots : [])
+        .map((slotKey) => quickSlotLabels[slotKey] || "")
+        .filter(Boolean);
+      const customLabels = (Array.isArray(dayValue?.customSlots) ? dayValue.customSlots : [])
+        .map((slot) => `${slot.from} a ${slot.to}`)
+        .filter(Boolean);
+      const text = [...quickLabels, ...customLabels].join(" y ");
+
+      if (!text) {
+        return null;
+      }
+
+      return {
+        key: dayKey,
+        dayLabel: dayMeta.full,
+        dayShortLabel: dayMeta.short,
+        text,
+        label: `${dayMeta.short} · ${text}`,
+      };
     })
-    .join(" · ");
+    .filter(Boolean);
 }
 
 function getUserTournamentRole({
@@ -153,18 +228,35 @@ function getUserTournamentRole({
 
 function getVisibleTabs(role = "guest") {
   if (role === "organizer") {
-    return ["info", "registration", "participants", "bracket", "matches", "management"];
+    return ["management"];
   }
 
   if (role === "confirmed_player") {
-    return ["info", "registration", "participants", "bracket", "matches"];
+    return ["registration", "fixture"];
   }
 
   if (role === "registered_player") {
-    return ["info", "registration", "participants"];
+    return ["registration"];
   }
 
-  return ["info", "registration"];
+  return ["fixture"];
+}
+
+function resolveTournamentTab(tabKey = "") {
+  if (
+    tabKey === "bracket" ||
+    tabKey === "matches" ||
+    tabKey === "info" ||
+    tabKey === "participants"
+  ) {
+    return "fixture";
+  }
+
+  return tabKey || "fixture";
+}
+
+function resolveOrganizerLastArea(areaKey = "") {
+  return ORGANIZER_AREA_KEYS.includes(areaKey) ? areaKey : "management";
 }
 
 function getRegistrationStatusLabel(status = "") {
@@ -197,6 +289,248 @@ function getPaymentStatusLabel(status = "") {
   }
 
   return "Pendiente";
+}
+
+function isRegistrationConfirmed(registration = {}) {
+  return (
+    registration?.status === "confirmed" &&
+    registration?.withdrawalStatus !== "confirmed"
+  );
+}
+
+function getOrdinalLabel(value = 0) {
+  const parsedValue = Number(value || 0);
+
+  if (parsedValue === 1) {
+    return "1ros";
+  }
+
+  if (parsedValue === 2) {
+    return "2dos";
+  }
+
+  if (parsedValue === 3) {
+    return "3ros";
+  }
+
+  return `${parsedValue}ros`;
+}
+
+function formatZoneLabel(zoneSizes = []) {
+  if (!Array.isArray(zoneSizes) || !zoneSizes.length) {
+    return "Sin recomendacion disponible";
+  }
+
+  return zoneSizes.map((size) => `Zona de ${size}`).join(" + ");
+}
+
+function buildRecommendedZoneNames(zoneSizes = []) {
+  return zoneSizes.map((size, index) => ({
+    key: `zone-${index + 1}`,
+    name: `Zona ${String.fromCharCode(65 + index)}`,
+    size,
+  }));
+}
+
+function resolveFixtureRecommendation(pairCount = 0, pathType = "strict") {
+  const path = pathType === "flex" ? "flex" : "strict";
+  const totalPairs = Number(pairCount || 0);
+
+  if (totalPairs < 6) {
+    return {
+      zoneSizes: [],
+      qualifiedSummary: "Todavia no hay suficientes parejas confirmadas para recomendar zonas.",
+      bracketSummary: "Se necesitan al menos 6 parejas confirmadas.",
+      note: "Completa el cupo minimo antes de crear el fixture.",
+    };
+  }
+
+  const presets = {
+    6: {
+      strict: {
+        zoneSizes: [3, 3],
+        qualifiedSummary: "Clasifican 2 por zona.",
+        bracketSummary: "Semifinales directas.",
+      },
+      flex: {
+        zoneSizes: [3, 3],
+        qualifiedSummary: "Clasifican 2 por zona.",
+        bracketSummary: "Semifinales directas.",
+      },
+    },
+    7: {
+      strict: {
+        zoneSizes: [4, 3],
+        qualifiedSummary: "Clasifican 2 por zona.",
+        bracketSummary: "Semifinales directas.",
+      },
+      flex: {
+        zoneSizes: [4, 3],
+        qualifiedSummary: "Clasifican 2 en la zona de 3 y 3 en la zona de 4.",
+        bracketSummary: "Llave larga con bye para las mejores ubicadas.",
+      },
+    },
+    8: {
+      strict: {
+        zoneSizes: [4, 4],
+        qualifiedSummary: "Clasifican 2 por zona.",
+        bracketSummary: "Semifinales directas.",
+      },
+      flex: {
+        zoneSizes: [3, 3, 2],
+        qualifiedSummary: "Clasifican 2 por zona.",
+        bracketSummary: "Los 2 mejores 1ros avanzan a semifinales y las otras 4 parejas juegan cuartos.",
+      },
+    },
+    9: {
+      strict: {
+        zoneSizes: [3, 3, 3],
+        qualifiedSummary: "Clasifican 2 por zona.",
+        bracketSummary: "Los 2 mejores 1ros avanzan a semifinales y las otras 4 parejas juegan cuartos.",
+      },
+      flex: {
+        zoneSizes: [3, 3, 3],
+        qualifiedSummary: "Clasifican 2 por zona.",
+        bracketSummary: "Llave de 8 con bye para las mejores ubicadas.",
+      },
+    },
+    10: {
+      strict: {
+        zoneSizes: [3, 3, 4],
+        qualifiedSummary: "Clasifican 2 por zona.",
+        bracketSummary: "Los 2 mejores 1ros avanzan a semifinales y las otras 4 parejas juegan cuartos.",
+      },
+      flex: {
+        zoneSizes: [3, 3, 4],
+        qualifiedSummary: "Clasifican 2 en las zonas de 3 y 3 en la zona de 4.",
+        bracketSummary: "Llave de 8 con 1 bye para la mejor ubicada.",
+      },
+    },
+    11: {
+      strict: {
+        zoneSizes: [3, 3, 3, 2],
+        qualifiedSummary: "Clasifican 2 por zona. En la zona de 2 ambas parejas clasifican y el partido define 1ro y 2do.",
+        bracketSummary: "Cuartos de final.",
+      },
+      flex: {
+        zoneSizes: [3, 3, 3, 2],
+        qualifiedSummary: "Clasifican 2 por zona. En la zona de 2 ambas parejas clasifican y el partido define 1ro y 2do.",
+        bracketSummary: "Cuartos de final.",
+      },
+    },
+    12: {
+      strict: {
+        zoneSizes: [3, 3, 3, 3],
+        qualifiedSummary: "Clasifican 2 por zona.",
+        bracketSummary: "Cuartos de final.",
+      },
+      flex: {
+        zoneSizes: [3, 3, 3, 3],
+        qualifiedSummary: "Clasifican 2 por zona.",
+        bracketSummary: "Cuartos de final.",
+      },
+    },
+    13: {
+      strict: {
+        zoneSizes: [3, 3, 3, 4],
+        qualifiedSummary: "Clasifican 2 por zona.",
+        bracketSummary: "Cuartos de final.",
+      },
+      flex: {
+        zoneSizes: [3, 3, 3, 4],
+        qualifiedSummary: "Clasifican 2 en las zonas de 3 y 3 en la zona de 4.",
+        bracketSummary: "Llave de 16 con bye.",
+      },
+    },
+    14: {
+      strict: {
+        zoneSizes: [3, 3, 4, 4],
+        qualifiedSummary: "Clasifican 2 por zona.",
+        bracketSummary: "Cuartos de final.",
+      },
+      flex: {
+        zoneSizes: [3, 3, 4, 4],
+        qualifiedSummary: "Clasifican 2 en las zonas de 3 y 3 en las zonas de 4.",
+        bracketSummary: "Llave de 16 con bye.",
+      },
+    },
+    15: {
+      strict: {
+        zoneSizes: [3, 3, 3, 3, 3],
+        qualifiedSummary: "Clasifican los 5 1ros y los 3 mejores 2dos.",
+        bracketSummary: "Cuartos de final.",
+      },
+      flex: {
+        zoneSizes: [3, 3, 3, 3, 3],
+        qualifiedSummary: "Clasifican 2 por zona.",
+        bracketSummary: "Llave de 16 con bye.",
+      },
+    },
+    16: {
+      strict: {
+        zoneSizes: [3, 3, 3, 3, 4],
+        qualifiedSummary: "Clasifican los 5 1ros y los 3 mejores 2dos.",
+        bracketSummary: "Cuartos de final.",
+      },
+      flex: {
+        zoneSizes: [3, 3, 3, 3, 4],
+        qualifiedSummary: "Clasifican 2 en las zonas de 3 y 3 en la zona de 4.",
+        bracketSummary: "Llave de 16 con bye.",
+      },
+    },
+  };
+
+  const selectedPreset = presets[totalPairs]?.[path];
+
+  if (selectedPreset) {
+    return {
+      ...selectedPreset,
+      note:
+        path === "strict"
+          ? "Prioriza menos cruces y una salida mas directa del torneo."
+          : "Prioriza que mas parejas sigan en competencia usando bye cuando haga falta.",
+    };
+  }
+
+  const zoneSizes = [];
+  let remainingPairs = totalPairs;
+
+  while (remainingPairs > 0) {
+    if (remainingPairs === 4 || remainingPairs === 2) {
+      zoneSizes.push(remainingPairs);
+      remainingPairs = 0;
+      continue;
+    }
+
+    if (remainingPairs % 3 === 0 || remainingPairs > 4) {
+      zoneSizes.push(3);
+      remainingPairs -= 3;
+      continue;
+    }
+
+    zoneSizes.push(remainingPairs);
+    remainingPairs = 0;
+  }
+
+  const zoneCount = zoneSizes.length;
+  const strictQualified = Math.min(8, zoneCount);
+  const flexQualified = Math.min(16, zoneCount * 2);
+
+  return {
+    zoneSizes,
+    qualifiedSummary:
+      path === "strict"
+        ? `Clasifican ${strictQualified} parejas priorizando 1ros de zona y mejores ubicadas.`
+        : `Clasifican hasta ${flexQualified} parejas priorizando 1ros, 2dos y bye cuando corresponda.`,
+    bracketSummary:
+      path === "strict"
+        ? "Se recomienda una llave corta con prioridad para las mejores posiciones."
+        : "Se recomienda una llave larga con bye segun la cantidad de clasificadas.",
+    note:
+      path === "strict"
+        ? "La app prioriza zonas de 3, luego una de 4 y solo en ultimo recurso una de 2."
+        : "La app prioriza que menos parejas queden eliminadas en la primera parte del torneo.",
+  };
 }
 
 function buildCurrentPlayerPayload(userData = {}) {
@@ -274,10 +608,12 @@ function RegistrationTab({
   registration,
   registrations,
   showFeedback,
+  tournamentDayOptions,
   tournament,
 }) {
   const [playersSource, setPlayersSource] = useState([]);
   const [playersLoading, setPlayersLoading] = useState(false);
+  const [activePanel, setActivePanel] = useState("partner");
   const [partnerQuery, setPartnerQuery] = useState("");
   const [selectedPartner, setSelectedPartner] = useState(null);
   const [availability, setAvailability] = useState({});
@@ -324,9 +660,15 @@ function RegistrationTab({
   }, [registration]);
 
   const availabilityItems = useMemo(
-    () => getAvailabilitySummaryItems(availability || {}),
-    [availability]
+    () =>
+      Array.isArray(tournamentDayOptions) && tournamentDayOptions.length > 0
+        ? getTournamentAvailabilitySummaryItems(availability || {}, tournamentDayOptions)
+        : getWeeklyAvailabilitySummaryItems(availability || {}),
+    [availability, tournamentDayOptions]
   );
+  const requiresTransferReceipt =
+    Number(tournament?.entryFee || 0) > 0 &&
+    (tournament?.paymentMethods || []).includes("transferencia");
 
   const occupiedPlayerIds = useMemo(() => {
     return new Set(
@@ -368,10 +710,10 @@ function RegistrationTab({
     return [
       {
         key: "partner",
-        title: "Jugador 2",
+        title: "Mi companero",
         description: selectedPartner
           ? buildPartnerLabel(selectedPartner) || selectedPartner.nombre
-          : "Selecciona companero",
+          : "Opcional",
         ready: Boolean(selectedPartner),
       },
       {
@@ -383,35 +725,21 @@ function RegistrationTab({
         ready: availabilityItems.length > 0,
       },
       {
-        key: "receipt",
-        title: "Comprobante",
-        description:
-          Number(tournament?.entryFee || 0) > 0 &&
-          (tournament?.paymentMethods || []).includes("transferencia")
-            ? receiptAsset?.uri
-              ? "Adjuntado"
-              : "Adjuntar archivo"
-            : "No requerido",
-        ready:
-          !(
-            Number(tournament?.entryFee || 0) > 0 &&
-            (tournament?.paymentMethods || []).includes("transferencia")
-          ) || Boolean(receiptAsset?.uri),
-      },
-      {
-        key: "submit",
-        title: "Solicitud",
-        description: submitting ? "Enviando..." : "Enviar pareja",
-        ready: Boolean(selectedPartner) && availabilityItems.length > 0,
+        key: "payments",
+        title: "Pagos",
+        description: requiresTransferReceipt
+          ? receiptAsset?.uri
+            ? "Comprobante adjunto"
+            : "Adjuntar comprobante"
+          : "No requerido",
+        ready: !requiresTransferReceipt || Boolean(receiptAsset?.uri),
       },
     ];
   }, [
     availabilityItems,
     receiptAsset?.uri,
+    requiresTransferReceipt,
     selectedPartner,
-    submitting,
-    tournament?.entryFee,
-    tournament?.paymentMethods,
   ]);
 
   const handlePickReceipt = async () => {
@@ -458,19 +786,19 @@ function RegistrationTab({
       return;
     }
 
-    if (!selectedPartner) {
+    if (!availabilityItems.length) {
       showFeedback(
-        "Falta companero",
-        "Selecciona un companero registrado para completar la pareja.",
+        "Falta disponibilidad",
+        "Carga la disponibilidad antes de enviar la solicitud.",
         "danger"
       );
       return;
     }
 
-    if (!availabilityItems.length) {
+    if (requiresTransferReceipt && !receiptAsset?.uri) {
       showFeedback(
-        "Falta disponibilidad",
-        "Carga la disponibilidad de la pareja antes de enviar la solicitud.",
+        "Falta comprobante",
+        "Adjunta el comprobante antes de enviar la solicitud.",
         "danger"
       );
       return;
@@ -482,7 +810,7 @@ function RegistrationTab({
       const createdRegistration = await registerPairToTournament(tournament.id, {
         availability,
         player1: buildCurrentPlayerPayload(currentUser),
-        player2: buildPartnerPayload(selectedPartner),
+        player2: selectedPartner ? buildPartnerPayload(selectedPartner) : null,
       });
 
       if (receiptAsset?.uri && Number(tournament?.entryFee || 0) > 0) {
@@ -505,12 +833,14 @@ function RegistrationTab({
 
       showFeedback(
         "Inscripcion enviada",
-        "La pareja ya quedo cargada en el torneo.",
+        selectedPartner
+          ? "La pareja ya quedo cargada en el torneo."
+          : "Tu solicitud individual ya quedo cargada en el torneo.",
         "success"
       );
     } catch (error) {
       showFeedback(
-        "No pudimos registrar la pareja",
+        "No pudimos registrar la solicitud",
         error?.message || "Intenta nuevamente en unos instantes.",
         "danger"
       );
@@ -525,13 +855,25 @@ function RegistrationTab({
         <>
           <View style={styles.blockCard}>
             <Text style={styles.blockTitle}>Tu inscripcion</Text>
-            <Text style={styles.blockText}>Pareja: {registration.pairLabel}</Text>
+            <Text style={styles.blockText}>
+              {registration.player2Id
+                ? `Pareja: ${registration.pairLabel}`
+                : `Jugador cargado: ${registration.player1Name || currentUser?.name || "Jugador"}`}
+            </Text>
             <Text style={styles.blockText}>
               Estado: {getRegistrationStatusLabel(registration.status)}
             </Text>
             <Text style={styles.blockText}>
-              Disponibilidad: {formatAvailabilitySummary(registration.availability)}
+              Disponibilidad: {formatAvailabilitySummary(
+                registration.availability,
+                tournamentDayOptions
+              )}
             </Text>
+            {!registration.player2Id ? (
+              <Text style={styles.blockText}>
+                Companero: pendiente de definir con el organizador o mas adelante.
+              </Text>
+            ) : null}
           </View>
 
           <View style={styles.blockCard}>
@@ -547,28 +889,68 @@ function RegistrationTab({
       ) : (
         <>
           <View style={styles.blockCard}>
-            <Text style={styles.blockTitleCentered}>INSCRIBIR PAREJA</Text>
+            <Text style={styles.blockTitleCentered}>INSCRIPCION</Text>
+            <Text style={styles.blockTextCentered}>
+              Organiza tu solicitud en tres pasos. El companero es opcional por ahora.
+            </Text>
 
-            <View style={styles.registrationStepsGrid}>
+            <View style={styles.registrationActionRow}>
               {registrationSteps.map((step) => (
-                <View key={step.key} style={styles.registrationStepCard}>
-                  <Text style={styles.registrationStepTitle}>{step.title}</Text>
-                  <Text style={styles.registrationStepDescription}>{step.description}</Text>
+                <Pressable
+                  key={step.key}
+                  onPress={() => setActivePanel(step.key)}
+                  style={[
+                    styles.registrationActionButton,
+                    activePanel === step.key && styles.registrationActionButtonActive,
+                  ]}
+                >
+                  <Ionicons
+                    color={activePanel === step.key ? colors.surface : colors.primaryDark}
+                    name={
+                      step.key === "partner"
+                        ? "people-outline"
+                        : step.key === "availability"
+                        ? "calendar-outline"
+                        : "card-outline"
+                    }
+                    size={18}
+                  />
                   <Text
                     style={[
-                      styles.registrationStepStatus,
+                      styles.registrationActionText,
+                      activePanel === step.key && styles.registrationActionTextActive,
+                    ]}
+                  >
+                    {step.title.toUpperCase()}
+                  </Text>
+                  <Text
+                    style={[
+                      styles.registrationStepDescription,
+                      activePanel === step.key && styles.registrationStepDescriptionActive,
+                    ]}
+                  >
+                    {step.description}
+                  </Text>
+                  <Text
+                    style={[
+                      styles.registrationActionMeta,
                       step.ready ? styles.registrationStepStatusReady : null,
+                      activePanel === step.key && styles.registrationActionMetaActive,
                     ]}
                   >
                     {step.ready ? "Listo" : "Pendiente"}
                   </Text>
-                </View>
+                </Pressable>
               ))}
             </View>
           </View>
 
+          {activePanel === "partner" ? (
           <View style={styles.blockCard}>
-            <Text style={styles.blockTitleCentered}>INSCRIBIR PAREJA</Text>
+            <Text style={styles.blockTitleCentered}>MI COMPANERO</Text>
+            <Text style={styles.blockTextCentered}>
+              Este paso es opcional. Si todavia no definiste pareja, podes seguir igual.
+            </Text>
 
             <AutocompleteField
               label="Buscar jugador registrado"
@@ -612,15 +994,27 @@ function RegistrationTab({
                   <Text style={styles.selectedPartnerRemove}>Quitar</Text>
                 </Pressable>
               </View>
-            ) : null}
+            ) : (
+              <View style={styles.registrationHintCard}>
+                <Ionicons color={colors.primaryDark} name="sparkles-outline" size={18} />
+                <Text style={styles.registrationHintText}>
+                  Podes enviar una solicitud individual y completar el companero despues.
+                </Text>
+              </View>
+            )}
           </View>
+          ) : null}
 
+          {activePanel === "availability" ? (
           <View style={styles.blockCard}>
-            <Text style={styles.blockTitleCentered}>DISPONIBILIDAD DE LA PAREJA</Text>
+            <Text style={styles.blockTitleCentered}>DISPONIBILIDAD</Text>
             <Text style={styles.blockTextCentered}>
-              Se guardan hasta 2 dias y hasta 2 franjas por dia para la etapa de zonas.
+              Guardamos tus horarios para que el organizador pueda acomodar mejor el torneo.
             </Text>
-            <AvailabilitySummary items={availabilityItems} />
+            <AvailabilitySummary
+              emptyText="Todavia no cargaste disponibilidad para este torneo."
+              items={availabilityItems}
+            />
             <AppButton
               onPress={() => setAvailabilityEditorVisible(true)}
               style={styles.sectionButton}
@@ -628,38 +1022,58 @@ function RegistrationTab({
               variant="secondary"
             />
           </View>
+          ) : null}
 
-          {Number(tournament?.entryFee || 0) > 0 &&
-          (tournament?.paymentMethods || []).includes("transferencia") ? (
+          {activePanel === "payments" ? (
             <View style={styles.blockCard}>
-              <Text style={styles.blockTitleCentered}>COMPROBANTE DE PAGO</Text>
-              <Text style={styles.blockTextCentered}>
-                Alias: {tournament?.paymentAlias || "Alias a confirmar por organizador"}
-              </Text>
-              {receiptAsset?.uri ? (
-                <View style={styles.receiptPreviewCard}>
-                  <Image source={{ uri: receiptAsset.uri }} style={styles.receiptPreviewImage} />
-                  <Text numberOfLines={1} style={styles.receiptPreviewName}>
-                    {receiptAsset.fileName}
+              <Text style={styles.blockTitleCentered}>PAGOS</Text>
+              {requiresTransferReceipt ? (
+                <>
+                  <Text style={styles.blockTextCentered}>
+                    Alias: {tournament?.paymentAlias || "Alias a confirmar por organizador"}
+                  </Text>
+                  {receiptAsset?.uri ? (
+                    <View style={styles.receiptPreviewCard}>
+                      <Image source={{ uri: receiptAsset.uri }} style={styles.receiptPreviewImage} />
+                      <Text numberOfLines={1} style={styles.receiptPreviewName}>
+                        {receiptAsset.fileName}
+                      </Text>
+                    </View>
+                  ) : null}
+                  <AppButton
+                    onPress={handlePickReceipt}
+                    style={styles.sectionButton}
+                    title={receiptAsset?.uri ? "CAMBIAR COMPROBANTE" : "ADJUNTAR COMPROBANTE"}
+                    variant="secondary"
+                  />
+                </>
+              ) : (
+                <View style={styles.registrationHintCard}>
+                  <Ionicons color={colors.primaryDark} name="checkmark-circle-outline" size={18} />
+                  <Text style={styles.registrationHintText}>
+                    Este torneo no exige comprobante para enviar la solicitud.
                   </Text>
                 </View>
-              ) : null}
-              <AppButton
-                onPress={handlePickReceipt}
-                style={styles.sectionButton}
-                title={receiptAsset?.uri ? "CAMBIAR COMPROBANTE" : "ADJUNTAR COMPROBANTE"}
-                variant="secondary"
-              />
+              )}
             </View>
           ) : null}
 
           <AppButton
-            disabled={submitting || !selectedPartner}
+            disabled={
+              submitting ||
+              !availabilityItems.length ||
+              (requiresTransferReceipt && !receiptAsset?.uri)
+            }
             onPress={handleSubmitRegistration}
-            title={submitting ? "ENVIANDO..." : "FINALIZAR SOLICITUD"}
+            title={submitting ? "ENVIANDO..." : "ENVIAR SOLICITUD"}
           />
 
           <AvailabilityEditor
+            dayOptions={
+              Array.isArray(tournamentDayOptions) && tournamentDayOptions.length > 0
+                ? tournamentDayOptions
+                : null
+            }
             initialAvailability={availability}
             loading={false}
             onClose={() => setAvailabilityEditorVisible(false)}
@@ -667,6 +1081,10 @@ function RegistrationTab({
               setAvailability(nextAvailability);
               setAvailabilityEditorVisible(false);
             }}
+            saveSuccessMessage="Tu disponibilidad para este torneo ya quedo actualizada."
+            subtitle="Selecciona una o mas fechas reales del torneo y agrega los horarios disponibles."
+            summaryEmptyText="Todavia no cargaste disponibilidad para este torneo."
+            title="Disponibilidad para el torneo"
             visible={availabilityEditorVisible}
           />
         </>
@@ -675,7 +1093,7 @@ function RegistrationTab({
   );
 }
 
-function ParticipantsTab({ registrations }) {
+function ParticipantsTab({ registrations, tournamentDayOptions }) {
   return (
     <View style={styles.tabBody}>
       <View style={styles.blockCard}>
@@ -686,7 +1104,10 @@ function ParticipantsTab({ registrations }) {
               <View style={styles.listRowMain}>
                 <Text style={styles.listRowTitle}>{registration.pairLabel}</Text>
                 <Text style={styles.listRowSubtext}>
-                  {formatAvailabilitySummary(registration.availability)}
+                  {formatAvailabilitySummary(
+                    registration.availability,
+                    tournamentDayOptions
+                  )}
                 </Text>
               </View>
               <Text style={styles.listRowBadge}>
@@ -780,48 +1201,383 @@ function MatchesTab({ matches }) {
   );
 }
 
-function ManagementTab({
+function OrganizerFixtureWorkspace({
   currentUser,
   onActionCompleted,
   registrations,
   showFeedback,
   tournament,
+}) {
+  const fixtureSetup = tournament?.fixtureSetup || {};
+  const confirmedRegistrations = useMemo(
+    () => registrations.filter((registration) => isRegistrationConfirmed(registration)),
+    [registrations]
+  );
+  const confirmedPairCount = confirmedRegistrations.length;
+  const [savingKey, setSavingKey] = useState("");
+  const [selectedMode, setSelectedMode] = useState(
+    fixtureSetup.mode || tournament?.buildMode || "automatic"
+  );
+  const [selectedPathType, setSelectedPathType] = useState(fixtureSetup.pathType || "strict");
+  const [selectedManualBracketMode, setSelectedManualBracketMode] = useState(
+    fixtureSetup.manualBracketMode || "automatic"
+  );
+
+  useEffect(() => {
+    const nextMode = fixtureSetup.mode || tournament?.buildMode || "automatic";
+    const nextPathType = fixtureSetup.pathType || "strict";
+    const nextManualBracketMode = fixtureSetup.manualBracketMode || "automatic";
+
+    setSelectedMode((current) => (current === nextMode ? current : nextMode));
+    setSelectedPathType((current) => (current === nextPathType ? current : nextPathType));
+    setSelectedManualBracketMode((current) =>
+      current === nextManualBracketMode ? current : nextManualBracketMode
+    );
+  }, [
+    fixtureSetup.manualBracketMode,
+    fixtureSetup.mode,
+    fixtureSetup.pathType,
+    tournament?.buildMode,
+  ]);
+
+  const recommendation = useMemo(
+    () => resolveFixtureRecommendation(confirmedPairCount, selectedPathType),
+    [confirmedPairCount, selectedPathType]
+  );
+  const recommendedZones = useMemo(
+    () => buildRecommendedZoneNames(recommendation.zoneSizes),
+    [recommendation.zoneSizes]
+  );
+
+  const saveFixtureSetup = async (partialSetup = {}, successMessage = "") => {
+    if (!tournament?.id) {
+      return;
+    }
+
+    const { savingKey: nextSavingKey = "saving", ...persistedPartialSetup } = partialSetup;
+    const nextSetup = {
+      mode: selectedMode,
+      pathType: selectedPathType,
+      manualBracketMode: selectedManualBracketMode,
+      zonesStatus: fixtureSetup.zonesStatus || "pending",
+      bracketStatus: fixtureSetup.bracketStatus || "pending",
+      ...fixtureSetup,
+      ...persistedPartialSetup,
+      recommendedTemplate: {
+        pairCount: confirmedPairCount,
+        zoneSizes: recommendation.zoneSizes,
+        qualifiedSummary: recommendation.qualifiedSummary,
+        bracketSummary: recommendation.bracketSummary,
+      },
+    };
+
+    try {
+      setSavingKey(nextSavingKey);
+      await updateTournament(
+        tournament.id,
+        { uid: currentUser?.uid || "", name: currentUser?.name || "Organizador" },
+        { buildMode: selectedMode, fixtureSetup: nextSetup },
+        tournament
+      );
+      await onActionCompleted?.();
+
+      if (successMessage) {
+        showFeedback("Fixture actualizado", successMessage, "success");
+      }
+    } catch (error) {
+      showFeedback(
+        "No pudimos guardar el fixture",
+        error?.message || "Intenta nuevamente en unos instantes.",
+        "danger"
+      );
+    } finally {
+      setSavingKey("");
+    }
+  };
+
+  const handleCreateZones = () => {
+    if (confirmedPairCount < 6) {
+      showFeedback(
+        "Faltan parejas confirmadas",
+        "Se necesitan al menos 6 parejas confirmadas para crear zonas.",
+        "warning"
+      );
+      return;
+    }
+
+    const modeCopy =
+      selectedMode === "automatic"
+        ? "Las zonas quedaron configuradas en modo automatico y seguiran la recomendacion de la app."
+        : selectedMode === "semiautomatic"
+        ? "Las zonas quedaron configuradas en modo automatico y las llaves quedaran para carga manual."
+        : "La vista manual ya quedo preparada para crear zona por zona con recomendacion visible.";
+
+    saveFixtureSetup(
+      {
+        savingKey: "zones",
+        zonesStatus: "configured",
+        mode: selectedMode,
+        pathType: selectedPathType,
+        manualBracketMode: selectedManualBracketMode,
+      },
+      modeCopy
+    );
+  };
+
+  const handleConfigureBracket = (modeOverride = null) => {
+    if (confirmedPairCount < 6) {
+      showFeedback(
+        "Faltan parejas confirmadas",
+        "Antes de crear llaves debes tener al menos 6 parejas confirmadas.",
+        "warning"
+      );
+      return;
+    }
+
+    const nextManualBracketMode = modeOverride || selectedManualBracketMode;
+    const bracketStatus = nextManualBracketMode === "manual" ? "manual_ready" : "automatic_ready";
+    const bracketMessage =
+      nextManualBracketMode === "manual"
+        ? "La app ya dejo la recomendacion de llaves lista para que el organizador la complete manualmente."
+        : "La app ya dejo preparada la recomendacion para crear las llaves automaticamente.";
+
+    saveFixtureSetup(
+      {
+        savingKey: "bracket",
+        zonesStatus: fixtureSetup.zonesStatus || "configured",
+        bracketStatus,
+        manualBracketMode: nextManualBracketMode,
+        mode: selectedMode,
+        pathType: selectedPathType,
+      },
+      bracketMessage
+    );
+  };
+
+  return (
+    <View style={styles.tabBody}>
+      <View style={styles.blockCard}>
+        <Text style={styles.blockTitle}>Zonas</Text>
+        <Text style={styles.blockText}>
+          Trabajamos con las parejas confirmadas del torneo. La app recomienda el formato y el
+          organizador decide como avanzar segun el modo elegido.
+        </Text>
+
+        <View style={styles.fixtureSummaryGrid}>
+          <View style={styles.fixtureSummaryCard}>
+            <Text style={styles.fixtureSummaryLabel}>Parejas confirmadas</Text>
+            <Text style={styles.fixtureSummaryValue}>{confirmedPairCount}</Text>
+          </View>
+          <View style={styles.fixtureSummaryCard}>
+            <Text style={styles.fixtureSummaryLabel}>Formato sugerido</Text>
+            <Text style={styles.fixtureSummaryValue}>{formatZoneLabel(recommendation.zoneSizes)}</Text>
+          </View>
+        </View>
+
+        <Text style={styles.fixtureSectionLabel}>Modo de armado</Text>
+        <View style={styles.fixtureOptionRow}>
+          {FIXTURE_MODE_OPTIONS.map((option) => {
+            const isActive = selectedMode === option.value;
+
+            return (
+              <Pressable
+                key={option.value}
+                onPress={() => setSelectedMode(option.value)}
+                style={[styles.fixtureOptionChip, isActive && styles.fixtureOptionChipActive]}
+              >
+                <Text
+                  style={[
+                    styles.fixtureOptionChipText,
+                    isActive && styles.fixtureOptionChipTextActive,
+                  ]}
+                >
+                  {option.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+
+        <Text style={styles.fixtureSectionLabel}>Modalidad</Text>
+        <View style={styles.fixturePathStack}>
+          {FIXTURE_PATH_OPTIONS.map((option) => {
+            const isActive = selectedPathType === option.value;
+
+            return (
+              <Pressable
+                key={option.value}
+                onPress={() => setSelectedPathType(option.value)}
+                style={[styles.fixturePathCard, isActive && styles.fixturePathCardActive]}
+              >
+                <Text
+                  style={[styles.fixturePathTitle, isActive && styles.fixturePathTitleActive]}
+                >
+                  {option.label}
+                </Text>
+                <Text
+                  style={[
+                    styles.fixturePathDescription,
+                    isActive && styles.fixturePathDescriptionActive,
+                  ]}
+                >
+                  {option.description}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+
+        <View style={styles.fixtureRecommendationCard}>
+          <Text style={styles.fixtureRecommendationTitle}>Recomendacion de la app</Text>
+          <Text style={styles.fixtureRecommendationText}>
+            {recommendation.qualifiedSummary}
+          </Text>
+          <Text style={styles.fixtureRecommendationText}>
+            {recommendation.bracketSummary}
+          </Text>
+          <Text style={styles.fixtureRecommendationHint}>{recommendation.note}</Text>
+        </View>
+
+        <AppButton
+          onPress={handleCreateZones}
+          style={styles.sectionButton}
+          title={savingKey === "zones" ? "GUARDANDO..." : "CREAR ZONAS"}
+        />
+
+        {selectedMode === "manual" ? (
+          <View style={styles.fixtureManualZoneWrap}>
+            <Text style={styles.fixtureSectionLabel}>Creacion manual guiada</Text>
+            <Text style={styles.blockText}>
+              La app recomienda esta estructura, pero el organizador puede apartarse si lo necesita.
+            </Text>
+            {recommendedZones.map((zone) => (
+              <View key={zone.key} style={styles.fixtureZoneHintRow}>
+                <View style={styles.fixtureZoneHintBadge}>
+                  <Text style={styles.fixtureZoneHintBadgeText}>{zone.name}</Text>
+                </View>
+                <Text style={styles.fixtureZoneHintText}>
+                  Recomendacion: {zone.size} parejas
+                </Text>
+              </View>
+            ))}
+          </View>
+        ) : null}
+      </View>
+
+      <View style={styles.blockCard}>
+        <Text style={styles.blockTitle}>Llaves</Text>
+        <Text style={styles.blockText}>
+          La app siempre recomienda cruces y byes segun la cantidad de parejas clasificadas, pero
+          el organizador puede definir el detalle final.
+        </Text>
+
+        <View style={styles.fixtureRecommendationCard}>
+          <Text style={styles.fixtureRecommendationTitle}>Cruce sugerido</Text>
+          <Text style={styles.fixtureRecommendationText}>
+            Los 1ros de zona deben cruzarse con 2dos de otra zona, priorizando evitar cruces de la
+            misma zona en la primera llave.
+          </Text>
+          <Text style={styles.fixtureRecommendationText}>
+            Si queda un lugar vacio en la llave, la app recomienda completar ese espacio con BYE.
+          </Text>
+        </View>
+
+        {selectedMode === "automatic" ? (
+          <View style={styles.fixtureModeSummaryCard}>
+            <Ionicons color={colors.primaryDark} name="git-branch-outline" size={18} />
+            <Text style={styles.fixtureModeSummaryText}>
+              En automatico, las llaves se recomiendan y se crean automaticamente. Luego podras
+              editarlas si hace falta.
+            </Text>
+          </View>
+        ) : null}
+
+        {selectedMode === "semiautomatic" ? (
+          <AppButton
+            onPress={() => handleConfigureBracket("manual")}
+            style={styles.sectionButton}
+            title={savingKey === "bracket" ? "GUARDANDO..." : "CREAR LLAVES"}
+            variant="secondary"
+          />
+        ) : null}
+
+        {selectedMode === "manual" ? (
+          <>
+            <Text style={styles.fixtureSectionLabel}>Como crear las llaves</Text>
+            <View style={styles.fixtureOptionRow}>
+              {[
+                { label: "Automaticas", value: "automatic" },
+                { label: "Manuales", value: "manual" },
+              ].map((option) => {
+                const isActive = selectedManualBracketMode === option.value;
+
+                return (
+                  <Pressable
+                    key={option.value}
+                    onPress={() => setSelectedManualBracketMode(option.value)}
+                    style={[styles.fixtureOptionChip, isActive && styles.fixtureOptionChipActive]}
+                  >
+                    <Text
+                      style={[
+                        styles.fixtureOptionChipText,
+                        isActive && styles.fixtureOptionChipTextActive,
+                      ]}
+                    >
+                      {option.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            <AppButton
+              onPress={() => handleConfigureBracket(selectedManualBracketMode)}
+              style={styles.sectionButton}
+              title={savingKey === "bracket" ? "GUARDANDO..." : "CONFIGURAR LLAVES"}
+              variant="secondary"
+            />
+          </>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
+function FixtureTab({
+  currentUser,
   groups,
   matches,
+  onActionCompleted,
+  registrations,
+  role,
+  showFeedback,
+  tournament,
+}) {
+  return (
+    <View style={styles.tabBody}>
+      {role === "organizer" ? (
+        <OrganizerFixtureWorkspace
+          currentUser={currentUser}
+          onActionCompleted={onActionCompleted}
+          registrations={registrations}
+          showFeedback={showFeedback}
+          tournament={tournament}
+        />
+      ) : null}
+      <BracketTab groups={groups} />
+      <MatchesTab matches={matches} />
+    </View>
+  );
+}
+
+function ManagementTab({
+  currentUser,
+  onEditDetails,
+  onActionCompleted,
+  showFeedback,
+  tournament,
 }) {
   const [actionLoadingKey, setActionLoadingKey] = useState("");
-  const paymentsToReview = registrations.reduce((total, registration) => {
-    return (
-      total +
-      (registration.payments || []).filter((payment) => payment.status === "in_review").length
-    );
-  }, 0);
-
-  const pendingConfirmations = registrations.filter(
-    (registration) => registration.status === "pending" || registration.status === "in_review"
-  ).length;
-
-  const actionItems = [
-    {
-      title: "Publicar y abrir inscripcion",
-      text:
-        tournament.status === "draft"
-          ? "El torneo sigue en borrador."
-          : `Estado actual: ${tournament.status}.`,
-    },
-    {
-      title: "Pagos a revisar",
-      text: `${paymentsToReview} comprobante${paymentsToReview === 1 ? "" : "s"} en revision.`,
-    },
-    {
-      title: "Parejas por confirmar",
-      text: `${pendingConfirmations} pareja${pendingConfirmations === 1 ? "" : "s"} esperando definicion.`,
-    },
-    {
-      title: "Armado deportivo",
-      text: `${groups.length} grupo${groups.length === 1 ? "" : "s"} y ${matches.length} partido${matches.length === 1 ? "" : "s"} cargados.`,
-    },
-  ];
 
   const runAction = async (key, action, successMessage) => {
     try {
@@ -837,26 +1593,16 @@ function ManagementTab({
       );
     } finally {
       setActionLoadingKey("");
-    }
-  };
-
-  const handleOpenReceipt = async (url) => {
-    if (!url) {
-      return;
-    }
-
-    try {
-      await Linking.openURL(url);
-    } catch (error) {
-      showFeedback(
-        "No pudimos abrir el comprobante",
-        "Revisa la conexion o intenta nuevamente en unos instantes.",
-        "danger"
-      );
-    }
+      }
   };
 
   const actionButtons = [
+    {
+      key: "edit-details",
+      title: "Editar detalles",
+      variant: "secondary",
+      onPress: onEditDetails,
+    },
     tournament.status === "draft"
       ? {
           key: "publish",
@@ -917,7 +1663,6 @@ function ManagementTab({
   return (
     <View style={styles.tabBody}>
       <View style={styles.blockCard}>
-        <Text style={styles.blockTitle}>Acciones del torneo</Text>
         <View style={styles.managementButtonsWrap}>
           {actionButtons.length ? (
             actionButtons.map((button) => (
@@ -929,7 +1674,9 @@ function ManagementTab({
                 textStyle={button.variant === "danger" ? styles.dangerButtonText : null}
                 title={actionLoadingKey === button.key ? "Guardando..." : button.title}
                 variant={
-                  button.key === "close-registration" || button.variant === "danger"
+                  button.key === "close-registration" ||
+                  button.variant === "danger" ||
+                  button.variant === "secondary"
                     ? "secondary"
                     : "primary"
                 }
@@ -942,161 +1689,19 @@ function ManagementTab({
           )}
         </View>
       </View>
-
-      {actionItems.map((item) => (
-        <View key={item.title} style={styles.blockCard}>
-          <Text style={styles.blockTitle}>{item.title}</Text>
-          <Text style={styles.blockText}>{item.text}</Text>
-        </View>
-      ))}
-
-      <View style={styles.blockCard}>
-        <Text style={styles.blockTitle}>Inscripciones y pagos</Text>
-        {registrations.length ? (
-          registrations.map((registration) => {
-            const canForceConfirm = tournament?.pairConfirmationMode === "manual";
-
-            return (
-              <View key={registration.id} style={styles.managementRegistrationCard}>
-                <View style={styles.managementRegistrationHeader}>
-                  <View style={styles.managementRegistrationMain}>
-                    <Text style={styles.managementRegistrationTitle}>{registration.pairLabel}</Text>
-                    <Text style={styles.managementRegistrationMeta}>
-                      Estado: {getRegistrationStatusLabel(registration.status)}
-                    </Text>
-                  </View>
-                  <AppButton
-                    disabled={Boolean(actionLoadingKey)}
-                    onPress={() =>
-                      runAction(
-                        `confirm-${registration.id}`,
-                        () =>
-                          confirmTournamentRegistration({
-                            tournamentId: tournament.id,
-                            registrationId: registration.id,
-                            organizerId: currentUser?.uid || "",
-                            organizerName: currentUser?.name || "Organizador",
-                            force: canForceConfirm,
-                          }),
-                        "La pareja ya quedo confirmada."
-                      )
-                    }
-                    style={styles.confirmButton}
-                    title={
-                      actionLoadingKey === `confirm-${registration.id}`
-                        ? "Confirmando..."
-                        : "Confirmar pareja"
-                    }
-                    variant="secondary"
-                  />
-                </View>
-
-                {(registration.payments || []).map((payment) => (
-                  <View key={payment.playerId || payment.userId} style={styles.paymentReviewCard}>
-                    <View style={styles.paymentReviewCopy}>
-                      <Text style={styles.paymentReviewTitle}>{payment.playerName}</Text>
-                      <Text style={styles.paymentReviewMeta}>
-                        Estado: {getPaymentStatusLabel(payment.status)}
-                      </Text>
-                    </View>
-
-                    <View style={styles.paymentReviewActions}>
-                      {payment.receiptUrl ? (
-                        <Pressable
-                          onPress={() => handleOpenReceipt(payment.receiptUrl)}
-                          style={styles.inlineActionButton}
-                        >
-                          <Text style={styles.inlineActionButtonText}>Ver comprobante</Text>
-                        </Pressable>
-                      ) : null}
-
-                      {payment.status === "in_review" ? (
-                        <>
-                          <Pressable
-                            onPress={() =>
-                              runAction(
-                                `approve-${registration.id}-${payment.playerId || payment.userId}`,
-                                () =>
-                                  reviewTournamentPayment({
-                                    tournamentId: tournament.id,
-                                    registrationId: registration.id,
-                                    playerId: payment.playerId || payment.userId,
-                                    reviewerId: currentUser?.uid || "",
-                                    reviewerName: currentUser?.name || "Organizador",
-                                    approved: true,
-                                  }),
-                                "El pago fue aprobado."
-                              )
-                            }
-                            style={[styles.inlineActionButton, styles.inlineApproveButton]}
-                          >
-                            <Text
-                              style={[
-                                styles.inlineActionButtonText,
-                                styles.inlineApproveButtonText,
-                              ]}
-                            >
-                              Aprobar
-                            </Text>
-                          </Pressable>
-                          <Pressable
-                            onPress={() =>
-                              runAction(
-                                `reject-${registration.id}-${payment.playerId || payment.userId}`,
-                                () =>
-                                  reviewTournamentPayment({
-                                    tournamentId: tournament.id,
-                                    registrationId: registration.id,
-                                    playerId: payment.playerId || payment.userId,
-                                    reviewerId: currentUser?.uid || "",
-                                    reviewerName: currentUser?.name || "Organizador",
-                                    approved: false,
-                                  }),
-                                "El pago fue rechazado."
-                              )
-                            }
-                            style={[styles.inlineActionButton, styles.inlineRejectButton]}
-                          >
-                            <Text
-                              style={[
-                                styles.inlineActionButtonText,
-                                styles.inlineRejectButtonText,
-                              ]}
-                            >
-                              Rechazar
-                            </Text>
-                          </Pressable>
-                        </>
-                      ) : null}
-                    </View>
-                  </View>
-                ))}
-              </View>
-            );
-          })
-        ) : (
-          <Text style={styles.blockText}>Todavia no hay parejas inscriptas para gestionar.</Text>
-        )}
-      </View>
-
-      <View style={styles.noticeCard}>
-        <Ionicons color={colors.primaryDark} name="construct-outline" size={18} />
-        <Text style={styles.noticeText}>
-          La edicion completa del torneo y la cancelacion formal las dejamos como siguiente capa, para no mezclar esta fase con el flujo deportivo.
-        </Text>
-      </View>
     </View>
   );
 }
 
 export default function TournamentDetailScreen({ navigation, route }) {
-  const { userData } = useAuth();
+  const { user, userData } = useAuth();
   const tournamentId = route?.params?.tournamentId || "";
+  const requestedInitialTab = resolveTournamentTab(route?.params?.initialTab || "");
   const [tournament, setTournament] = useState(null);
   const [registrations, setRegistrations] = useState([]);
   const [groups, setGroups] = useState([]);
   const [matches, setMatches] = useState([]);
-  const [activeTab, setActiveTab] = useState("info");
+  const [activeTab, setActiveTab] = useState("");
   const [loading, setLoading] = useState(true);
   const [feedback, setFeedback] = useState({
     visible: false,
@@ -1104,6 +1709,16 @@ export default function TournamentDetailScreen({ navigation, route }) {
     message: "",
     tone: "default",
   });
+  const initialTabAppliedRef = useRef(false);
+  const lastOrganizerAreaPersistedRef = useRef("");
+  const currentUser = useMemo(
+    () => ({
+      ...(userData || {}),
+      uid: userData?.uid || user?.uid || "",
+      name: userData?.name || user?.displayName || "Jugador",
+    }),
+    [user?.displayName, user?.uid, userData]
+  );
 
   const loadTournamentDetail = useCallback(async () => {
     const [tournamentResponse, registrationsResponse, groupsResponse, matchesResponse] =
@@ -1119,6 +1734,38 @@ export default function TournamentDetailScreen({ navigation, route }) {
     setGroups(groupsResponse);
     setMatches(matchesResponse);
   }, [tournamentId]);
+
+  const handleRemovePoster = useCallback(async () => {
+    if (!tournament?.id) {
+      return;
+    }
+
+    try {
+      setLoading(true);
+      await updateTournament(
+        tournament.id,
+        { uid: currentUser.uid, name: currentUser.name },
+        { coverImage: "" },
+        tournament
+      );
+      await loadTournamentDetail();
+      setFeedback({
+        visible: true,
+        title: "Afiche eliminado",
+        message: "El torneo ya no muestra afiche.",
+        tone: "success",
+      });
+    } catch (error) {
+      setFeedback({
+        visible: true,
+        title: "No pudimos eliminar el afiche",
+        message: error?.message || "Intenta nuevamente en unos instantes.",
+        tone: "danger",
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, [currentUser.name, currentUser.uid, loadTournamentDetail, tournament]);
 
   useFocusEffect(
     useCallback(() => {
@@ -1161,76 +1808,108 @@ export default function TournamentDetailScreen({ navigation, route }) {
   const accessMeta = useMemo(
     () =>
       getUserTournamentRole({
-        currentUserId: userData?.uid || "",
+        currentUserId: currentUser.uid,
         registrations,
         tournament,
       }),
-    [registrations, tournament, userData?.uid]
+    [currentUser.uid, registrations, tournament]
   );
 
+  const tournamentDayOptions = useMemo(() => buildTournamentDayOptions(tournament), [tournament]);
   const visibleTabs = useMemo(() => getVisibleTabs(accessMeta.role), [accessMeta.role]);
 
+  const persistOrganizerLastArea = useCallback(
+    async (nextArea) => {
+      if (!tournament?.id || accessMeta.role !== "organizer") {
+        return;
+      }
+
+      const normalizedArea = resolveOrganizerLastArea(nextArea);
+      const currentArea = resolveOrganizerLastArea(tournament?.organizerLastViewedArea || "");
+
+      if (normalizedArea === currentArea && lastOrganizerAreaPersistedRef.current === normalizedArea) {
+        return;
+      }
+
+      lastOrganizerAreaPersistedRef.current = normalizedArea;
+
+      try {
+        await updateTournament(
+          tournament.id,
+          { uid: currentUser.uid, name: currentUser.name },
+          { organizerLastViewedArea: normalizedArea },
+          tournament
+        );
+        setTournament((current) =>
+          current
+            ? {
+                ...current,
+                organizerLastViewedArea: normalizedArea,
+              }
+            : current
+        );
+      } catch (error) {
+        lastOrganizerAreaPersistedRef.current = "";
+      }
+    },
+    [accessMeta.role, currentUser.name, currentUser.uid, tournament]
+  );
+
   useEffect(() => {
-    if (!visibleTabs.includes(activeTab)) {
-      setActiveTab(visibleTabs[0] || "info");
+    initialTabAppliedRef.current = false;
+    lastOrganizerAreaPersistedRef.current = "";
+  }, [tournamentId]);
+
+  useEffect(() => {
+    if (accessMeta.role !== "organizer") {
+      return;
     }
-  }, [activeTab, visibleTabs]);
+
+    lastOrganizerAreaPersistedRef.current = resolveOrganizerLastArea(
+      tournament?.organizerLastViewedArea || ""
+    );
+  }, [accessMeta.role, tournament?.organizerLastViewedArea]);
+
+  useEffect(() => {
+    if (
+      !initialTabAppliedRef.current &&
+      requestedInitialTab &&
+      visibleTabs.includes(requestedInitialTab) &&
+      activeTab !== requestedInitialTab
+    ) {
+      initialTabAppliedRef.current = true;
+      setActiveTab(requestedInitialTab);
+      if (typeof navigation?.setParams === "function") {
+        navigation.setParams({ initialTab: undefined });
+      }
+    }
+  }, [activeTab, navigation, requestedInitialTab, visibleTabs]);
 
   const renderTabContent = () => {
     if (!tournament) {
       return null;
     }
 
-    if (activeTab === "info") {
-      return (
-        <InfoTab
-          groups={groups}
-          matches={matches}
-          registrations={registrations}
-          role={accessMeta.role}
-          tournament={tournament}
-        />
-      );
+    if (accessMeta.role === "organizer" && activeTab !== "management") {
+      return null;
     }
 
-    if (activeTab === "registration") {
-      return (
-        <RegistrationTab
-          currentUser={userData}
-          onRegistrationCreated={loadTournamentDetail}
-          registration={accessMeta.registration}
-          registrations={registrations}
-          showFeedback={(title, message, tone = "default") =>
-            setFeedback({
-              visible: true,
-              title,
-              message,
-              tone,
-            })
-          }
-          tournament={tournament}
-        />
-      );
-    }
-
-    if (activeTab === "participants") {
-      return <ParticipantsTab registrations={registrations} />;
-    }
-
-    if (activeTab === "bracket") {
-      return <BracketTab groups={groups} />;
-    }
-
-    if (activeTab === "matches") {
-      return <MatchesTab matches={matches} />;
+    if (accessMeta.role !== "organizer") {
+      return null;
     }
 
     if (activeTab === "management") {
       return (
         <ManagementTab
-          currentUser={userData}
+          currentUser={currentUser}
           groups={groups}
           matches={matches}
+          onEditDetails={() =>
+            navigation.navigate("CreateTournament", {
+              returnToTournamentDetail: true,
+              tournament,
+            })
+          }
           onActionCompleted={loadTournamentDetail}
           registrations={registrations}
           showFeedback={(title, message, tone = "default") =>
@@ -1266,45 +1945,230 @@ export default function TournamentDetailScreen({ navigation, route }) {
           >
             <TournamentHeaderCard
               category={tournament?.compositionConfig?.label || tournament?.compositionLabel || ""}
-              status={tournament?.status}
-              subtitle={
-                accessMeta.role === "organizer"
-                  ? "Vista del organizador"
-                  : accessMeta.role === "confirmed_player"
-                  ? "Vista del jugador confirmado"
-                  : accessMeta.role === "registered_player"
-                  ? "Vista de inscripcion"
-                  : "Vista publica"
+              compactFriendly
+              endDateMillis={tournament?.endDateMillis || 0}
+              organizerLogoUrl={
+                tournament?.organizerLogoUrl ||
+                ((tournament?.organizerId === userData?.uid || tournament?.createdBy === userData?.uid)
+                  ? userData?.organizerLogoUrl
+                  : "")
               }
+              startDateMillis={tournament?.startDateMillis || 0}
+              status={tournament?.status || "draft"}
               title={tournament?.name || "Torneo"}
-              venue={tournament?.venueLabel || ""}
-            >
-              <Text style={styles.headerSubline}>
-                {tournament?.organizerName || "Organizador"} · {formatDateTime(tournament?.createdAtMillis)}
-              </Text>
-            </TournamentHeaderCard>
+              titleColorSeed={[tournament?.creationBatchId, tournament?.name]
+                .map((value) => String(value || "").trim())
+                .filter(Boolean)
+                .join(":")}
+            />
 
-            <ScrollView
-              contentContainerStyle={styles.tabsRow}
-              horizontal
-              showsHorizontalScrollIndicator={false}
-            >
-              {visibleTabs.map((tabKey) => {
+            <View style={styles.tabsGrid}>
+              {accessMeta.role === "organizer" ? (
+                <Pressable
+                  onPress={async () => {
+                    setActiveTab("");
+                    await persistOrganizerLastArea("registration");
+                    navigation.navigate("TournamentRegistrations", {
+                      tournamentId: tournament.id,
+                      tournamentName: tournament.name || "Torneo",
+                    });
+                  }}
+                  style={styles.tabButton}
+                >
+                  <View style={styles.tabIconWrap}>
+                    <Ionicons color={colors.primaryDark} name="people-outline" size={20} />
+                  </View>
+                  <Text style={styles.tabButtonText}>Inscripciones</Text>
+                </Pressable>
+              ) : null}
+
+              {accessMeta.role === "organizer" ? (
+                <Pressable
+                  onPress={async () => {
+                    setActiveTab("");
+                    await persistOrganizerLastArea("fixture");
+                    navigation.navigate("TournamentFixture", {
+                      tournamentId: tournament.id,
+                      tournamentName: tournament.name || "Torneo",
+                    });
+                  }}
+                  style={styles.tabButton}
+                >
+                  <View style={styles.tabIconWrap}>
+                    <Ionicons
+                      color={colors.primaryDark}
+                      name={TAB_ICONS.fixture}
+                      size={20}
+                    />
+                  </View>
+                  <Text style={styles.tabButtonText}>{TAB_LABELS.fixture}</Text>
+                </Pressable>
+              ) : null}
+
+              {accessMeta.role === "organizer" ? (
+                <Pressable
+                  onPress={async () => {
+                    setActiveTab("");
+                    await persistOrganizerLastArea("payments");
+                    navigation.navigate("TournamentPayments", {
+                      tournamentId: tournament.id,
+                      tournamentName: tournament.name || "Torneo",
+                    });
+                  }}
+                  style={styles.tabButton}
+                >
+                  <View style={styles.tabIconWrap}>
+                    <Ionicons
+                      color={colors.primaryDark}
+                      name={TAB_ICONS.payments}
+                      size={20}
+                    />
+                  </View>
+                  <Text style={styles.tabButtonText}>{TAB_LABELS.payments}</Text>
+                </Pressable>
+              ) : null}
+
+              {accessMeta.role !== "organizer" ? (
+                <>
+                  <Pressable
+                    onPress={() =>
+                      navigation.navigate("TournamentRegistration", {
+                        tournamentId: tournament.id,
+                        tournamentName: tournament.name || "Torneo",
+                      })
+                    }
+                    style={styles.tabButton}
+                  >
+                    <View style={styles.tabIconWrap}>
+                      <Ionicons
+                        color={colors.primaryDark}
+                        name={TAB_ICONS.registration}
+                        size={20}
+                      />
+                    </View>
+                    <Text style={styles.tabButtonText}>{TAB_LABELS.registration}</Text>
+                  </Pressable>
+
+                  {accessMeta.role === "confirmed_player" ? (
+                    <Pressable
+                      onPress={() =>
+                        navigation.navigate("TournamentFixture", {
+                          tournamentId: tournament.id,
+                          tournamentName: tournament.name || "Torneo",
+                        })
+                      }
+                      style={styles.tabButton}
+                    >
+                      <View style={styles.tabIconWrap}>
+                        <Ionicons
+                          color={colors.primaryDark}
+                          name={TAB_ICONS.fixture}
+                          size={20}
+                        />
+                      </View>
+                      <Text style={styles.tabButtonText}>{TAB_LABELS.fixture}</Text>
+                    </Pressable>
+                  ) : null}
+
+                </>
+              ) : null}
+
+              {accessMeta.role === "organizer" ? visibleTabs.map((tabKey) => {
                 const isActive = tabKey === activeTab;
 
                 return (
                   <Pressable
                     key={tabKey}
-                    onPress={() => setActiveTab(tabKey)}
+                    onPress={async () => {
+                      if (tabKey === "fixture" && accessMeta.role === "organizer") {
+                        await persistOrganizerLastArea("fixture");
+                        navigation.navigate("TournamentFixture", {
+                          tournamentId: tournament.id,
+                          tournamentName: tournament.name || "Torneo",
+                        });
+                        return;
+                      }
+
+                      setActiveTab(tabKey);
+                      if (accessMeta.role === "organizer" && tabKey === "management") {
+                        await persistOrganizerLastArea("management");
+                      }
+                    }}
                     style={[styles.tabButton, isActive && styles.tabButtonActive]}
                   >
+                    <View style={[styles.tabIconWrap, isActive && styles.tabIconWrapActive]}>
+                      <Ionicons
+                        color={isActive ? colors.surface : colors.primaryDark}
+                        name={TAB_ICONS[tabKey] || "ellipse-outline"}
+                        size={20}
+                      />
+                    </View>
                     <Text style={[styles.tabButtonText, isActive && styles.tabButtonTextActive]}>
                       {TAB_LABELS[tabKey]}
                     </Text>
                   </Pressable>
                 );
-              })}
-            </ScrollView>
+              }) : null}
+            </View>
+
+            {tournament?.coverImage &&
+            (accessMeta.role !== "organizer" || activeTab === "management") ? (
+              <View style={styles.posterShortcutWrap}>
+                <View style={styles.posterShortcutCard}>
+                  {accessMeta.role === "organizer" ? (
+                    <Pressable
+                      onPress={async () => {
+                        try {
+                          await handleOpenTournamentPoster(
+                            navigation,
+                            tournament.coverImage,
+                            tournament?.name || "Torneo"
+                          );
+                        } catch (error) {
+                          setFeedback({
+                            visible: true,
+                            title: "No pudimos abrir el afiche",
+                            message: "Intenta nuevamente en unos instantes.",
+                            tone: "danger",
+                          });
+                        }
+                      }}
+                      style={({ pressed }) => [
+                        styles.posterShortcutMain,
+                        pressed ? styles.posterShortcutCardPressed : null,
+                      ]}
+                    >
+                      <Image source={{ uri: tournament.coverImage }} style={styles.posterShortcutThumb} />
+                      <View style={styles.posterShortcutCopy}>
+                        <Text style={styles.posterShortcutTitle}>AFICHE DEL TORNEO</Text>
+                        <Text style={styles.posterShortcutText}>Toca para verlo completo</Text>
+                      </View>
+                      <Ionicons color={colors.primaryDark} name="open-outline" size={18} />
+                    </Pressable>
+                  ) : (
+                    <View style={styles.posterPreviewOnlyWrap}>
+                      <Image
+                        source={{ uri: tournament.coverImage }}
+                        style={styles.posterPreviewOnlyImage}
+                      />
+                    </View>
+                  )}
+
+                  {accessMeta.role === "organizer" ? (
+                    <Pressable
+                      accessibilityLabel="Quitar afiche"
+                      onPress={handleRemovePoster}
+                      style={({ pressed }) => [
+                        styles.posterRemoveIconButton,
+                        pressed ? styles.posterRemoveButtonPressed : null,
+                      ]}
+                    >
+                      <Ionicons color="#B24343" name="trash-outline" size={18} />
+                    </Pressable>
+                  ) : null}
+                </View>
+              </View>
+            ) : null}
 
             {renderTabContent()}
           </ScrollView>
@@ -1354,35 +2218,121 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
     textAlign: "center",
   },
-  headerSubline: {
-    color: colors.muted,
-    fontSize: 12,
-    fontWeight: "700",
-    marginTop: 6,
-    textAlign: "center",
+  posterShortcutWrap: {
+    marginTop: spacing.md,
   },
-  tabsRow: {
+  posterShortcutCard: {
+    alignItems: "center",
+    backgroundColor: "#F3FAF6",
+    borderColor: "#D5EADF",
+    borderRadius: 16,
+    borderWidth: 1,
+    flexDirection: "row",
+    marginTop: spacing.md,
+    padding: spacing.md,
+  },
+  posterShortcutMain: {
+    alignItems: "center",
+    flex: 1,
+    flexDirection: "row",
+    gap: spacing.sm,
+    minHeight: 92,
+  },
+  posterShortcutCardPressed: {
+    opacity: 0.9,
+  },
+  posterPreviewOnlyWrap: {
+    alignItems: "center",
+    flex: 1,
+    justifyContent: "center",
+    minHeight: 320,
+  },
+  posterPreviewOnlyImage: {
+    borderRadius: 14,
+    height: 320,
+    resizeMode: "contain",
+    width: "100%",
+  },
+  posterShortcutThumb: {
+    borderRadius: 10,
+    height: 92,
+    resizeMode: "cover",
+    width: 70,
+  },
+  posterShortcutCopy: {
+    flex: 1,
+  },
+  posterShortcutTitle: {
+    color: colors.primaryDark,
+    fontSize: 13,
+    fontWeight: "900",
+    textTransform: "uppercase",
+  },
+  posterShortcutText: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "600",
+    marginTop: 4,
+  },
+  posterRemoveIconButton: {
+    alignItems: "center",
+    backgroundColor: "#FFF3F3",
+    borderColor: "#E8C5C5",
+    borderRadius: 999,
+    borderWidth: 1,
+    justifyContent: "center",
+    height: 38,
+    marginLeft: spacing.sm,
+    width: 38,
+  },
+  posterRemoveButtonPressed: {
+    backgroundColor: "#FCE7E7",
+  },
+  tabsGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
     gap: spacing.sm,
     paddingBottom: spacing.md,
     paddingTop: spacing.md,
   },
   tabButton: {
-    backgroundColor: "#EFF6F2",
-    borderColor: colors.border,
-    borderRadius: 8,
+    alignItems: "center",
+    backgroundColor: "#F2FAF5",
+    borderColor: "#D5EADF",
+    borderRadius: 18,
     borderWidth: 1,
     justifyContent: "center",
-    minHeight: 38,
-    paddingHorizontal: spacing.md,
+    minHeight: 104,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.md,
+    width: "47.5%",
   },
   tabButtonActive: {
     backgroundColor: colors.primaryDark,
     borderColor: colors.primaryDark,
+    shadowColor: colors.primaryDark,
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.18,
+    shadowRadius: 18,
+    elevation: 4,
+  },
+  tabIconWrap: {
+    alignItems: "center",
+    backgroundColor: colors.secondary,
+    borderRadius: 999,
+    height: 42,
+    justifyContent: "center",
+    marginBottom: spacing.xs,
+    width: 42,
+  },
+  tabIconWrapActive: {
+    backgroundColor: "rgba(255,255,255,0.18)",
   },
   tabButtonText: {
     color: colors.primaryDark,
     fontSize: 12,
     fontWeight: "800",
+    textAlign: "center",
     textTransform: "uppercase",
   },
   tabButtonTextActive: {
@@ -1455,27 +2405,37 @@ const styles = StyleSheet.create({
     marginBottom: 0,
     marginTop: spacing.md,
   },
-  registrationStepsGrid: {
+  registrationActionRow: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: spacing.sm,
     marginTop: spacing.sm,
   },
-  registrationStepCard: {
+  registrationActionButton: {
+    alignItems: "center",
     backgroundColor: "#F5FAF7",
     borderColor: colors.border,
     borderRadius: 8,
     borderWidth: 1,
+    flex: 1,
     minWidth: "47%",
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.sm,
   },
-  registrationStepTitle: {
+  registrationActionButtonActive: {
+    backgroundColor: colors.primaryDark,
+    borderColor: colors.primaryDark,
+  },
+  registrationActionText: {
     color: colors.text,
     fontSize: 13,
     fontWeight: "800",
+    marginTop: 6,
     textAlign: "center",
     textTransform: "uppercase",
+  },
+  registrationActionTextActive: {
+    color: colors.surface,
   },
   registrationStepDescription: {
     color: colors.muted,
@@ -1485,7 +2445,10 @@ const styles = StyleSheet.create({
     marginTop: 4,
     textAlign: "center",
   },
-  registrationStepStatus: {
+  registrationStepDescriptionActive: {
+    color: "rgba(255,255,255,0.82)",
+  },
+  registrationActionMeta: {
     color: "#A36C17",
     fontSize: 11,
     fontWeight: "800",
@@ -1493,8 +2456,222 @@ const styles = StyleSheet.create({
     textAlign: "center",
     textTransform: "uppercase",
   },
+  registrationActionMetaActive: {
+    color: colors.surface,
+  },
   registrationStepStatusReady: {
     color: colors.primaryDark,
+  },
+  registrationHintCard: {
+    alignItems: "center",
+    backgroundColor: "#EFF8F4",
+    borderColor: colors.border,
+    borderRadius: 8,
+    borderWidth: 1,
+    flexDirection: "row",
+    marginTop: spacing.sm,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
+  },
+  registrationHintText: {
+    color: colors.text,
+    flex: 1,
+    fontSize: 13,
+    fontWeight: "600",
+    lineHeight: 19,
+    marginLeft: spacing.sm,
+  },
+  fixtureSummaryGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  fixtureSummaryCard: {
+    backgroundColor: "#F5FAF7",
+    borderColor: colors.border,
+    borderRadius: 10,
+    borderWidth: 1,
+    flex: 1,
+    minWidth: "47%",
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
+  },
+  fixtureSummaryLabel: {
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: "800",
+    textTransform: "uppercase",
+  },
+  fixtureSummaryValue: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: "800",
+    marginTop: 4,
+  },
+  fixtureSectionLabel: {
+    color: colors.primaryDark,
+    fontSize: 12,
+    fontWeight: "900",
+    marginTop: spacing.md,
+    textAlign: "center",
+    textTransform: "uppercase",
+  },
+  fixtureOptionRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.sm,
+    justifyContent: "center",
+    marginTop: spacing.sm,
+  },
+  fixtureOptionChip: {
+    alignItems: "center",
+    backgroundColor: "#F2FAF5",
+    borderColor: "#D5EADF",
+    borderRadius: 999,
+    borderWidth: 1,
+    justifyContent: "center",
+    minHeight: 36,
+    paddingHorizontal: spacing.md,
+  },
+  fixtureOptionChipActive: {
+    backgroundColor: colors.primaryDark,
+    borderColor: colors.primaryDark,
+  },
+  fixtureOptionChipText: {
+    color: colors.primaryDark,
+    fontSize: 12,
+    fontWeight: "800",
+    textAlign: "center",
+    textTransform: "uppercase",
+  },
+  fixtureOptionChipTextActive: {
+    color: colors.surface,
+  },
+  fixturePathStack: {
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  fixturePathCard: {
+    backgroundColor: "#F7FBF8",
+    borderColor: colors.border,
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  fixturePathCardActive: {
+    backgroundColor: "#ECF8F2",
+    borderColor: colors.primaryDark,
+  },
+  fixturePathTitle: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  fixturePathTitleActive: {
+    color: colors.primaryDark,
+  },
+  fixturePathDescription: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "600",
+    lineHeight: 18,
+    marginTop: 4,
+    textAlign: "center",
+  },
+  fixturePathDescriptionActive: {
+    color: colors.primaryDark,
+  },
+  fixtureRecommendationCard: {
+    backgroundColor: "#F3FAF6",
+    borderColor: "#D5EADF",
+    borderRadius: 12,
+    borderWidth: 1,
+    marginTop: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  fixtureRecommendationTitle: {
+    color: colors.primaryDark,
+    fontSize: 12,
+    fontWeight: "900",
+    textAlign: "center",
+    textTransform: "uppercase",
+  },
+  fixtureRecommendationText: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: "600",
+    lineHeight: 19,
+    marginTop: 6,
+    textAlign: "center",
+  },
+  fixtureRecommendationHint: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "600",
+    lineHeight: 18,
+    marginTop: spacing.sm,
+    textAlign: "center",
+  },
+  fixtureManualZoneWrap: {
+    marginTop: spacing.sm,
+  },
+  fixtureZoneHintRow: {
+    alignItems: "center",
+    backgroundColor: "#F8FAFC",
+    borderColor: colors.border,
+    borderRadius: 10,
+    borderWidth: 1,
+    flexDirection: "row",
+    marginTop: spacing.sm,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
+  },
+  fixtureZoneHintBadge: {
+    alignItems: "center",
+    backgroundColor: "#EAF4EF",
+    borderRadius: 999,
+    justifyContent: "center",
+    marginRight: spacing.sm,
+    minHeight: 28,
+    minWidth: 72,
+    paddingHorizontal: spacing.sm,
+  },
+  fixtureZoneHintBadgeText: {
+    color: colors.primaryDark,
+    fontSize: 11,
+    fontWeight: "900",
+    textAlign: "center",
+    textTransform: "uppercase",
+  },
+  fixtureZoneHintText: {
+    color: colors.text,
+    flex: 1,
+    fontSize: 13,
+    fontWeight: "600",
+    lineHeight: 19,
+  },
+  fixtureModeSummaryCard: {
+    alignItems: "center",
+    backgroundColor: "#EFF8F4",
+    borderColor: colors.border,
+    borderRadius: 10,
+    borderWidth: 1,
+    flexDirection: "row",
+    marginTop: spacing.md,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
+  },
+  fixtureModeSummaryText: {
+    color: colors.text,
+    flex: 1,
+    fontSize: 13,
+    fontWeight: "600",
+    lineHeight: 19,
+    marginLeft: spacing.sm,
   },
   managementButtonsWrap: {
     marginTop: spacing.sm,

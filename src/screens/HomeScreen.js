@@ -21,6 +21,7 @@ import { heroPhrases } from "../data/profileOptions";
 import { colors, spacing } from "../config/theme";
 import { useAuth } from "../context/AuthContext";
 import { listPlayers } from "../services/playersService";
+import { isApprovedOrganizer } from "../services/roleService";
 
 const MENU_ITEMS = [
   {
@@ -72,6 +73,7 @@ export default function HomeScreen({ navigation }) {
   const phraseOpacity = useRef(new Animated.Value(1)).current;
   const phraseTranslate = useRef(new Animated.Value(0)).current;
   const currentUser = userData ? { ...DEFAULT_USER, ...userData } : null;
+  const canManageFinances = isApprovedOrganizer(currentUser);
   const [playersPreview, setPlayersPreview] = useState([]);
 
   useEffect(() => {
@@ -274,7 +276,7 @@ export default function HomeScreen({ navigation }) {
           )}
         </View>
 
-        {user && currentUser ? (
+        {user && currentUser && canManageFinances ? (
           <Pressable
             onPress={() => navigation.navigate("Finanzas")}
             style={({ pressed }) => [

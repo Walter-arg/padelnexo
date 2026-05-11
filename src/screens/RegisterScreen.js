@@ -36,10 +36,17 @@ const preferredSideOptions = [
   { label: "Ambos lados", value: "ambos" },
 ];
 
+const dominantHandOptions = [
+  { label: "Derecha", value: "Derecha" },
+  { label: "Izquierda", value: "Izquierda" },
+];
+
 const sanitizeName = (value) => value.replace(/[^A-Za-z\u00c0-\u00ff\s]/g, "");
 const sanitizePhoneValue = (value) => value.replace(/\D/g, "").slice(0, 16);
 const hasValidPhoneDigits = (value) => value.replace(/\D/g, "").length >= 8;
-const sanitizeLocalidadValue = (value) => value.replace(/[^A-Za-z\u00c0-\u00ff\s]/g, "");
+const sanitizeLocalidadValue = (value) =>
+  value.replace(/[^0-9A-Za-z\u00c0-\u00ff\s.'-]/g, "");
+
 
 function sanitizeFullName(value) {
   const normalizedValue = sanitizeName(value)
@@ -106,6 +113,7 @@ export default function RegisterScreen({ navigation }) {
   const [name, setName] = useState("");
   const [identifier, setIdentifier] = useState("");
   const [phone, setPhone] = useState("");
+  const [isPhonePublic, setIsPhonePublic] = useState(false);
   const [selectedPhoneCountry, setSelectedPhoneCountry] = useState(
     defaultPhoneCountry?.country || "Argentina"
   );
@@ -115,10 +123,12 @@ export default function RegisterScreen({ navigation }) {
   const [category, setCategory] = useState("");
   const [sex, setSex] = useState("");
   const [ladoJuego, setLadoJuego] = useState("ambos");
+  const [manoHabil, setManoHabil] = useState("");
   const [password, setPassword] = useState("");
   const [isCategoryVisible, setIsCategoryVisible] = useState(false);
   const [isSexVisible, setIsSexVisible] = useState(false);
   const [isPreferredSideVisible, setIsPreferredSideVisible] = useState(false);
+  const [isDominantHandVisible, setIsDominantHandVisible] = useState(false);
 
   const showFeedback = (title, message, tone = "default") => {
     setFeedback({
@@ -187,13 +197,13 @@ export default function RegisterScreen({ navigation }) {
     }
 
     if (!password.trim()) {
-      showFeedback("Falta la contraseña", "Ingresa una contraseña para continuar.", "danger");
+      showFeedback("Falta la contrase\u00f1a", "Ingresa una contrase\u00f1a para continuar.", "danger");
       return;
     }
 
     if (password.length < MIN_PASSWORD_LENGTH) {
       showFeedback(
-        "Contraseña muy corta",
+        "Contrase\u00f1a muy corta",
         `Debe tener al menos ${MIN_PASSWORD_LENGTH} caracteres.`,
         "danger"
       );
@@ -203,7 +213,7 @@ export default function RegisterScreen({ navigation }) {
     const email = trimmedIdentifier.toLowerCase();
 
     if (!email.includes("@")) {
-      showFeedback("Email no valido", "Debe ingresar un email válido.", "danger");
+      showFeedback("Email no valido", "Debe ingresar un email vï¿½lido.", "danger");
       return;
     }
 
@@ -225,11 +235,12 @@ export default function RegisterScreen({ navigation }) {
         phone: phone.trim(),
         countryCode,
         phoneCountry: selectedPhoneCountry,
-        isPhonePublic: false,
+        isPhonePublic,
         localidad: normalizedLocalidad,
         category,
         sex,
         ladoJuego,
+        manoHabil,
         password,
         description: "",
         avatarColor: avatarColors[0],
@@ -269,27 +280,53 @@ export default function RegisterScreen({ navigation }) {
             placeholder="tuemail@mail.com"
             value={identifier}
           />
-          <AppInput
-            containerStyle={styles.compactField}
-            helperText="Tu numero no sera visible a otros usuarios"
-            inputStyle={styles.compactInput}
-            keyboardType="phone-pad"
-            label="Celular"
-            labelStyle={styles.centeredLabel}
-            leftElement={
-              <CountryCodeSelector
-                onChange={(option) => {
-                  setSelectedPhoneCountry(option.country);
-                  setCountryCode(option.code);
-                }}
-                options={phoneCountryOptions}
-                value={selectedPhoneCountry}
-              />
-            }
-            onChangeText={(value) => setPhone(sanitizePhoneValue(value))}
-            placeholder="Numero de celular"
-            value={phone}
-          />
+          <View style={styles.phoneRow}>
+            <AppInput
+              containerStyle={styles.phoneField}
+              helperText="Tu numero no sera visible a otros usuarios"
+              inputStyle={styles.compactInput}
+              keyboardType="phone-pad"
+              label="Celular"
+              labelStyle={styles.centeredLabel}
+              leftElement={
+                <CountryCodeSelector
+                  onChange={(option) => {
+                    setSelectedPhoneCountry(option.country);
+                    setCountryCode(option.code);
+                  }}
+                  options={phoneCountryOptions}
+                  value={selectedPhoneCountry}
+                />
+              }
+              onChangeText={(value) => setPhone(sanitizePhoneValue(value))}
+              placeholder="Numero de celular"
+              value={phone}
+            />
+            <View style={styles.phoneVisibilityBox}>
+              <Text style={styles.phoneVisibilityLabel}>Mostrar celular</Text>
+              <Pressable
+                onPress={() => setIsPhonePublic((current) => !current)}
+                style={({ pressed }) => [
+                  styles.phoneVisibilityButton,
+                  isPhonePublic
+                    ? styles.phoneVisibilityButtonActive
+                    : styles.phoneVisibilityButtonInactive,
+                  pressed ? styles.phoneVisibilityButtonPressed : null,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.phoneVisibilityButtonText,
+                    isPhonePublic
+                      ? styles.phoneVisibilityButtonTextActive
+                      : styles.phoneVisibilityButtonTextInactive,
+                  ]}
+                >
+                  {isPhonePublic ? "ON" : "OFF"}
+                </Text>
+              </Pressable>
+            </View>
+          </View>
           <LocationPicker
             containerStyle={styles.compactField}
             inputStyle={styles.compactInput}
@@ -356,13 +393,26 @@ export default function RegisterScreen({ navigation }) {
             value={ladoJuego}
             visible={isPreferredSideVisible}
           />
+          <SelectField
+            containerStyle={styles.compactField}
+            fieldStyle={styles.compactSelectField}
+            label="Mano habil"
+            labelStyle={styles.centeredLabel}
+            onClose={() => setIsDominantHandVisible(false)}
+            onOpen={() => setIsDominantHandVisible(true)}
+            onSelect={setManoHabil}
+            options={dominantHandOptions}
+            placeholder="Selecciona una opcion"
+            value={manoHabil}
+            visible={isDominantHandVisible}
+          />
           <AppInput
             containerStyle={styles.compactField}
             inputStyle={styles.compactInput}
-            label="Contraseña"
+            label={"Contrase\u00f1a"}
             labelStyle={styles.centeredLabel}
             onChangeText={setPassword}
-            placeholder="Ingrese contraseña"
+            placeholder={"Ingrese contrase\u00f1a"}
             secureTextEntry
             value={password}
           />
@@ -432,6 +482,62 @@ const styles = StyleSheet.create({
   centeredLabel: {
     textAlign: "center",
   },
+  phoneRow: {
+    alignItems: "flex-end",
+    flexDirection: "row",
+    gap: spacing.xs,
+    marginBottom: spacing.xs,
+  },
+  phoneField: {
+    flex: 1,
+    marginBottom: 0,
+  },
+  phoneVisibilityBox: {
+    alignItems: "center",
+    flex: 0.72,
+    justifyContent: "flex-end",
+    marginBottom: 0,
+  },
+  phoneVisibilityLabel: {
+    color: colors.muted,
+    fontSize: 10,
+    fontWeight: "800",
+    marginBottom: 6,
+    textAlign: "center",
+    textTransform: "uppercase",
+  },
+  phoneVisibilityButton: {
+    alignItems: "center",
+    borderRadius: 14,
+    borderWidth: 1,
+    justifyContent: "center",
+    minHeight: 42,
+    paddingHorizontal: spacing.md,
+    width: "100%",
+  },
+  phoneVisibilityButtonActive: {
+    backgroundColor: "#E8F5EE",
+    borderColor: "#B8DCC7",
+  },
+  phoneVisibilityButtonInactive: {
+    backgroundColor: "#F3F5F7",
+    borderColor: "#D4DBE2",
+  },
+  phoneVisibilityButtonPressed: {
+    opacity: 0.86,
+  },
+  phoneVisibilityButtonText: {
+    fontSize: 12,
+    fontWeight: "900",
+    textAlign: "center",
+    textTransform: "uppercase",
+  },
+  phoneVisibilityButtonTextActive: {
+    color: colors.primaryDark,
+  },
+  phoneVisibilityButtonTextInactive: {
+    color: "#667482",
+  },
   primaryButton: {
     marginTop: 4,
   },
@@ -443,4 +549,7 @@ const styles = StyleSheet.create({
     color: colors.text,
   },
 });
+
+
+
 

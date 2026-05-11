@@ -15,6 +15,16 @@ import {
   toggleQuickSlot,
   validateCustomSlot,
 } from "../services/availabilityService";
+import {
+  addTournamentCustomSlot,
+  clearTournamentDayAvailability,
+  createEmptyTournamentAvailability,
+  getTournamentAvailabilitySummaryItems,
+  getTournamentDayLabel,
+  normalizeTournamentAvailability,
+  removeTournamentCustomSlot,
+  toggleTournamentQuickSlot,
+} from "../services/tournamentAvailabilityService";
 import AvailabilitySummary from "./AvailabilitySummary";
 import CustomTimeSheet from "./CustomTimeSheet";
 import DaySelector from "./DaySelector";
@@ -48,14 +58,74 @@ function getQuickSlotKeyForCustomSlot(slot) {
 }
 
 export default function AvailabilityEditor({
+  dayOptions = null,
   initialAvailability,
   loading,
   onClose,
   onSave,
+  saveSuccessMessage,
+  subtitle,
+  summaryEmptyText,
+  title,
   visible,
 }) {
-  const [availability, setAvailability] = useState(createEmptyAvailability());
-  const [selectedDayKey, setSelectedDayKey] = useState("monday");
+  const customDayOptions = Array.isArray(dayOptions) && dayOptions.length > 0 ? dayOptions : null;
+  const days = useMemo(() => customDayOptions || getDayDefinitions(), [customDayOptions]);
+  const normalizeCurrentAvailability = (value) =>
+    customDayOptions
+      ? normalizeTournamentAvailability(value, customDayOptions)
+      : normalizeAvailability(value);
+  const toggleCurrentQuickSlot = (value, dayKey, slotKey) =>
+    customDayOptions
+      ? toggleTournamentQuickSlot(value, dayKey, slotKey, customDayOptions)
+      : toggleQuickSlot(value, dayKey, slotKey);
+  const addCurrentCustomSlot = (value, dayKey, slot) =>
+    customDayOptions
+      ? addTournamentCustomSlot(value, dayKey, slot, customDayOptions)
+      : addCustomSlot(value, dayKey, slot);
+  const removeCurrentCustomSlot = (value, dayKey, targetIndex) =>
+    customDayOptions
+      ? removeTournamentCustomSlot(value, dayKey, targetIndex, customDayOptions)
+      : removeCustomSlot(value, dayKey, targetIndex);
+  const clearCurrentDayAvailability = (value, dayKey) =>
+    customDayOptions
+      ? clearTournamentDayAvailability(value, dayKey, customDayOptions)
+      : clearDayAvailability(value, dayKey);
+  const createEmptyCurrentAvailability = () =>
+    customDayOptions
+      ? createEmptyTournamentAvailability(customDayOptions)
+      : createEmptyAvailability();
+  const getSummaryItems = (value) =>
+    customDayOptions
+      ? getTournamentAvailabilitySummaryItems(value, customDayOptions)
+      : getAvailabilitySummaryItems(value);
+  const resolveDayLabel = (dayKey) =>
+    customDayOptions
+      ? getTournamentDayLabel(dayKey, customDayOptions, "full")
+      : getDayLabel(dayKey);
+  const resolvedTitle = title || "Tu disponibilidad";
+  const resolvedSubtitle =
+    subtitle ||
+    (customDayOptions
+      ? "Selecciona fechas reales del torneo y agrega uno o mas horarios posibles."
+      : "Indica los dias y horarios en los que soles jugar");
+  const resolvedSummaryEmptyText =
+    summaryEmptyText ||
+    (customDayOptions
+      ? "Todavia no cargaste disponibilidad para este torneo."
+      : "Todavia no configuraste disponibilidad semanal.");
+  const resolvedSaveMessage =
+    saveSuccessMessage ||
+    (customDayOptions
+      ? "Tu disponibilidad para el torneo ya quedo actualizada."
+      : "Tu disponibilidad semanal ya quedo actualizada.");
+  const resolvedSummaryTitle = customDayOptions
+    ? "RESUMEN DE DISPONIBILIDAD"
+    : "Resumen semanal";
+  const resolvedCustomButtonLabel = customDayOptions ? "Agregar horario" : "Personalizar";
+  const defaultDayKey = days[0]?.key || "monday";
+  const [availability, setAvailability] = useState(() => createEmptyCurrentAvailability());
+  const [selectedDayKey, setSelectedDayKey] = useState(defaultDayKey);
   const [isCustomSheetVisible, setIsCustomSheetVisible] = useState(false);
   const [customFrom, setCustomFrom] = useState(DEFAULT_FROM);
   const [customTo, setCustomTo] = useState(DEFAULT_TO);
@@ -67,11 +137,9 @@ export default function AvailabilityEditor({
     tone: "default",
   });
   const [isClearAllConfirmVisible, setIsClearAllConfirmVisible] = useState(false);
-
-  const days = useMemo(() => getDayDefinitions(), []);
   const quickSlots = useMemo(() => getQuickSlotDefinitions(), []);
   const selectedDay = availability[selectedDayKey] || { quickSlots: [], customSlots: [] };
-  const summaryItems = getAvailabilitySummaryItems(availability);
+  const summaryItems = getSummaryItems(availability);
   const activeDayKeys = useMemo(() => summaryItems.map((item) => item.key), [summaryItems]);
   const quickSlotVisualState = useMemo(() => {
     const selectedSlotKeys = new Set(selectedDay.quickSlots || []);
@@ -108,9 +176,17 @@ export default function AvailabilityEditor({
       return;
     }
 
-    setAvailability(normalizeAvailability(initialAvailability));
+    const nextAvailability = normalizeCurrentAvailability(initialAvailability);
+    setAvailability(nextAvailability);
+    setSelectedDayKey(Object.keys(nextAvailability)[0] || defaultDayKey);
     setPreferredSlotKey(null);
-  }, [initialAvailability, visible]);
+  }, [defaultDayKey, initialAvailability, visible]);
+
+  useEffect(() => {
+    if (!days.some((day) => day.key === selectedDayKey)) {
+      setSelectedDayKey(defaultDayKey);
+    }
+  }, [days, defaultDayKey, selectedDayKey]);
 
   const showFeedback = (title, message, tone = "default") => {
     setFeedback({
@@ -130,17 +206,28 @@ export default function AvailabilityEditor({
       setCustomTo(slotDefinition.to);
     }
 
-    setAvailability((current) => toggleQuickSlot(current, selectedDayKey, slotKey));
+    setAvailability((current) => toggleCurrentQuickSlot(current, selectedDayKey, slotKey));
   };
 
   const handleOpenCustomSheet = () => {
-    const selectedQuickSlotKey =
-      preferredSlotKey || selectedDay.quickSlots[selectedDay.quickSlots.length - 1] || null;
-    const selectedQuickSlot = quickSlots.find((slot) => slot.key === selectedQuickSlotKey);
+    if (customDayOptions) {
+      setCustomFrom(DEFAULT_FROM);
+      setCustomTo(DEFAULT_TO);
+    } else {
+      const selectedQuickSlotKey =
+        preferredSlotKey || selectedDay.quickSlots[selectedDay.quickSlots.length - 1] || null;
+      const quickSlots = [
+        { key: "morning", from: "08:00", to: "12:00" },
+        { key: "afternoon", from: "12:00", to: "18:00" },
+        { key: "night", from: "18:00", to: "23:00" },
+        { key: "late_night", from: "23:00", to: "02:00" },
+      ];
+      const selectedQuickSlot = quickSlots.find((slot) => slot.key === selectedQuickSlotKey);
 
-    if (selectedQuickSlot) {
-      setCustomFrom(selectedQuickSlot.from);
-      setCustomTo(selectedQuickSlot.to);
+      if (selectedQuickSlot) {
+        setCustomFrom(selectedQuickSlot.from);
+        setCustomTo(selectedQuickSlot.to);
+      }
     }
 
     setIsCustomSheetVisible(true);
@@ -154,14 +241,14 @@ export default function AvailabilityEditor({
       return;
     }
 
-    setAvailability((current) => addCustomSlot(current, selectedDayKey, validation.slot));
+    setAvailability((current) => addCurrentCustomSlot(current, selectedDayKey, validation.slot));
     setIsCustomSheetVisible(false);
   };
 
   const handleSave = async () => {
     try {
-      await onSave(normalizeAvailability(availability));
-      showFeedback("Disponibilidad guardada", "Tu disponibilidad semanal ya quedo actualizada.");
+      await onSave(normalizeCurrentAvailability(availability));
+      showFeedback("Disponibilidad guardada", resolvedSaveMessage);
     } catch (error) {
       showFeedback(
         "No pudimos guardar la disponibilidad",
@@ -182,10 +269,8 @@ export default function AvailabilityEditor({
           <Pressable onPress={onClose} style={styles.backdrop} />
           <View style={styles.sheet}>
             <View style={styles.handle} />
-            <Text style={styles.title}>Tu disponibilidad</Text>
-            <Text style={styles.subtitle}>
-              Indica los dias y horarios en los que soles jugar
-            </Text>
+            <Text style={styles.title}>{resolvedTitle}</Text>
+            <Text style={styles.subtitle}>{resolvedSubtitle}</Text>
 
             <ScrollView showsVerticalScrollIndicator={false}>
               <DaySelector
@@ -195,16 +280,18 @@ export default function AvailabilityEditor({
                 selectedDayKey={selectedDayKey}
               />
 
-              <QuickTimeSlots
-                displayRanges={quickSlotVisualState.displayRanges}
-                onToggle={handleToggleQuickSlot}
-                selectedSlots={quickSlotVisualState.selectedSlots}
-                slots={quickSlots}
-              />
+              {!customDayOptions ? (
+                <QuickTimeSlots
+                  displayRanges={quickSlotVisualState.displayRanges}
+                  onToggle={handleToggleQuickSlot}
+                  selectedSlots={quickSlotVisualState.selectedSlots}
+                  slots={quickSlots}
+                />
+              ) : null}
 
               <View style={styles.dayCard}>
                 <View style={styles.dayCardHeader}>
-                  <Text style={styles.dayCardTitle}>{getDayLabel(selectedDayKey)}</Text>
+                  <Text style={styles.dayCardTitle}>{resolveDayLabel(selectedDayKey)}</Text>
                   <View style={styles.dayCardActions}>
                     <Pressable
                       onPress={handleOpenCustomSheet}
@@ -213,13 +300,13 @@ export default function AvailabilityEditor({
                         pressed && styles.customButtonPressed,
                       ]}
                     >
-                      <Text style={styles.customButtonInlineText}>Personalizar</Text>
+                      <Text style={styles.customButtonInlineText}>{resolvedCustomButtonLabel}</Text>
                     </Pressable>
                     {(selectedDay.quickSlots.length > 0 || selectedDay.customSlots.length > 0) ? (
                       <Pressable
                         onPress={() =>
                           setAvailability((current) =>
-                            clearDayAvailability(current, selectedDayKey)
+                            clearCurrentDayAvailability(current, selectedDayKey)
                           )
                         }
                         style={styles.clearDayButton}
@@ -240,7 +327,7 @@ export default function AvailabilityEditor({
                         <Pressable
                           onPress={() =>
                             setAvailability((current) =>
-                              removeCustomSlot(current, selectedDayKey, index)
+                              removeCurrentCustomSlot(current, selectedDayKey, index)
                             )
                           }
                         >
@@ -255,7 +342,7 @@ export default function AvailabilityEditor({
               <View style={styles.summaryFooter}>
                 <View style={styles.summaryHeaderRow}>
                   <View>
-                    <Text style={styles.summaryTitle}>Resumen semanal</Text>
+                    <Text style={styles.summaryTitle}>{resolvedSummaryTitle}</Text>
                     <Text style={styles.summarySubtitle}>
                       {summaryItems.length > 0
                         ? `${summaryItems.length} dia${summaryItems.length === 1 ? "" : "s"} con horarios`
@@ -268,9 +355,10 @@ export default function AvailabilityEditor({
                 </View>
 
                 <AvailabilitySummary
+                  emptyText={resolvedSummaryEmptyText}
                   items={summaryItems}
                   onRemoveDay={(dayKey) =>
-                    setAvailability((current) => clearDayAvailability(current, dayKey))
+                    setAvailability((current) => clearCurrentDayAvailability(current, dayKey))
                   }
                 />
               </View>
@@ -295,7 +383,7 @@ export default function AvailabilityEditor({
       </Modal>
 
       <CustomTimeSheet
-        dayLabel={getDayLabel(selectedDayKey)}
+        dayLabel={resolveDayLabel(selectedDayKey)}
         from={customFrom}
         onChangeFrom={setCustomFrom}
         onChangeTo={setCustomTo}
@@ -346,7 +434,7 @@ export default function AvailabilityEditor({
               </Pressable>
               <Pressable
                 onPress={() => {
-                  setAvailability(createEmptyAvailability());
+                  setAvailability(createEmptyCurrentAvailability());
                   setIsClearAllConfirmVisible(false);
                 }}
                 style={({ pressed }) => [

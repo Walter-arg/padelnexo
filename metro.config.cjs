@@ -16,6 +16,17 @@ config.resolver.blockList = [
   rootOnly("temp-export"),
 ];
 config.resolver.resolveRequest = (context, moduleName, platform) => {
+  const firebaseAliases = {
+    "@firebase/app": path.resolve(__dirname, "node_modules/@firebase/app"),
+    "@firebase/component": path.resolve(__dirname, "node_modules/@firebase/component"),
+    "@firebase/logger": path.resolve(__dirname, "node_modules/@firebase/logger"),
+    "@firebase/util": path.resolve(__dirname, "node_modules/@firebase/util"),
+  };
+
+  if (firebaseAliases[moduleName]) {
+    return context.resolveRequest(context, firebaseAliases[moduleName], platform);
+  }
+
   if (moduleName === "memoize-one") {
     return {
       type: "sourceFile",

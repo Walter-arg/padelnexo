@@ -1,8 +1,57 @@
 import { StyleSheet, Text, View } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 
 import { colors, spacing } from "../config/theme";
 import LeagueSuspensionNotice from "./LeagueSuspensionNotice";
 import { getActiveLeagueSuspensionNotice } from "../services/leaguesService";
+
+const DAY_LABELS = {
+  monday: "Lunes",
+  tuesday: "Martes",
+  wednesday: "Miercoles",
+  thursday: "Jueves",
+  friday: "Viernes",
+  saturday: "Sabado",
+  sunday: "Domingo",
+};
+
+function buildScheduleSummary(league = {}) {
+  const timeSlots = Array.isArray(league?.scheduleConfig?.timeSlots)
+    ? league.scheduleConfig.timeSlots.filter(Boolean)
+    : [];
+  const dayLabel = DAY_LABELS[league?.scheduleConfig?.dayKey] || "";
+
+  if (!timeSlots.length) {
+    return dayLabel ? `${dayLabel} - Horario a definir` : "Horario a definir";
+  }
+
+  const timeLabel = timeSlots.join(" · ");
+  return dayLabel ? `${dayLabel} - ${timeLabel}` : timeLabel;
+}
+
+function shouldShowSexMeta(category = "", sex = "") {
+  const categoryText = String(category || "").trim().toLowerCase();
+  const sexText = String(sex || "").trim().toLowerCase();
+
+  if (sexText === "femenino") {
+    return !categoryText.includes("damas") && !categoryText.includes("femenino");
+  }
+
+  if (sexText === "masculino") {
+    return (
+      !categoryText.includes("caballeros") &&
+      !categoryText.includes(" cab") &&
+      !categoryText.endsWith("cab") &&
+      !categoryText.includes("masculino")
+    );
+  }
+
+  if (sexText === "mixto") {
+    return !categoryText.includes("mixta") && !categoryText.includes("mixto");
+  }
+
+  return Boolean(sexText);
+}
 
 export default function LeagueHeaderCard({
   actions = null,
@@ -16,49 +65,62 @@ export default function LeagueHeaderCard({
   teamType = "",
 }) {
   const categoryText = String(category || "").trim();
-  const sexText = String(sex || "").trim();
-  const normalizedCategory = categoryText.toLowerCase();
-  const normalizedSex = sexText.toLowerCase();
-  const categoryIncludesSex =
-    (normalizedSex === "femenino" &&
-      (normalizedCategory.includes("damas") || normalizedCategory.includes("femenino"))) ||
-    (normalizedSex === "masculino" &&
-      (normalizedCategory.includes("caballeros") ||
-        normalizedCategory.includes(" cab") ||
-        normalizedCategory.endsWith("cab") ||
-        normalizedCategory.includes("masculino"))) ||
-    (normalizedSex === "mixto" &&
-      (normalizedCategory.includes("mixta") || normalizedCategory.includes("mixto")));
-  const visibleSex = categoryIncludesSex ? "" : sexText;
+  const showSex = shouldShowSexMeta(categoryText, sex);
+  const metaCategory = [categoryText, showSex ? sex : ""].filter(Boolean).join(" · ");
+  const scheduleSummary = buildScheduleSummary(league);
   const teamTypeLabel =
     teamType === "individual" ? "Individual" : teamType === "pair" ? "Pareja fija" : "";
-  const hasMeta = Boolean(categoryText || visibleSex || teamTypeLabel);
+  const locationLine = [league?.localidad, league?.provincia].filter(Boolean).join(", ");
+  const complexLocationLine = [complexName, locationLine].filter(Boolean).join(" · ");
   const suspensionNotice = getActiveLeagueSuspensionNotice(league);
 
   return (
     <View style={styles.card}>
       <View style={styles.titleRow}>
-        <Text numberOfLines={2} style={[styles.title, actions ? styles.titleWithActions : null]}>
-          {title}
-        </Text>
+        <View style={styles.titleInline}>
+          <Text numberOfLines={2} style={[styles.title, actions ? styles.titleWithActions : null]}>
+            {title}
+          </Text>
+        </View>
         {actions ? <View style={styles.actionsWrap}>{actions}</View> : null}
       </View>
-      {complexName ? (
-        <Text numberOfLines={1} style={styles.complex}>
-          {complexName}
-        </Text>
-      ) : null}
-      {hasMeta ? (
-        <View style={styles.metaRow}>
-          {categoryText ? <Text style={styles.metaText}>{categoryText}</Text> : null}
-          {categoryText && visibleSex ? <Text style={styles.metaSeparator}>-</Text> : null}
-          {visibleSex ? <Text style={styles.metaText}>{visibleSex}</Text> : null}
-          {(categoryText || visibleSex) && teamTypeLabel ? (
-            <Text style={styles.metaSeparator}>-</Text>
-          ) : null}
-          {teamTypeLabel ? <Text style={styles.metaText}>{teamTypeLabel}</Text> : null}
+
+      <View style={styles.metaList}>
+        {metaCategory ? (
+          <View style={styles.metaItem}>
+            <Ionicons color={colors.primaryDark} name="ribbon-outline" size={16} />
+            <Text numberOfLines={1} style={[styles.metaText, styles.metaTextStrong]}>
+              {metaCategory}
+            </Text>
+          </View>
+        ) : null}
+
+        <View style={styles.metaItem}>
+          <Ionicons color={colors.primaryDark} name="calendar-outline" size={16} />
+          <Text numberOfLines={1} style={[styles.metaText, styles.metaTextMuted]}>
+            {scheduleSummary}
+          </Text>
         </View>
-      ) : null}
+
+        {complexLocationLine ? (
+          <View style={styles.metaItem}>
+            <Ionicons color="#2F8FCF" name="business-outline" size={16} />
+            <Text numberOfLines={1} style={[styles.metaText, styles.metaTextStrong]}>
+              {complexLocationLine}
+            </Text>
+          </View>
+        ) : null}
+
+        {teamTypeLabel ? (
+          <View style={styles.metaItem}>
+            <Ionicons color={colors.primaryDark} name="people-outline" size={16} />
+            <Text numberOfLines={1} style={[styles.metaText, styles.metaTextMuted]}>
+              {teamTypeLabel}
+            </Text>
+          </View>
+        ) : null}
+      </View>
+
       {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
       {children}
       <LeagueSuspensionNotice notice={suspensionNotice} />
@@ -72,19 +134,9 @@ const styles = StyleSheet.create({
     borderColor: "rgba(31,171,137,0.12)",
     borderRadius: 22,
     borderWidth: 1,
-    gap: 3,
+    gap: 6,
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md,
-  },
-  title: {
-    color: colors.text,
-    flex: 1,
-    fontFamily: "serif",
-    fontSize: 20,
-    fontWeight: "700",
-    letterSpacing: 0.2,
-    lineHeight: 24,
-    textAlign: "center",
   },
   titleRow: {
     alignItems: "center",
@@ -92,48 +144,56 @@ const styles = StyleSheet.create({
     minHeight: 26,
     position: "relative",
   },
-  titleWithActions: {
+  titleInline: {
+    alignItems: "center",
+    justifyContent: "center",
     paddingHorizontal: 42,
+  },
+  title: {
+    color: "#4F8FC8",
+    flexShrink: 1,
+    fontFamily: "serif",
+    fontSize: 21,
+    fontWeight: "800",
+    letterSpacing: 0.2,
+    lineHeight: 25,
+    textAlign: "center",
+  },
+  titleWithActions: {
+    paddingRight: 6,
   },
   actionsWrap: {
     position: "absolute",
     right: 0,
     top: 0,
   },
-  complex: {
-    color: "#2F8FCF",
-    fontSize: 13,
-    fontWeight: "800",
-    lineHeight: 16,
-    textAlign: "center",
+  metaList: {
+    gap: 6,
   },
-  metaRow: {
+  metaItem: {
     alignItems: "center",
+    columnGap: 8,
     flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 5,
     justifyContent: "center",
   },
   metaText: {
-    color: colors.primaryDark,
     fontSize: 12,
-    fontWeight: "900",
-    letterSpacing: 0.3,
+    fontWeight: "800",
     lineHeight: 15,
     textAlign: "center",
   },
-  metaSeparator: {
-    color: "#7AAFD3",
-    fontSize: 12,
-    fontWeight: "800",
+  metaTextStrong: {
+    color: "#101820",
+  },
+  metaTextMuted: {
+    color: "#66737F",
   },
   subtitle: {
     color: colors.textMuted,
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: "900",
     letterSpacing: 0.8,
-    lineHeight: 17,
+    lineHeight: 15,
     textAlign: "center",
   },
 });
-

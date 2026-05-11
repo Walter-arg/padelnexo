@@ -126,6 +126,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     flexDirection: "row",
     justifyContent: "space-between",
+    marginBottom: 6,
     minHeight: 40,
     paddingHorizontal: spacing.sm,
   },
@@ -159,7 +160,7 @@ const styles = StyleSheet.create({
   },
   childrenWrap: {
     paddingBottom: 8,
-    paddingTop: 2,
+    paddingTop: 0,
   },
 });
 

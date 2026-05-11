@@ -94,3 +94,27 @@ export async function sendPaymentReminderPushAsync({
   });
 }
 
+export async function sendTournamentPaymentReminderPushAsync({
+  playerUserId = "",
+  registrationId = "",
+  tournamentId = "",
+  tournamentName = "Torneo",
+}) {
+  const tokens = await getUserPushTokens(playerUserId);
+
+  if (!tokens.length) {
+    return;
+  }
+
+  await sendExpoPushNotificationAsync({
+    tokens,
+    title: "Recordatorio de pago",
+    body: `${tournamentName}: tenes un pago pendiente de inscripcion.`,
+    data: {
+      type: "tournament_payment_reminder",
+      tournamentId,
+      registrationId,
+    },
+  });
+}
+

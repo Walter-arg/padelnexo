@@ -1,12 +1,13 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
+  Image,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
@@ -17,31 +18,36 @@ import BottomQuickActionsBar, {
   BOTTOM_QUICK_ACTIONS_SPACE,
 } from "../components/BottomQuickActionsBar";
 import FeedbackModal from "../components/FeedbackModal";
+import SectionFilterBar from "../components/SectionFilterBar";
 import SectionHeader from "../components/SectionHeader";
 import { colors, spacing } from "../config/theme";
 import { useAuth } from "../context/AuthContext";
+import { LEAGUE_BRANCH_OPTIONS } from "../services/leaguesService";
+import { listUserBrandingProfiles } from "../services/userService";
 import {
+  deleteCancelledTournament,
+  deleteDraftTournament,
   findTournamentRegistrationsByPlayer,
+  getTournamentById,
   listTournamentsWithRegistrationCounts,
 } from "../services/tournamentsService";
 import { isApprovedOrganizer } from "../services/roleService";
+import { auth } from "../../services/firebaseConfig";
 
-const STATUS_FILTER_OPTIONS = [
-  { label: "Todos", value: "all" },
-  { label: "Abiertos", value: "open" },
-  { label: "En juego", value: "in_progress" },
-  { label: "Finalizados", value: "finished" },
+const HISTORY_WINDOW_DAYS = 30;
+const ORGANIZER_MENU_OPTIONS = [
+  { key: "active", label: "MIS TORNEOS" },
+  { key: "finished", label: "FINALIZADOS" },
+  { key: "cancelled", label: "CANCELADOS" },
+  { key: "rescheduled", label: "REPROGRAMADOS" },
 ];
-
-const DAY_LABELS = {
-  monday: "Lun",
-  tuesday: "Mar",
-  wednesday: "Mie",
-  thursday: "Jue",
-  friday: "Vie",
-  saturday: "Sab",
-  sunday: "Dom",
-};
+const PLAYER_MENU_OPTIONS = [
+  { key: "published", label: "PUBLICADOS" },
+  { key: "mine", label: "MIS TORNEOS" },
+  { key: "finished", label: "FINALIZADOS" },
+  { key: "cancelled", label: "CANCELADOS" },
+  { key: "rescheduled", label: "REPROGRAMADOS" },
+];
 
 const STATUS_META = {
   draft: {
@@ -57,16 +63,16 @@ const STATUS_META = {
     accent: "#356CB8",
   },
   registration_open: {
-    label: "Inscripcion abierta",
-    tint: "#EEF9F1",
-    border: "#B7DFBF",
-    accent: "#237547",
+    label: "Inscripciones abiertas",
+    tint: "#D9FF63",
+    border: "#A6D831",
+    accent: "#295400",
   },
   registration_closed: {
     label: "Inscripcion cerrada",
-    tint: "#FFF6EA",
-    border: "#E8CF9B",
-    accent: "#9B6A18",
+    tint: "#EAF4FF",
+    border: "#A9C8E7",
+    accent: "#2D5B8C",
   },
   building: {
     label: "Armando",
@@ -107,6 +113,27 @@ function sortByUpdatedAt(items = []) {
 }
 
 function formatTournamentDays(tournament = {}) {
+  const startDateMillis = Number(tournament.startDateMillis || 0);
+  const endDateMillis = Number(tournament.endDateMillis || 0);
+
+  if (startDateMillis || endDateMillis) {
+    const formatDate = (value) =>
+      new Date(value).toLocaleDateString("es-AR", {
+        day: "2-digit",
+        month: "2-digit",
+      });
+
+    if (startDateMillis && endDateMillis) {
+      return `${formatDate(startDateMillis)} - ${formatDate(endDateMillis)}`;
+    }
+
+    if (startDateMillis) {
+      return `Desde ${formatDate(startDateMillis)}`;
+    }
+
+    return `Hasta ${formatDate(endDateMillis)}`;
+  }
+
   const days = Array.isArray(tournament.groupStageDays) && tournament.groupStageDays.length
     ? tournament.groupStageDays
     : Array.isArray(tournament.playDays)
@@ -117,31 +144,159 @@ function formatTournamentDays(tournament = {}) {
     return "A confirmar";
   }
 
-  return days.map((dayKey) => DAY_LABELS[dayKey] || dayKey).join(" / ");
+  const dayLabels = {
+    monday: "Lun",
+    tuesday: "Mar",
+    wednesday: "Mie",
+    thursday: "Jue",
+    friday: "Vie",
+    saturday: "Sab",
+    sunday: "Dom",
+  };
+
+  return days.map((dayKey) => dayLabels[dayKey] || dayKey).join(" / ");
 }
 
 function getTournamentStatusMeta(status = "") {
   return STATUS_META[status] || STATUS_META.draft;
 }
 
-function getStatusFilterMatch(tournament = {}, statusFilter = "all") {
-  if (statusFilter === "all") {
-    return tournament.status !== "cancelled";
+function buildColorFromString(value = "") {
+  const palette = ["#E4572E", "#1C7ED6", "#0F9D58", "#C77D00", "#D63384", "#6C5CE7"];
+  const normalized = String(value || "").trim();
+
+  if (!normalized) {
+    return "#144234";
   }
 
-  if (statusFilter === "open") {
-    return tournament.status === "published" || tournament.status === "registration_open";
+  let hash = 0;
+
+  for (let index = 0; index < normalized.length; index += 1) {
+    hash = (hash * 31 + normalized.charCodeAt(index)) >>> 0;
   }
 
-  if (statusFilter === "in_progress") {
-    return tournament.status === "building" || tournament.status === "in_progress";
+  return palette[hash % palette.length];
+}
+
+function getTournamentTitleColor(tournament = {}) {
+  const batchScopedSeed = [tournament.creationBatchId, tournament.name]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean)
+    .join(":");
+
+  return buildColorFromString(
+    batchScopedSeed ||
+      tournament.compositionLabel ||
+      tournament?.compositionConfig?.label ||
+      tournament.name
+  );
+}
+
+function getOrganizerViewMeta(viewKey = "active") {
+  if (viewKey === "finished") {
+    return { subtitle: "Finalizados", title: "Finalizados" };
   }
 
-  if (statusFilter === "finished") {
-    return tournament.status === "finished" || tournament.status === "cancelled";
+  if (viewKey === "cancelled") {
+    return { subtitle: "Cancelados", title: "Cancelados" };
   }
 
-  return true;
+  if (viewKey === "rescheduled") {
+    return { subtitle: "Reprogramados", title: "Reprogramados" };
+  }
+
+  return { subtitle: "Torneos", title: "Torneos" };
+}
+
+function resolveOrganizerLastArea(areaKey = "") {
+  return ["registration", "fixture", "payments", "management"].includes(areaKey)
+    ? areaKey
+    : "management";
+}
+
+function getPlayerViewMeta(viewKey = "published") {
+  if (viewKey === "mine") {
+    return { subtitle: "Mis torneos", title: "Mis torneos" };
+  }
+
+  if (viewKey === "finished") {
+    return { subtitle: "Finalizados", title: "Finalizados" };
+  }
+
+  if (viewKey === "cancelled") {
+    return { subtitle: "Cancelados", title: "Cancelados" };
+  }
+
+  if (viewKey === "rescheduled") {
+    return { subtitle: "Reprogramados", title: "Reprogramados" };
+  }
+
+  return { subtitle: "Publicados", title: "Publicados" };
+}
+
+function getTournamentLocationNames(tournament = {}) {
+  const locations = [
+    ...(Array.isArray(tournament.venues) ? tournament.venues : []),
+    ...(Array.isArray(tournament.temporaryVenues) ? tournament.temporaryVenues : []),
+  ]
+    .map((venue) => normalizeText(venue?.city || venue?.ciudad || ""))
+    .filter(Boolean);
+
+  if (locations.length) {
+    return locations;
+  }
+
+  const fallback = normalizeText(
+    tournament.city || tournament.ciudad || tournament.venueCity || ""
+  );
+
+  return fallback ? [fallback] : [];
+}
+
+function getTournamentBranchLabel(tournament = {}) {
+  const branch = tournament?.compositionConfig?.branch || "";
+  return LEAGUE_BRANCH_OPTIONS.some((option) => option.value === branch) ? branch : "Todos";
+}
+
+function getTournamentComplexNames(tournament = {}) {
+  const complexes = [
+    ...(Array.isArray(tournament.venues) ? tournament.venues : []),
+    ...(Array.isArray(tournament.temporaryVenues) ? tournament.temporaryVenues : []),
+  ]
+    .map((venue) => normalizeText(venue?.name || venue?.nombre || ""))
+    .filter(Boolean);
+
+  if (complexes.length) {
+    return complexes;
+  }
+
+  const fallback = normalizeText(tournament.venueLabel || "");
+  return fallback && fallback !== "sede a confirmar" ? [fallback] : [];
+}
+
+function getHistoryCutoffMillis() {
+  return Date.now() - HISTORY_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+}
+
+function isHistoricalTournament(tournament = {}) {
+  if (tournament.status !== "finished" && tournament.status !== "cancelled") {
+    return false;
+  }
+
+  const referenceMillis = Number(
+    tournament.updatedAtMillis || tournament.createdAtMillis || 0
+  );
+
+  return referenceMillis >= getHistoryCutoffMillis();
+}
+
+function isReprogrammedTournament(tournament = {}) {
+  return Boolean(
+    tournament.reprogrammedAt ||
+      tournament.rescheduledAt ||
+      tournament.wasRescheduled ||
+      Number(tournament.scheduleChangesCount || 0) > 0
+  );
 }
 
 function getRegistrationsCountMap(registrationsByTournament = []) {
@@ -163,13 +318,34 @@ function getRegistrationsCountMap(registrationsByTournament = []) {
 function buildTournamentCardData(tournament = {}, registrationMeta = null) {
   const registrationsCount = Number(tournament.registrationsCount || 0);
   const maxPairs = Number(tournament.maxPairs || 0);
+  const confirmedRegistrationsCount = Number(
+    tournament.confirmedRegistrationsCount || registrationsCount || 0
+  );
+
+  let displayStatus = tournament.status;
+
+  if (tournament.status === "finished" || tournament.championPairId) {
+    displayStatus = "finished";
+  } else if (tournament.status === "building" || tournament.status === "in_progress") {
+    displayStatus = "in_progress";
+  } else if (tournament.status === "registration_open") {
+    displayStatus = "registration_open";
+  } else if (tournament.status === "registration_closed") {
+    displayStatus = "registration_closed";
+  } else if (confirmedRegistrationsCount >= maxPairs && maxPairs > 0) {
+    displayStatus = "registration_closed";
+  } else if (confirmedRegistrationsCount > 0) {
+    displayStatus = "published";
+  }
 
   return {
     ...tournament,
     userRegistration: registrationMeta?.registration || null,
+    displayStatus,
+    confirmedRegistrationsCount,
     tournamentDaysLabel: formatTournamentDays(tournament),
     occupancyLabel:
-      maxPairs > 0 ? `${registrationsCount}/${maxPairs} parejas` : `${registrationsCount} parejas`,
+      maxPairs > 0 ? `${confirmedRegistrationsCount}/${maxPairs} parejas` : `${confirmedRegistrationsCount} parejas`,
     categoryLabel:
       tournament?.compositionConfig?.label ||
       tournament?.compositionLabel ||
@@ -177,97 +353,299 @@ function buildTournamentCardData(tournament = {}, registrationMeta = null) {
   };
 }
 
-function TournamentCard({ item, onPress }) {
-  const statusMeta = getTournamentStatusMeta(item.status);
+function getRegistrationChipMeta(registration = null, isRegistrationClosed = false) {
+  if (!registration) {
+    if (isRegistrationClosed) {
+      return {
+        accent: "#6B7280",
+        border: "#D1D5DB",
+        label: "Inscribirse",
+        tint: "#F3F4F6",
+      };
+    }
+
+    return {
+      accent: "#4C3A00",
+      border: "#D7CA22",
+      label: "Inscribirse",
+      tint: "#F8F05A",
+    };
+  }
+
+  if (registration.withdrawalStatus === "confirmed") {
+    return {
+      accent: "#44515C",
+      border: "#B9C5CF",
+      label: "Baja confirmada",
+      tint: "#EEF2F5",
+    };
+  }
+
+  if (registration.withdrawalStatus === "requested") {
+    return {
+      accent: "#2D5B8C",
+      border: "#A9C8E7",
+      label: "Baja solicitada",
+      tint: "#EAF4FF",
+    };
+  }
+
+  if (registration.status === "confirmed") {
+    return {
+      accent: "#0F5F36",
+      border: "#72C98B",
+      label: "Inscripto",
+      tint: "#CFF4D8",
+    };
+  }
+
+  return {
+    accent: "#111111",
+    border: "#E6D76B",
+    label: "Esperando confirmacion",
+    tint: "#FFF6A8",
+  };
+}
+
+function TournamentCard({
+  canManageTournament,
+  item,
+  onDeleteCancelled,
+  onEditDraft,
+  onDeleteDraft,
+  onOpenRegistration,
+  onPress,
+  onViewPoster,
+  showDraftDelete,
+  showCancelledDelete,
+}) {
+  const statusMeta = getTournamentStatusMeta(item.displayStatus || item.status);
   const registration = item.userRegistration;
+  const hasRegistration = Boolean(registration);
+  const isPlayerFacingCard = !canManageTournament;
+  const showFriendlyCard = true;
+  const isRegistrationClosed =
+    isPlayerFacingCard &&
+    !hasRegistration &&
+    (item.displayStatus || item.status) === "registration_closed";
+  const registrationChipMeta = getRegistrationChipMeta(registration, isRegistrationClosed);
+  const isWithdrawnRegistration = registration?.withdrawalStatus === "confirmed";
+  const isCardDisabled = isPlayerFacingCard && (isWithdrawnRegistration || isRegistrationClosed);
+  const isCardPressEnabled = !isCardDisabled;
+  const statusLabel =
+    !canManageTournament && (item.displayStatus || item.status) === "published"
+      ? "Proximamente"
+      : statusMeta.label;
+  const showRegistrationCta =
+    !canManageTournament &&
+    ["published", "registration_open", "registration_closed"].includes(
+      item.displayStatus || item.status
+    );
+  const titleColor = getTournamentTitleColor(item);
 
   return (
-    <Pressable
-      onPress={() => onPress(item)}
-      style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
-    >
-      <View style={styles.cardHeader}>
-        <View style={styles.cardTitleWrap}>
-          <Text numberOfLines={2} style={styles.cardTitle}>
-            {item.name || "Torneo"}
-          </Text>
-          <Text numberOfLines={1} style={styles.cardVenue}>
-            {item.venueLabel || "Sede a confirmar"}
-          </Text>
+    <View style={styles.cardShell}>
+      <Pressable
+        disabled={!isCardPressEnabled}
+        onPress={() => onPress(item)}
+        style={({ pressed }) => [
+          styles.card,
+          pressed && isCardPressEnabled ? styles.cardPressed : null,
+          isCardDisabled ? styles.cardDisabled : null,
+        ]}
+      >
+        {showFriendlyCard ? (
+          <View style={styles.playerStatusWrap}>
+            <View style={styles.playerStatusRow}>
+              <View style={styles.playerStatusLeft}>
+                <View
+                  style={[
+                    styles.statusPill,
+                    styles.playerStatusPill,
+                    canManageTournament ? styles.draftStatusPill : styles.playerStatusPillSplit,
+                    {
+                      backgroundColor: statusMeta.tint,
+                      borderColor: statusMeta.border,
+                    },
+                  ]}
+                >
+                  <View style={styles.draftStatusContent}>
+                    <Text
+                      style={[
+                        styles.statusPillText,
+                        styles.playerStatusPillText,
+                        { color: statusMeta.accent },
+                      ]}
+                    >
+                      {statusLabel}
+                    </Text>
+                    {showDraftDelete || showCancelledDelete ? (
+                      <View style={styles.draftChipActions}>
+                        {showDraftDelete ? (
+                          <Pressable
+                            hitSlop={8}
+                            onPress={() => onEditDraft?.(item)}
+                            style={({ pressed }) => [
+                              styles.draftChipButton,
+                              pressed && styles.draftChipButtonPressed,
+                            ]}
+                          >
+                            <Ionicons color={colors.primaryDark} name="create-outline" size={14} />
+                          </Pressable>
+                        ) : null}
+                        <Pressable
+                          hitSlop={8}
+                          onPress={() =>
+                            showCancelledDelete ? onDeleteCancelled?.(item) : onDeleteDraft?.(item)
+                          }
+                          style={({ pressed }) => [
+                            styles.draftChipButton,
+                            styles.draftChipDeleteButton,
+                            pressed && styles.draftChipButtonPressed,
+                          ]}
+                        >
+                          <Ionicons color="#B24343" name="trash-outline" size={14} />
+                        </Pressable>
+                      </View>
+                    ) : null}
+                  </View>
+                </View>
+                {!canManageTournament ? (
+                  <Pressable
+                    disabled={isCardDisabled}
+                    onPress={() => onOpenRegistration?.(item)}
+                    style={({ pressed }) => [
+                      styles.statusPill,
+                      styles.playerStatusPill,
+                      styles.playerStatusPillSplit,
+                      {
+                        backgroundColor: registrationChipMeta.tint,
+                        borderColor: registrationChipMeta.border,
+                      },
+                      pressed && !isWithdrawnRegistration && !isRegistrationClosed
+                        ? styles.registrationShortcutPressed
+                        : null,
+                      isCardDisabled ? styles.registrationShortcutDisabled : null,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.statusPillText,
+                        styles.playerStatusPillText,
+                        { color: registrationChipMeta.accent },
+                      ]}
+                    >
+                      {registrationChipMeta.label}
+                    </Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            </View>
+          </View>
+        ) : null}
+
+        <View style={styles.cardHeader}>
+          <View style={styles.cardTitleWrap}>
+            <View style={styles.cardTitleInline}>
+              <Text style={styles.cardEyebrowInline}>TORNEO</Text>
+              <Text
+                numberOfLines={2}
+                style={[styles.cardTitle, styles.cardTitlePlayer, { color: titleColor }]}
+              >
+                {item.name || "Nombre del torneo"}
+              </Text>
+            </View>
+          </View>
+          {item.organizerLogoUrl ? (
+            <View pointerEvents="none" style={styles.cardHeaderLogoWrap}>
+              <View style={styles.cardPosterThumbButton}>
+                <Image source={{ uri: item.organizerLogoUrl }} style={styles.cardPosterThumb} />
+              </View>
+            </View>
+          ) : null}
+          {item.coverImage ? (
+            <View style={styles.cardHeaderPosterWrap}>
+              <Pressable
+                onPress={() => onViewPoster?.(item.coverImage, item.name || "Torneo")}
+                style={({ pressed }) => [
+                  styles.playerPosterThumbButton,
+                  pressed ? styles.playerPosterThumbButtonPressed : null,
+                ]}
+              >
+                <Image source={{ uri: item.coverImage }} style={styles.playerPosterThumb} />
+              </Pressable>
+            </View>
+          ) : null}
         </View>
 
-        <View
-          style={[
-            styles.statusPill,
-            {
-              backgroundColor: statusMeta.tint,
-              borderColor: statusMeta.border,
-            },
-          ]}
-        >
-          <Text style={[styles.statusPillText, { color: statusMeta.accent }]}>
-            {statusMeta.label}
-          </Text>
-        </View>
-      </View>
+        {showFriendlyCard ? (
+          <View style={styles.cardFriendlyInfo}>
+            {canManageTournament ? (
+              <View style={styles.cardFriendlyItem}>
+                <Ionicons color={colors.primaryDark} name="people-outline" size={16} />
+                <Text numberOfLines={2} style={styles.cardFriendlyText}>
+                  {`Cupos: ${item.occupancyLabel}`}
+                </Text>
+              </View>
+            ) : null}
+            <View style={styles.cardFriendlyItem}>
+              <Ionicons color={colors.primaryDark} name="trophy-outline" size={16} />
+              <Text numberOfLines={2} style={styles.cardFriendlyText}>
+                {item.tournamentFormat === "groups_knockout"
+                  ? "Modalidad: Zonas + llaves"
+                  : "Modalidad: Formato a confirmar"}
+              </Text>
+            </View>
+            <View style={styles.cardFriendlyItem}>
+              <Ionicons color={colors.primaryDark} name="ribbon-outline" size={16} />
+              <Text numberOfLines={2} style={styles.cardFriendlyText}>
+                {item.categoryLabel}
+              </Text>
+            </View>
+            <View style={styles.cardFriendlyItem}>
+              <Ionicons color={colors.primaryDark} name="calendar-outline" size={16} />
+              <Text numberOfLines={2} style={styles.cardFriendlyText}>
+                {item.tournamentDaysLabel}
+              </Text>
+            </View>
+            <View style={styles.cardFriendlyItem}>
+              <Ionicons color={colors.primaryDark} name="location-outline" size={16} />
+              <View style={styles.cardFriendlyTextWrap}>
+                <Text numberOfLines={2} style={styles.cardFriendlyText}>
+                  {item.venueLabel || "Sede a confirmar"}
+                </Text>
+              </View>
+            </View>
+          </View>
+        ) : null}
 
-      <View style={styles.cardMetaGrid}>
-        <View style={styles.metaBox}>
-          <Text style={styles.metaLabel}>Categoria</Text>
-          <Text numberOfLines={2} style={styles.metaValue}>
-            {item.categoryLabel}
-          </Text>
-        </View>
-
-        <View style={styles.metaBox}>
-          <Text style={styles.metaLabel}>Dias</Text>
-          <Text numberOfLines={2} style={styles.metaValue}>
-            {item.tournamentDaysLabel}
-          </Text>
-        </View>
-
-        <View style={styles.metaBox}>
-          <Text style={styles.metaLabel}>Cupos</Text>
-          <Text numberOfLines={1} style={styles.metaValue}>
-            {item.occupancyLabel}
-          </Text>
-        </View>
-
-        <View style={styles.metaBox}>
-          <Text style={styles.metaLabel}>Formato</Text>
-          <Text numberOfLines={1} style={styles.metaValue}>
-            {item.tournamentFormat === "groups_knockout" ? "Zonas + llaves" : "A confirmar"}
-          </Text>
-        </View>
-      </View>
-
-      {registration ? (
-        <View style={styles.registrationRow}>
-          <Ionicons color={colors.primaryDark} name="people-outline" size={16} />
-          <Text numberOfLines={1} style={styles.registrationText}>
-            Tu pareja: {registration.pairLabel}
-          </Text>
-          <Text style={styles.registrationStatus}>
-            {registration.status === "confirmed"
-              ? "Confirmada"
-              : registration.status === "in_review"
-              ? "En revision"
-              : registration.status === "rejected"
-              ? "Rechazada"
-              : "Pendiente"}
-          </Text>
-        </View>
-      ) : null}
-    </Pressable>
+      </Pressable>
+    </View>
   );
 }
 
-function TournamentSectionHeader({ description, title }) {
+function TournamentSectionHeader({ title }) {
   return (
     <View style={styles.sectionHeaderCard}>
       <Text style={styles.sectionHeaderTitle}>{title}</Text>
-      {description ? <Text style={styles.sectionHeaderText}>{description}</Text> : null}
     </View>
+  );
+}
+
+function CreateTournamentButton({ onPress }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [styles.createButton, pressed && styles.createButtonPressed]}
+    >
+      <View style={styles.createButtonIconWrap}>
+        <Ionicons color={colors.surface} name="add" size={18} />
+      </View>
+      <View style={styles.createButtonTextWrap}>
+        <Text style={styles.createButtonText}>CREAR TORNEO</Text>
+      </View>
+      <Ionicons color={colors.surface} name="chevron-forward" size={16} />
+    </Pressable>
   );
 }
 
@@ -282,38 +660,21 @@ function EmptyState({ canCreate, currentTab, loading }) {
     );
   }
 
-  if (currentTab === "create") {
-    return (
-      <View style={styles.emptyCard}>
-        <Text style={styles.emptyTitle}>Crear torneo</Text>
-        <Text style={styles.emptyText}>
-          Ya esta lista la pantalla de alta para crear un torneo o varios en una sola accion.
-        </Text>
-        <View style={styles.createInfoList}>
-          <Text style={styles.createInfoItem}>- Torneo simple o multiple</Text>
-          <Text style={styles.createInfoItem}>- Composicion deportiva reutilizada desde LIGAS</Text>
-          <Text style={styles.createInfoItem}>- Reglas de pago y confirmacion por pareja</Text>
-        </View>
-        {!canCreate ? (
-          <Text style={styles.createInfoMuted}>
-            Esta area se habilita para perfiles organizadores.
-          </Text>
-        ) : null}
-      </View>
-    );
-  }
-
   const title =
     currentTab === "mine"
-      ? "Todavia no tenes torneos propios"
-      : currentTab === "registrations"
-      ? "Todavia no tenes inscripciones"
+      ? "Todavia no tenes torneos en curso"
+      : currentTab === "finished" || currentTab === "cancelled" || currentTab === "rescheduled"
+      ? "Todavia no hay historial reciente"
+      : canCreate
+      ? "Todavia no tenes torneos activos"
       : "Todavia no hay torneos cargados";
   const message =
     currentTab === "mine"
-      ? "Cuando creemos la pantalla de alta, vas a ver aca todos tus torneos."
-      : currentTab === "registrations"
-      ? "Cuando te inscribas con una pareja confirmada, ese torneo aparecera aca."
+      ? "Aca vas a encontrar los torneos donde ya estas inscripto o jugando."
+      : currentTab === "finished" || currentTab === "cancelled" || currentTab === "rescheduled"
+      ? "Los torneos finalizados o cancelados quedan visibles durante 30 dias."
+      : canCreate
+      ? "Cuando crees un torneo nuevo, va a aparecer directamente en esta vista."
       : "Cuando haya torneos publicados, los vas a encontrar aca.";
 
   return (
@@ -324,13 +685,22 @@ function EmptyState({ canCreate, currentTab, loading }) {
   );
 }
 
-export default function TorneosScreen({ navigation }) {
-  const { userData } = useAuth();
-  const [activeTab, setActiveTab] = useState("all");
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [query, setQuery] = useState("");
+export default function TorneosScreen({ navigation, route }) {
+  const { user, userData } = useAuth();
+  const canCreateTournament = isApprovedOrganizer(userData);
+  const organizerView = canCreateTournament
+    ? route?.params?.organizerView || "active"
+    : "active";
+  const organizerViewMeta = getOrganizerViewMeta(organizerView);
+  const playerView = canCreateTournament ? "published" : route?.params?.playerView || "published";
+  const playerViewMeta = getPlayerViewMeta(playerView);
+  const headerSubtitle = canCreateTournament ? organizerViewMeta.subtitle : playerViewMeta.subtitle;
+  const resolvedHeaderSubtitle = headerSubtitle === "Torneos" ? "" : headerSubtitle;
+  const [showOrganizerHistoryMenu, setShowOrganizerHistoryMenu] = useState(false);
+  const [showPlayerHistoryMenu, setShowPlayerHistoryMenu] = useState(false);
   const [loading, setLoading] = useState(true);
   const [tournaments, setTournaments] = useState([]);
+  const [organizerBrandingMap, setOrganizerBrandingMap] = useState({});
   const [registrationsByTournament, setRegistrationsByTournament] = useState([]);
   const [feedback, setFeedback] = useState({
     visible: false,
@@ -338,9 +708,88 @@ export default function TorneosScreen({ navigation }) {
     message: "",
     tone: "default",
   });
+  const [cancelledTournamentToDelete, setCancelledTournamentToDelete] = useState(null);
+  const [deletingCancelledTournament, setDeletingCancelledTournament] = useState(false);
 
-  const currentUserId = userData?.uid || "";
-  const canCreateTournament = isApprovedOrganizer(userData);
+  const currentUserId = userData?.uid || user?.uid || auth?.currentUser?.uid || "";
+  const userLocalidad = useMemo(() => {
+    const name = userData?.localidad?.nombre || userData?.city || "";
+
+    if (!name) {
+      return null;
+    }
+
+    return {
+      nombre: name,
+      provincia:
+        userData?.localidad?.provincia || userData?.province || userData?.location?.provincia || "",
+      pais: userData?.localidad?.pais || userData?.location?.pais || "Argentina",
+    };
+  }, [userData]);
+  const [appliedFilters, setAppliedFilters] = useState({
+    localidades: [],
+    sexo: "Todos",
+    categoria: "Todas",
+    complejo: "Todos",
+  });
+  const [draftSexo, setDraftSexo] = useState("Todos");
+  const [draftCategoria, setDraftCategoria] = useState("Todas");
+  const [draftComplejo, setDraftComplejo] = useState("Todos");
+  const hasActiveFilters =
+    appliedFilters.localidades.length > 0 ||
+    appliedFilters.sexo !== "Todos" ||
+    appliedFilters.categoria !== "Todas" ||
+    appliedFilters.complejo !== "Todos";
+
+  useEffect(() => {
+    setAppliedFilters({
+      localidades: [],
+      sexo: "Todos",
+      categoria: "Todas",
+      complejo: "Todos",
+    });
+    setDraftSexo("Todos");
+    setDraftCategoria("Todas");
+    setDraftComplejo("Todos");
+  }, [canCreateTournament, currentUserId, userLocalidad]);
+
+  useEffect(() => {
+    if (!route?.params?.resetOrganizerFilters || !canCreateTournament) {
+      return;
+    }
+
+    setAppliedFilters({
+      localidades: [],
+      sexo: "Todos",
+      categoria: "Todas",
+      complejo: "Todos",
+    });
+    navigation.setParams({
+      resetOrganizerFilters: undefined,
+    });
+  }, [canCreateTournament, navigation, route?.params?.resetOrganizerFilters]);
+
+  useEffect(() => {
+    if (canCreateTournament) {
+      setShowOrganizerHistoryMenu(false);
+    }
+  }, [canCreateTournament, organizerView]);
+
+  useEffect(() => {
+    if (!canCreateTournament) {
+      setShowPlayerHistoryMenu(false);
+    }
+  }, [canCreateTournament, playerView]);
+
+  useEffect(() => {
+    if (canCreateTournament) {
+      return;
+    }
+
+    if (route?.params?.playerView && route.params.playerView !== "published") {
+      navigation.setParams({ playerView: "published" });
+    }
+  }, [canCreateTournament, currentUserId, navigation, route?.params?.playerView]);
 
   useFocusEffect(
     useCallback(() => {
@@ -349,23 +798,60 @@ export default function TorneosScreen({ navigation }) {
       const loadTournamentHub = async () => {
         try {
           setLoading(true);
-          const [tournamentsResponse, registrationsResponse] = await Promise.all([
+          const [tournamentsResponse, registrationsResponse, brandingProfiles] = await Promise.all([
             listTournamentsWithRegistrationCounts(),
             currentUserId ? findTournamentRegistrationsByPlayer(currentUserId) : Promise.resolve([]),
+            listUserBrandingProfiles(),
           ]);
+
+          let nextTournaments = sortByUpdatedAt(tournamentsResponse);
+          const createdTournamentId = route?.params?.createdTournamentId || "";
+          const createdTournament = route?.params?.createdTournament || null;
+
+          if (
+            createdTournament &&
+            createdTournament.id &&
+            !nextTournaments.some((tournament) => tournament.id === createdTournament.id)
+          ) {
+            nextTournaments = sortByUpdatedAt([...nextTournaments, createdTournament]);
+          }
+
+          if (
+            createdTournamentId &&
+            !nextTournaments.some((tournament) => tournament.id === createdTournamentId)
+          ) {
+            const fetchedTournament = await getTournamentById(createdTournamentId);
+
+            if (fetchedTournament) {
+              nextTournaments = sortByUpdatedAt([...nextTournaments, fetchedTournament]);
+            }
+          }
 
           if (!isMounted) {
             return;
           }
 
-          setTournaments(sortByUpdatedAt(tournamentsResponse));
+          setTournaments(nextTournaments);
+          setOrganizerBrandingMap(
+            brandingProfiles.reduce((accumulator, item) => {
+              accumulator[item.uid] = item.organizerLogoUrl || "";
+              return accumulator;
+            }, {})
+          );
           setRegistrationsByTournament(registrationsResponse);
+          if (createdTournamentId || createdTournament) {
+            navigation.setParams({
+              createdTournamentId: undefined,
+              createdTournament: undefined,
+            });
+          }
         } catch (error) {
           if (!isMounted) {
             return;
           }
 
           setTournaments([]);
+          setOrganizerBrandingMap({});
           setRegistrationsByTournament([]);
           setFeedback({
             visible: true,
@@ -385,22 +871,13 @@ export default function TorneosScreen({ navigation }) {
       return () => {
         isMounted = false;
       };
-    }, [currentUserId])
+    }, [
+      currentUserId,
+      navigation,
+      route?.params?.createdTournament,
+      route?.params?.createdTournamentId,
+    ])
   );
-
-  const tabs = useMemo(() => {
-    const baseTabs = [
-      { key: "all", label: "Todos" },
-      { key: "mine", label: "Mis torneos" },
-      { key: "registrations", label: "Inscripciones" },
-    ];
-
-    if (canCreateTournament) {
-      baseTabs.push({ key: "create", label: "Crear torneo" });
-    }
-
-    return baseTabs;
-  }, [canCreateTournament]);
 
   const registrationsMap = useMemo(
     () => getRegistrationsCountMap(registrationsByTournament),
@@ -409,96 +886,280 @@ export default function TorneosScreen({ navigation }) {
 
   const tournamentsEnriched = useMemo(() => {
     return tournaments.map((tournament) =>
-      buildTournamentCardData(tournament, registrationsMap[tournament.id] || null)
+      buildTournamentCardData(
+        {
+          ...tournament,
+          organizerLogoUrl:
+            organizerBrandingMap[tournament.organizerId] ||
+            organizerBrandingMap[tournament.createdBy] ||
+            "",
+        },
+        registrationsMap[tournament.id] || null
+      )
     );
-  }, [registrationsMap, tournaments]);
+  }, [organizerBrandingMap, registrationsMap, tournaments]);
+
+  const sexFilterOptions = useMemo(
+    () => ["Todos", ...LEAGUE_BRANCH_OPTIONS.map((option) => option.value)],
+    []
+  );
+
+  const categoryFilterOptions = useMemo(() => {
+    const categories = [...new Set(tournamentsEnriched.map((tournament) => tournament.categoryLabel).filter(Boolean))];
+    return ["Todas", ...categories];
+  }, [tournamentsEnriched]);
+
+  const complexFilterOptions = useMemo(() => {
+    const complexes = [
+      ...new Set(
+        tournamentsEnriched
+          .flatMap((tournament) => getTournamentComplexNames(tournament))
+          .map((name) => name.trim())
+          .filter(Boolean)
+      ),
+    ].sort((first, second) => first.localeCompare(second, "es"));
+
+    return ["Todos", ...complexes];
+  }, [tournamentsEnriched]);
+
+  const handleOpenFilters = () => {
+    setDraftSexo(appliedFilters.sexo);
+    setDraftCategoria(appliedFilters.categoria);
+    setDraftComplejo(appliedFilters.complejo);
+  };
+
+  const handleApplyFilters = async () => {
+    setAppliedFilters((current) => ({
+      ...current,
+      sexo: draftSexo,
+      categoria: draftCategoria,
+      complejo: draftComplejo,
+    }));
+  };
+
+  const handleOpenOrganizerView = (viewKey) => {
+    setShowOrganizerHistoryMenu(false);
+    navigation.setParams({ organizerView: viewKey });
+  };
+
+  const handleOpenPlayerView = (viewKey) => {
+    setShowPlayerHistoryMenu(false);
+    navigation.setParams({ playerView: viewKey });
+  };
 
   const filteredTournaments = useMemo(() => {
-    const normalizedQuery = normalizeText(query);
-
     return tournamentsEnriched.filter((tournament) => {
-      if (!getStatusFilterMatch(tournament, statusFilter)) {
-        return false;
-      }
+      const isHistory = isHistoricalTournament(tournament);
+      const isRescheduled = isReprogrammedTournament(tournament);
 
-      if (normalizedQuery) {
-        const haystack = [
-          tournament.name,
-          tournament.venueLabel,
-          tournament.categoryLabel,
-          tournament.organizerName,
-        ]
-          .map(normalizeText)
-          .join(" ");
+      if (appliedFilters.localidades.length > 0) {
+        const tournamentLocations = getTournamentLocationNames(tournament);
+        const cityMatches = appliedFilters.localidades.some((location) =>
+          tournamentLocations.includes(normalizeText(location.nombre))
+        );
 
-        if (!haystack.includes(normalizedQuery)) {
+        if (!cityMatches) {
           return false;
         }
       }
 
-      if (activeTab === "mine" && normalizeText(tournament.organizerId) !== normalizeText(currentUserId)) {
-        return false;
+      if (appliedFilters.sexo !== "Todos") {
+        if (getTournamentBranchLabel(tournament) !== appliedFilters.sexo) {
+          return false;
+        }
       }
 
-      if (activeTab === "registrations" && !tournament.userRegistration) {
-        return false;
+      if (appliedFilters.categoria !== "Todas") {
+        if (tournament.categoryLabel !== appliedFilters.categoria) {
+          return false;
+        }
       }
 
-      return true;
+      if (appliedFilters.complejo !== "Todos") {
+        const complexMatches = getTournamentComplexNames(tournament).includes(
+          normalizeText(appliedFilters.complejo)
+        );
+
+        if (!complexMatches) {
+          return false;
+        }
+      }
+
+      if (canCreateTournament) {
+        const isOwnedByOrganizer =
+          normalizeText(tournament.organizerId) === normalizeText(currentUserId) ||
+          normalizeText(tournament.createdBy) === normalizeText(currentUserId);
+
+        if (!isOwnedByOrganizer) {
+          return false;
+        }
+
+        if (organizerView === "active") {
+          return !isHistory && !isRescheduled;
+        }
+
+        if (organizerView === "finished") {
+          return tournament.status === "finished" && isHistory;
+        }
+
+        if (organizerView === "cancelled") {
+          return tournament.status === "cancelled" && isHistory;
+        }
+
+        if (organizerView === "rescheduled") {
+          return isRescheduled;
+        }
+
+        return !isHistory && !isRescheduled;
+      }
+
+      if (playerView === "mine") {
+        return Boolean(tournament.userRegistration) && !isHistory && !isRescheduled;
+      }
+
+      if (playerView === "finished") {
+        return tournament.status === "finished" && isHistory && Boolean(tournament.userRegistration);
+      }
+
+      if (playerView === "cancelled") {
+        return tournament.status === "cancelled" && isHistory && Boolean(tournament.userRegistration);
+      }
+
+      if (playerView === "rescheduled") {
+        return isRescheduled && Boolean(tournament.userRegistration);
+      }
+
+      return tournament.status !== "draft" && !isHistory && !isRescheduled;
     });
-  }, [activeTab, currentUserId, query, statusFilter, tournamentsEnriched]);
+  }, [
+    appliedFilters.categoria,
+    appliedFilters.complejo,
+    appliedFilters.localidades,
+    appliedFilters.sexo,
+    canCreateTournament,
+    currentUserId,
+    organizerView,
+    playerView,
+    tournamentsEnriched,
+  ]);
+
+  const organizerOwnedActiveTournaments = useMemo(() => {
+    if (!canCreateTournament) {
+      return [];
+    }
+
+    return tournamentsEnriched.filter((tournament) => {
+      const isOwnedByOrganizer =
+        normalizeText(tournament.organizerId) === normalizeText(currentUserId) ||
+        normalizeText(tournament.createdBy) === normalizeText(currentUserId);
+
+      return isOwnedByOrganizer && !isHistoricalTournament(tournament) && !isReprogrammedTournament(tournament);
+    });
+  }, [canCreateTournament, currentUserId, tournamentsEnriched]);
+
+  const playerPublishedTournaments = useMemo(() => {
+    if (canCreateTournament) {
+      return [];
+    }
+
+    return tournamentsEnriched.filter((tournament) => {
+      const isHistory = isHistoricalTournament(tournament);
+      const isRescheduled = isReprogrammedTournament(tournament);
+
+      return tournament.status !== "draft" && !isHistory && !isRescheduled;
+    });
+  }, [canCreateTournament, tournamentsEnriched]);
+
+  const visibleTournaments = useMemo(() => {
+    if (
+      canCreateTournament &&
+      organizerView === "active" &&
+      !filteredTournaments.length &&
+      organizerOwnedActiveTournaments.length
+    ) {
+      return organizerOwnedActiveTournaments;
+    }
+
+    if (
+      !canCreateTournament &&
+      playerView === "published" &&
+      !hasActiveFilters &&
+      !filteredTournaments.length &&
+      playerPublishedTournaments.length
+    ) {
+      return playerPublishedTournaments;
+    }
+
+    return filteredTournaments;
+  }, [
+    canCreateTournament,
+    filteredTournaments,
+    hasActiveFilters,
+    organizerOwnedActiveTournaments,
+    organizerView,
+    playerPublishedTournaments,
+    playerView,
+  ]);
 
   const listItems = useMemo(() => {
-    if (statusFilter !== "finished") {
-      return filteredTournaments.map((tournament) => ({
+    if (canCreateTournament) {
+      return visibleTournaments.map((tournament) => ({
         type: "tournament",
         id: tournament.id,
         tournament,
       }));
     }
 
-    const finishedItems = filteredTournaments.filter((tournament) => tournament.status === "finished");
-    const cancelledItems = filteredTournaments.filter((tournament) => tournament.status === "cancelled");
-    const items = [];
-
-    if (finishedItems.length) {
-      items.push({
-        type: "section",
-        id: "section-finished",
-        title: "Finalizados",
-        description: "Torneos cerrados normalmente.",
-      });
-      finishedItems.forEach((tournament) => {
-        items.push({
-          type: "tournament",
-          id: tournament.id,
-          tournament,
-        });
-      });
-    }
-
-    if (cancelledItems.length) {
-      items.push({
-        type: "section",
-        id: "section-cancelled",
-        title: "Cancelados",
-        description: "Quedan visibles aca para conservar historial y pagos.",
-      });
-      cancelledItems.forEach((tournament) => {
-        items.push({
-          type: "tournament",
-          id: tournament.id,
-          tournament,
-        });
-      });
-    }
-
-    return items;
-  }, [filteredTournaments, statusFilter]);
+    return visibleTournaments.map((tournament) => ({
+      type: "tournament",
+      id: tournament.id,
+      tournament,
+    }));
+  }, [canCreateTournament, visibleTournaments]);
 
   const handleOpenTournament = (tournament) => {
     if (!tournament?.id) {
       return;
+    }
+
+    if (
+      !canCreateTournament &&
+      !tournament?.userRegistration &&
+      (tournament?.displayStatus || tournament?.status) === "registration_closed"
+    ) {
+      return;
+    }
+
+    if (!canCreateTournament && tournament?.userRegistration?.withdrawalStatus === "confirmed") {
+      return;
+    }
+
+    if (canCreateTournament) {
+      const organizerLastArea = resolveOrganizerLastArea(tournament?.organizerLastViewedArea || "");
+
+      if (organizerLastArea === "registration") {
+        navigation.navigate("TournamentRegistrations", {
+          tournamentId: tournament.id,
+          tournamentName: tournament.name || "Torneo",
+        });
+        return;
+      }
+
+      if (organizerLastArea === "fixture") {
+        navigation.navigate("TournamentFixture", {
+          tournamentId: tournament.id,
+          tournamentName: tournament.name || "Torneo",
+        });
+        return;
+      }
+
+      if (organizerLastArea === "payments") {
+        navigation.navigate("TournamentPayments", {
+          tournamentId: tournament.id,
+          tournamentName: tournament.name || "Torneo",
+        });
+        return;
+      }
     }
 
     navigation.navigate("TournamentDetail", {
@@ -507,7 +1168,104 @@ export default function TorneosScreen({ navigation }) {
     });
   };
 
-  const handlePressCreateTab = () => {
+  const handleOpenRegistration = (tournament) => {
+    if (!tournament?.id) {
+      return;
+    }
+
+    navigation.navigate("TournamentRegistration", {
+      tournamentId: tournament.id,
+      tournamentName: tournament.name || "Torneo",
+    });
+  };
+
+  const handleViewPoster = async (posterUrl, tournamentName = "Torneo") => {
+    if (!posterUrl) {
+      return;
+    }
+
+    try {
+      navigation.navigate("TournamentPosterViewer", {
+        posterUrl,
+        tournamentName,
+      });
+    } catch (error) {
+      setFeedback({
+        visible: true,
+        title: "No pudimos abrir el poster",
+        message: "Intenta nuevamente en unos instantes.",
+        tone: "danger",
+      });
+    }
+  };
+
+  const handleDeleteDraft = async (tournament) => {
+    try {
+      await deleteDraftTournament({
+        tournamentId: tournament?.id || "",
+        organizerId: currentUserId,
+      });
+
+      setTournaments((current) => current.filter((item) => item.id !== tournament?.id));
+      setFeedback({
+        visible: true,
+        title: "Borrador eliminado",
+        message: "El torneo en borrador se elimino correctamente.",
+        tone: "success",
+      });
+    } catch (error) {
+      setFeedback({
+        visible: true,
+        title: "No pudimos eliminar el borrador",
+        message: error?.message || "Intenta nuevamente en unos instantes.",
+        tone: "danger",
+      });
+    }
+  };
+
+  const handleRequestDeleteCancelled = (tournament) => {
+    if (!canCreateTournament || !tournament) {
+      return;
+    }
+
+    setCancelledTournamentToDelete(tournament);
+  };
+
+  const handleConfirmDeleteCancelled = async () => {
+    if (!cancelledTournamentToDelete?.id) {
+      return;
+    }
+
+    try {
+      setDeletingCancelledTournament(true);
+      await deleteCancelledTournament({
+        tournamentId: cancelledTournamentToDelete.id,
+        organizerId: currentUserId,
+      });
+
+      setTournaments((current) =>
+        current.filter((item) => item.id !== cancelledTournamentToDelete.id)
+      );
+      setCancelledTournamentToDelete(null);
+      setFeedback({
+        visible: true,
+        title: "Torneo eliminado",
+        message: "El torneo cancelado se elimino definitivamente.",
+        tone: "success",
+      });
+    } catch (error) {
+      setFeedback({
+        visible: true,
+        title: "No pudimos eliminar el torneo",
+        message: error?.message || "Intenta nuevamente en unos instantes.",
+        tone: "danger",
+      });
+    } finally {
+      setDeletingCancelledTournament(false);
+    }
+  };
+
+  const handleOpenCreateTournament = () => {
     if (!canCreateTournament) {
       return;
     }
@@ -515,112 +1273,224 @@ export default function TorneosScreen({ navigation }) {
     navigation.navigate("CreateTournament");
   };
 
+  const handleEditDraft = (tournament) => {
+    if (!canCreateTournament || !tournament) {
+      return;
+    }
+
+    navigation.navigate("CreateTournament", {
+      tournament,
+    });
+  };
+
   const renderHeader = () => (
     <View>
-      <View style={styles.searchCard}>
-        <View style={styles.searchRow}>
-          <Ionicons color={colors.muted} name="search-outline" size={18} />
-          <TextInput
-            onChangeText={setQuery}
-            placeholder="Buscar por torneo, sede o categoria"
-            placeholderTextColor={colors.muted}
-            style={styles.searchInput}
-            value={query}
-          />
-        </View>
-      </View>
-
-      <ScrollView
-        contentContainerStyle={styles.tabsRow}
-        horizontal
-        showsHorizontalScrollIndicator={false}
-      >
-        {tabs.map((tab) => {
-          const isActive = tab.key === activeTab;
-
-          return (
-            <Pressable
-              key={tab.key}
-              onPress={tab.key === "create" ? handlePressCreateTab : () => setActiveTab(tab.key)}
-              style={({ pressed }) => [
-                styles.tabButton,
-                isActive && styles.tabButtonActive,
-                pressed && styles.tabButtonPressed,
-              ]}
-            >
-              <Text style={[styles.tabButtonText, isActive && styles.tabButtonTextActive]}>
-                {tab.label}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </ScrollView>
-
-      {activeTab !== "create" ? (
-        <ScrollView
-          contentContainerStyle={styles.filterRow}
-          horizontal
-          showsHorizontalScrollIndicator={false}
-        >
-          {STATUS_FILTER_OPTIONS.map((option) => {
-            const isActive = option.value === statusFilter;
-
-            return (
+      <View style={styles.topActionsWrap}>
+        {canCreateTournament ? (
+          <>
+            <View style={styles.organizerTopRow}>
+              <View style={styles.createButtonRow}>
+                <CreateTournamentButton onPress={handleOpenCreateTournament} />
+              </View>
               <Pressable
-                key={option.value}
-                onPress={() => setStatusFilter(option.value)}
-                style={[styles.filterChip, isActive && styles.filterChipActive]}
+                onPress={() => setShowOrganizerHistoryMenu((current) => !current)}
+                style={({ pressed }) => [
+                  styles.organizerMenuButton,
+                  styles.inlineMenuButton,
+                  pressed && styles.organizerMenuButtonPressed,
+                ]}
               >
-                <Text style={[styles.filterChipText, isActive && styles.filterChipTextActive]}>
-                  {option.label}
-                </Text>
+                <Ionicons color={colors.primaryDark} name="ellipsis-horizontal" size={18} />
               </Pressable>
-            );
-          })}
-        </ScrollView>
-      ) : null}
+            </View>
+
+            {showOrganizerHistoryMenu ? (
+              <View style={styles.organizerMenuCard}>
+                {ORGANIZER_MENU_OPTIONS.map((option) => (
+                  <Pressable
+                    key={option.key}
+                    onPress={() => handleOpenOrganizerView(option.key)}
+                    style={({ pressed }) => [
+                      styles.organizerMenuItem,
+                      pressed && styles.organizerMenuItemPressed,
+                    ]}
+                  >
+                    <Text style={styles.organizerMenuItemText}>{option.label}</Text>
+                    <Ionicons color={colors.primaryDark} name="chevron-forward" size={16} />
+                  </Pressable>
+                ))}
+              </View>
+            ) : null}
+          </>
+        ) : null}
+      </View>
     </View>
   );
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <SectionHeader onBack={() => navigation.goBack()} subtitle="Torneos" />
+      <SectionHeader
+        onBack={() => navigation.goBack()}
+        subtitle={resolvedHeaderSubtitle}
+      >
+        <>
+          <View style={!canCreateTournament ? styles.filterAndMenuRow : null}>
+            <View style={!canCreateTournament ? styles.filterInlineWrap : null}>
+              <SectionFilterBar
+                containerStyle={!canCreateTournament ? styles.inlineFilterBar : null}
+                disablePersistedDefaults
+                extraSummary={hasActiveFilters ? "Activo" : undefined}
+                onApply={handleApplyFilters}
+                onChange={({ locations }) =>
+                  setAppliedFilters((current) => ({
+                    ...current,
+                    localidades: locations,
+                  }))
+                }
+                onModalOpen={handleOpenFilters}
+                renderExtraContent={() => (
+                  <View>
+                    <Text style={styles.modalLabel}>Sexo</Text>
+                    <View style={styles.modalRow}>
+                      {sexFilterOptions.map((sex) => (
+                        <Pressable
+                          key={sex}
+                          onPress={() => setDraftSexo(sex)}
+                          style={[styles.filterChip, draftSexo === sex && styles.filterChipActive]}
+                        >
+                          <Text style={[styles.filterChipText, draftSexo === sex && styles.filterChipTextActive]}>
+                            {sex}
+                          </Text>
+                        </Pressable>
+                      ))}
+                    </View>
+
+                    <Text style={styles.modalLabel}>Categoria</Text>
+                    <View style={styles.modalRow}>
+                      {categoryFilterOptions.map((category) => (
+                        <Pressable
+                          key={category}
+                          onPress={() => setDraftCategoria(category)}
+                          style={[
+                            styles.filterChip,
+                            draftCategoria === category && styles.filterChipActive,
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.filterChipText,
+                              draftCategoria === category && styles.filterChipTextActive,
+                            ]}
+                          >
+                            {category}
+                          </Text>
+                        </Pressable>
+                      ))}
+                    </View>
+
+                    <Text style={styles.modalLabel}>Complejo</Text>
+                    <View style={styles.modalRow}>
+                      {complexFilterOptions.map((complex) => (
+                        <Pressable
+                          key={complex}
+                          onPress={() => setDraftComplejo(complex)}
+                          style={[
+                            styles.filterChip,
+                            draftComplejo === complex && styles.filterChipActive,
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.filterChipText,
+                              draftComplejo === complex && styles.filterChipTextActive,
+                            ]}
+                          >
+                            {complex}
+                          </Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                  </View>
+                )}
+                userLocation={userLocalidad}
+              />
+            </View>
+
+            {!canCreateTournament ? (
+              <Pressable
+                onPress={() => setShowPlayerHistoryMenu((current) => !current)}
+                style={({ pressed }) => [
+                  styles.organizerMenuButton,
+                  styles.inlineMenuButton,
+                  pressed && styles.organizerMenuButtonPressed,
+                ]}
+              >
+                <Ionicons color={colors.primaryDark} name="funnel-outline" size={18} />
+              </Pressable>
+            ) : null}
+          </View>
+
+          {!canCreateTournament && showPlayerHistoryMenu ? (
+            <View style={styles.organizerMenuCard}>
+              {PLAYER_MENU_OPTIONS.map((option) => (
+                <Pressable
+                  key={option.key}
+                  onPress={() => handleOpenPlayerView(option.key)}
+                  style={({ pressed }) => [
+                    styles.organizerMenuItem,
+                    pressed && styles.organizerMenuItemPressed,
+                  ]}
+                >
+                  <Text style={styles.organizerMenuItemText}>{option.label}</Text>
+                  <Ionicons color={colors.primaryDark} name="chevron-forward" size={16} />
+                </Pressable>
+              ))}
+            </View>
+          ) : null}
+        </>
+      </SectionHeader>
 
       <View style={styles.container}>
-        {activeTab === "create" ? (
-          <ScrollView
-            contentContainerStyle={styles.createTabWrap}
-            showsVerticalScrollIndicator={false}
-          >
-            {renderHeader()}
-            <EmptyState canCreate={canCreateTournament} currentTab="create" loading={false} />
-          </ScrollView>
-        ) : (
-          <FlatList
-            contentContainerStyle={styles.listContent}
-            data={listItems}
-            keyExtractor={(item) => item.id}
-            ListEmptyComponent={
-              <EmptyState
-                canCreate={canCreateTournament}
-                currentTab={activeTab}
-                loading={loading}
+        <FlatList
+          contentContainerStyle={styles.listContent}
+          data={listItems}
+          keyExtractor={(item) => item.id}
+          ListEmptyComponent={
+            <EmptyState
+              canCreate={canCreateTournament}
+              currentTab={canCreateTournament ? organizerView : playerView}
+              loading={loading}
+            />
+          }
+          ListHeaderComponent={renderHeader}
+          renderItem={({ item }) =>
+            item.type === "section" ? (
+            <TournamentSectionHeader title={item.title} />
+          ) : (
+              <TournamentCard
+                canManageTournament={canCreateTournament}
+                item={item.tournament}
+                onDeleteCancelled={handleRequestDeleteCancelled}
+                onEditDraft={handleEditDraft}
+                onDeleteDraft={handleDeleteDraft}
+                onOpenRegistration={handleOpenRegistration}
+                onPress={handleOpenTournament}
+                onViewPoster={handleViewPoster}
+                showDraftDelete={
+                  canCreateTournament &&
+                  organizerView === "active" &&
+                  item.tournament?.status === "draft"
+                }
+                showCancelledDelete={
+                  canCreateTournament &&
+                  organizerView === "cancelled" &&
+                  item.tournament?.status === "cancelled"
+                }
               />
-            }
-            ListHeaderComponent={renderHeader}
-            renderItem={({ item }) =>
-              item.type === "section" ? (
-                <TournamentSectionHeader
-                  description={item.description}
-                  title={item.title}
-                />
-              ) : (
-                <TournamentCard item={item.tournament} onPress={handleOpenTournament} />
-              )
-            }
-            showsVerticalScrollIndicator={false}
-          />
-        )}
+            )
+          }
+          showsVerticalScrollIndicator={false}
+        />
       </View>
 
       <FeedbackModal
@@ -630,6 +1500,59 @@ export default function TorneosScreen({ navigation }) {
         visible={feedback.visible}
         title={feedback.title}
       />
+
+      <Modal
+        animationType="fade"
+        onRequestClose={() =>
+          deletingCancelledTournament ? null : setCancelledTournamentToDelete(null)
+        }
+        transparent
+        visible={Boolean(cancelledTournamentToDelete)}
+      >
+        <View style={styles.confirmOverlay}>
+          <Pressable
+            onPress={() =>
+              deletingCancelledTournament ? null : setCancelledTournamentToDelete(null)
+            }
+            style={styles.confirmBackdrop}
+          />
+          <View style={styles.confirmCard}>
+            <View style={styles.confirmWarningIcon}>
+              <Text style={styles.confirmWarningIconText}>!</Text>
+            </View>
+            <Text style={styles.confirmTitle}>Eliminar torneo cancelado</Text>
+            <Text style={styles.confirmMessage}>
+              Esta accion eliminara definitivamente el torneo de la lista de cancelados.
+            </Text>
+            <View style={styles.confirmActions}>
+              <Pressable
+                disabled={deletingCancelledTournament}
+                onPress={() => setCancelledTournamentToDelete(null)}
+                style={({ pressed }) => [
+                  styles.confirmModalButton,
+                  styles.confirmModalButtonSecondary,
+                  pressed && !deletingCancelledTournament ? styles.draftChipButtonPressed : null,
+                ]}
+              >
+                <Text style={styles.confirmModalButtonSecondaryText}>Cancelar</Text>
+              </Pressable>
+              <Pressable
+                disabled={deletingCancelledTournament}
+                onPress={handleConfirmDeleteCancelled}
+                style={({ pressed }) => [
+                  styles.confirmModalButton,
+                  styles.confirmModalButtonDanger,
+                  pressed && !deletingCancelledTournament ? styles.draftChipButtonPressed : null,
+                ]}
+              >
+                <Text style={styles.confirmModalButtonDangerText}>
+                  {deletingCancelledTournament ? "Eliminando..." : "Eliminar"}
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       <BottomQuickActionsBar />
     </SafeAreaView>
@@ -650,111 +1573,366 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.sm,
   },
-  searchCard: {
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: 8,
-    borderWidth: 1,
+  topActionsWrap: {
     marginBottom: spacing.md,
+  },
+  confirmOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: spacing.lg,
+  },
+  confirmBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: colors.overlay,
+  },
+  confirmCard: {
+    backgroundColor: colors.surface,
+    borderColor: "#F2C94C",
+    borderRadius: 24,
+    borderWidth: 2,
+    padding: spacing.lg,
+    width: "100%",
+  },
+  confirmWarningIcon: {
+    alignItems: "center",
+    alignSelf: "center",
+    backgroundColor: "#FFD84D",
+    borderColor: "#E0A400",
+    borderRadius: 999,
+    borderWidth: 2,
+    height: 58,
+    justifyContent: "center",
+    marginBottom: spacing.sm,
+    width: 58,
+  },
+  confirmWarningIconText: {
+    color: "#7A4300",
+    fontSize: 34,
+    fontWeight: "900",
+    lineHeight: 38,
+  },
+  confirmTitle: {
+    color: colors.text,
+    fontSize: 22,
+    fontWeight: "800",
+    textAlign: "center",
+  },
+  confirmMessage: {
+    color: colors.muted,
+    fontSize: 15,
+    lineHeight: 22,
+    marginTop: spacing.sm,
+    textAlign: "center",
+  },
+  confirmActions: {
+    flexDirection: "row",
+    gap: spacing.sm,
+    marginTop: spacing.lg,
+  },
+  confirmModalButton: {
+    alignItems: "center",
+    borderRadius: 16,
+    flex: 1,
+    justifyContent: "center",
+    minHeight: 46,
     paddingHorizontal: spacing.md,
   },
-  searchRow: {
+  confirmModalButtonSecondary: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderWidth: 1,
+  },
+  confirmModalButtonDanger: {
+    backgroundColor: colors.danger,
+  },
+  confirmModalButtonSecondaryText: {
+    color: colors.primaryDark,
+    fontSize: 15,
+    fontWeight: "800",
+  },
+  confirmModalButtonDangerText: {
+    color: colors.surface,
+    fontSize: 15,
+    fontWeight: "800",
+  },
+  organizerTopRow: {
     alignItems: "center",
     flexDirection: "row",
-    minHeight: 46,
+    gap: spacing.sm,
   },
-  searchInput: {
-    color: colors.text,
+  filterAndMenuRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.xs,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.xs,
+  },
+  filterInlineWrap: {
     flex: 1,
-    fontSize: 14,
-    fontWeight: "600",
-    marginLeft: spacing.sm,
-    paddingVertical: spacing.sm,
   },
-  tabsRow: {
+  inlineFilterBar: {
+    marginHorizontal: 0,
+  },
+  playerTopRow: {
+    alignItems: "center",
+    flexDirection: "row",
     gap: spacing.sm,
-    paddingBottom: spacing.sm,
+    justifyContent: "space-between",
   },
-  tabButton: {
+  playerViewBadge: {
     backgroundColor: "#EFF6F2",
-    borderColor: colors.border,
-    borderRadius: 8,
-    borderWidth: 1,
-    minHeight: 38,
-    paddingHorizontal: spacing.md,
-    justifyContent: "center",
-  },
-  tabButtonActive: {
-    backgroundColor: colors.primaryDark,
-    borderColor: colors.primaryDark,
-  },
-  tabButtonPressed: {
-    opacity: 0.88,
-  },
-  tabButtonText: {
-    color: colors.primaryDark,
-    fontSize: 13,
-    fontWeight: "800",
-    textTransform: "uppercase",
-  },
-  tabButtonTextActive: {
-    color: colors.surface,
-  },
-  filterRow: {
-    gap: spacing.sm,
-    paddingBottom: spacing.md,
-  },
-  filterChip: {
-    backgroundColor: colors.surface,
     borderColor: colors.border,
     borderRadius: 999,
     borderWidth: 1,
-    minHeight: 34,
-    paddingHorizontal: spacing.md,
+    flex: 1,
     justifyContent: "center",
+    minHeight: 38,
+    paddingHorizontal: spacing.md,
   },
-  filterChipActive: {
-    backgroundColor: "#E8F5EE",
-    borderColor: colors.primaryLight,
-  },
-  filterChipText: {
-    color: colors.muted,
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  filterChipTextActive: {
+  playerViewBadgeText: {
     color: colors.primaryDark,
+    fontSize: 13,
+    fontWeight: "800",
+    textAlign: "center",
+    textTransform: "uppercase",
+  },
+  organizerMenuButton: {
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 18,
+    borderWidth: 1,
+    height: 36,
+    justifyContent: "center",
+    width: 40,
+  },
+  inlineMenuButton: {
+    marginTop: -6,
+  },
+  organizerMenuButtonPressed: {
+    opacity: 0.92,
+  },
+  organizerMenuCard: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 14,
+    borderWidth: 1,
+    marginTop: spacing.sm,
+    overflow: "hidden",
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.08,
+    shadowRadius: 14,
+    elevation: 3,
+  },
+  organizerMenuItem: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    minHeight: 46,
+    paddingHorizontal: spacing.md,
+  },
+  organizerMenuItemPressed: {
+    backgroundColor: "#F5FAF7",
+  },
+  organizerMenuItemText: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  createButtonRow: {
+    flex: 1,
+  },
+  createButton: {
+    alignItems: "center",
+    backgroundColor: "#1F8A70",
+    borderRadius: 18,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    minHeight: 48,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 9,
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.14,
+    shadowRadius: 16,
+    elevation: 4,
+  },
+  createButtonPressed: {
+    opacity: 0.92,
+  },
+  createButtonIconWrap: {
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.14)",
+    borderRadius: 12,
+    height: 28,
+    justifyContent: "center",
+    width: 28,
+  },
+  createButtonTextWrap: {
+    flex: 1,
+    marginHorizontal: spacing.sm,
+  },
+  createButtonText: {
+    color: colors.surface,
+    fontSize: 14,
+    fontWeight: "900",
+    textAlign: "center",
+    textTransform: "uppercase",
   },
   card: {
     backgroundColor: colors.surface,
     borderColor: colors.border,
     borderRadius: 8,
     borderWidth: 1,
-    marginBottom: spacing.md,
+    marginBottom: 0,
     padding: spacing.md,
+  },
+  cardShell: {
+    marginBottom: spacing.md,
   },
   cardPressed: {
     opacity: 0.92,
   },
+  cardDisabled: {
+    opacity: 0.92,
+  },
   cardHeader: {
-    alignItems: "flex-start",
-    flexDirection: "row",
-    gap: spacing.sm,
-    justifyContent: "space-between",
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 56,
+    position: "relative",
+    width: "100%",
+  },
+  cardHeaderLogoWrap: {
+    left: 0,
+    position: "absolute",
+    top: 2,
+    zIndex: 1,
+  },
+  cardHeaderPosterWrap: {
+    position: "absolute",
+    right: 0,
+    top: 4,
+    zIndex: 1,
   },
   cardTitleWrap: {
-    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    width: "100%",
   },
   cardTitle: {
     color: colors.text,
     fontSize: 19,
     fontWeight: "900",
   },
+  cardEyebrow: {
+    color: colors.primaryDark,
+    fontSize: 11,
+    fontWeight: "900",
+    letterSpacing: 1.2,
+    marginBottom: 6,
+    textTransform: "uppercase",
+  },
+  cardTitleInline: {
+    alignItems: "center",
+    gap: 6,
+    justifyContent: "center",
+    width: "100%",
+  },
+  cardEyebrowInline: {
+    color: colors.primaryDark,
+    fontSize: 11,
+    fontWeight: "900",
+    letterSpacing: 1.2,
+    textAlign: "center",
+    textTransform: "uppercase",
+  },
+  cardTitlePlayer: {
+    color: "#144234",
+    fontFamily: "serif",
+    flexShrink: 1,
+    fontSize: 24,
+    fontWeight: "700",
+    lineHeight: 28,
+    textAlign: "center",
+  },
   cardVenue: {
     color: colors.primaryDark,
     fontSize: 13,
     fontWeight: "800",
     marginTop: 4,
+  },
+  cardFriendlyInfo: {
+    backgroundColor: "#F3FAF6",
+    borderColor: "#DCEFE4",
+    borderRadius: 14,
+    borderWidth: 1,
+    gap: spacing.sm,
+    marginTop: spacing.md,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
+  },
+  cardFriendlyItem: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    gap: spacing.xs,
+  },
+  cardFriendlyTextWrap: {
+    flex: 1,
+  },
+  cardFriendlyText: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: "700",
+    lineHeight: 18,
+  },
+  cardPosterThumbButton: {
+    borderRadius: 12,
+    height: 52,
+    overflow: "hidden",
+    width: 44,
+  },
+  cardPosterThumb: {
+    height: "100%",
+    resizeMode: "cover",
+    width: "100%",
+  },
+  playerPosterThumbButton: {
+    borderColor: "#CFE3D9",
+    borderRadius: 10,
+    borderWidth: 1,
+    height: 46,
+    overflow: "hidden",
+    width: 32,
+  },
+  playerPosterThumbButtonPressed: {
+    opacity: 0.86,
+  },
+  playerPosterThumb: {
+    height: "100%",
+    resizeMode: "cover",
+    width: "100%",
+  },
+  posterStatusPill: {
+    alignItems: "center",
+    backgroundColor: "#EEF7F3",
+    borderColor: "#CFE3D9",
+    flexDirection: "row",
+    gap: spacing.xs,
+    justifyContent: "center",
+    marginLeft: spacing.sm,
+    paddingHorizontal: spacing.md,
+  },
+  posterStatusPillPressed: {
+    backgroundColor: "#E3F1EA",
+  },
+  posterStatusPillText: {
+    color: colors.primaryDark,
+    fontSize: 12,
+    fontWeight: "900",
+    textTransform: "uppercase",
   },
   statusPill: {
     borderRadius: 999,
@@ -768,28 +1946,89 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     textTransform: "uppercase",
   },
+  playerStatusWrap: {
+    alignItems: "center",
+    marginBottom: spacing.sm,
+  },
+  playerStatusRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    width: "100%",
+  },
+  playerStatusLeft: {
+    alignItems: "center",
+    flexDirection: "row",
+    flexShrink: 1,
+    flexWrap: "wrap",
+    gap: spacing.xs,
+  },
+  playerStatusPill: {
+    minHeight: 34,
+    paddingHorizontal: spacing.sm,
+  },
+  playerStatusPillSplit: {
+    alignItems: "center",
+    flex: 1,
+  },
+  playerStatusPillText: {
+    fontSize: 11,
+    fontWeight: "900",
+    letterSpacing: 0.2,
+    textAlign: "center",
+  },
+  registrationShortcutPressed: {
+    opacity: 0.92,
+  },
+  registrationShortcutDisabled: {
+    opacity: 0.78,
+  },
+  draftStatusPill: {
+    flex: 0,
+    paddingHorizontal: 10,
+  },
+  draftStatusContent: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.xs,
+  },
+  draftChipActions: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 6,
+  },
+  draftChipButton: {
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.72)",
+    borderColor: "rgba(0,0,0,0.08)",
+    borderRadius: 999,
+    borderWidth: 1,
+    height: 24,
+    justifyContent: "center",
+    width: 24,
+  },
+  draftChipDeleteButton: {
+    backgroundColor: "#FFF0F0",
+    borderColor: "#E7B8B8",
+  },
+  draftChipButtonPressed: {
+    opacity: 0.82,
+  },
   sectionHeaderCard: {
-    backgroundColor: "#F3F7F9",
-    borderColor: "#D8E1E7",
+    backgroundColor: "#F7F9FA",
+    borderColor: "#E1E6EA",
     borderRadius: 8,
     borderWidth: 1,
     marginBottom: spacing.md,
     marginTop: spacing.xs,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
   },
   sectionHeaderTitle: {
-    color: colors.text,
-    fontSize: 14,
+    color: "#5B6770",
+    fontSize: 12,
     fontWeight: "900",
     textTransform: "uppercase",
-  },
-  sectionHeaderText: {
-    color: colors.muted,
-    fontSize: 12,
-    fontWeight: "600",
-    lineHeight: 18,
-    marginTop: 4,
   },
   cardMetaGrid: {
     flexDirection: "row",
@@ -816,28 +2055,6 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     marginTop: 4,
   },
-  registrationRow: {
-    alignItems: "center",
-    backgroundColor: "#EFF8F4",
-    borderRadius: 8,
-    flexDirection: "row",
-    marginTop: spacing.md,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.sm,
-  },
-  registrationText: {
-    color: colors.text,
-    flex: 1,
-    fontSize: 12,
-    fontWeight: "700",
-    marginLeft: spacing.xs,
-    marginRight: spacing.xs,
-  },
-  registrationStatus: {
-    color: colors.primaryDark,
-    fontSize: 12,
-    fontWeight: "800",
-  },
   emptyCard: {
     alignItems: "center",
     backgroundColor: colors.surface,
@@ -863,27 +2080,39 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
     textAlign: "center",
   },
-  createInfoList: {
-    marginTop: spacing.md,
-    width: "100%",
-  },
-  createInfoItem: {
-    color: colors.text,
-    fontSize: 13,
-    fontWeight: "700",
-    lineHeight: 22,
-  },
-  createInfoMuted: {
+  modalLabel: {
     color: colors.muted,
     fontSize: 12,
-    fontWeight: "600",
-    marginTop: spacing.md,
-    textAlign: "center",
+    fontWeight: "700",
+    marginBottom: spacing.xs,
+    marginTop: spacing.xs,
+    textTransform: "uppercase",
   },
-  createTabWrap: {
-    paddingBottom: spacing.lg,
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.sm,
+  modalRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.xs,
+    marginBottom: spacing.xs,
+  },
+  filterChip: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 8,
+  },
+  filterChipActive: {
+    backgroundColor: colors.secondary,
+    borderColor: colors.primaryLight,
+  },
+  filterChipText: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  filterChipTextActive: {
+    color: colors.primaryDark,
   },
 });
 

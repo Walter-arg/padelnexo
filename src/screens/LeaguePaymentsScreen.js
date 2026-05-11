@@ -12,7 +12,7 @@ import {
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import * as ImagePicker from "expo-image-picker";
+import * as DocumentPicker from "expo-document-picker";
 import { getDownloadURL, ref, uploadBytes } from "../../services/firebaseStorage";
 import { useFocusEffect } from "@react-navigation/native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -60,6 +60,20 @@ const PAYMENT_METHOD_OPTIONS = [
   { key: "efectivo", label: "Efectivo" },
   { key: "cuenta_corriente", label: "Cuenta corriente" },
 ];
+
+function isPdfProof(entryOrAsset = {}) {
+  const fileName = String(entryOrAsset?.proofFileName || entryOrAsset?.fileName || entryOrAsset?.name || "").toLowerCase();
+  const mimeType = String(entryOrAsset?.mimeType || entryOrAsset?.type || "").toLowerCase();
+
+  return mimeType.includes("pdf") || fileName.endsWith(".pdf");
+}
+
+function isImageProof(asset = {}) {
+  const fileName = String(asset?.fileName || asset?.name || "").toLowerCase();
+  const mimeType = String(asset?.mimeType || asset?.type || "").toLowerCase();
+
+  return mimeType.startsWith("image/") || /\.(jpe?g|png|webp|heic|heif)$/i.test(fileName);
+}
 
 function resolveCurrentPaymentsRoundId(rounds = []) {
   if (!Array.isArray(rounds) || !rounds.length) {
@@ -717,44 +731,48 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
     }
   };
 
-  const handleUploadProof = async (round, entry) => {
+  const handleUploadProof = async (round, entry, proofType = "image") => {
     if (!round || !entry) {
       return;
     }
 
     try {
-      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-
-      if (!permission.granted) {
-        setFeedback({
-          visible: true,
-          title: "Permiso necesario",
-          message: "Necesitamos acceso a tus fotos para adjuntar el comprobante.",
-          tone: "danger",
-        });
-        return;
-      }
-
-      const result = await ImagePicker.launchImageLibraryAsync({
-        allowsEditing: false,
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        quality: 0.75,
+      const pickerType = proofType === "pdf" ? "application/pdf" : "image/*";
+      const result = await DocumentPicker.getDocumentAsync({
+        copyToCacheDirectory: true,
+        multiple: false,
+        type: pickerType,
       });
 
       if (result.canceled || !result.assets?.length) {
         return;
       }
 
-      setSaving(true);
       const asset = result.assets[0];
+      const isSupported = proofType === "pdf" ? isPdfProof(asset) : isImageProof(asset);
+
+      if (!isSupported) {
+        setFeedback({
+          visible: true,
+          title: "Archivo no compatible",
+          message: proofType === "pdf" ? "Adjunta un comprobante en PDF." : "Adjunta un comprobante en imagen.",
+          tone: "danger",
+        });
+        return;
+      }
+
+      setSaving(true);
       const response = await fetch(asset.uri);
       const blob = await response.blob();
-      const extension = asset.fileName?.split(".").pop() || "jpg";
+      const originalName = asset.name || asset.fileName || "";
+      const extension = originalName.split(".").pop() || (proofType === "pdf" ? "pdf" : "jpg");
       const fileName = `${entry.participantId}-${Date.now()}.${extension}`;
       const proofRef = ref(storage, `league-payment-proofs/${leagueId}/${round.roundId}/${fileName}`);
+      const proofContentType =
+        blob.type || asset.mimeType || (extension.toLowerCase() === "pdf" ? "application/pdf" : "image/jpeg");
 
       await uploadBytes(proofRef, blob, {
-        contentType: asset.mimeType || "image/jpeg",
+        contentType: proofContentType,
       });
 
       const proofUrl = await getDownloadURL(proofRef);
@@ -999,19 +1017,32 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
               </Pressable>
             ) : null}
             {entry.paymentStatus !== "pagado" ? (
-              <Pressable
-                disabled={saving}
-                onPress={() => handleUploadProof(round, entry)}
-                style={({ pressed }) => [
-                  styles.playerPrimaryButton,
-                  saving ? styles.saveButtonDisabled : null,
-                  pressed && !saving ? styles.pressedState : null,
-                ]}
-              >
-                <Text style={styles.playerPrimaryButtonText}>
-                  {entry.proofUrl ? "Cambiar" : "Subir"}
-                </Text>
-              </Pressable>
+              <View style={styles.proofUploadActions}>
+                <Pressable
+                  disabled={saving}
+                  onPress={() => handleUploadProof(round, entry, "image")}
+                  style={({ pressed }) => [
+                    styles.proofUploadButton,
+                    saving ? styles.saveButtonDisabled : null,
+                    pressed && !saving ? styles.pressedState : null,
+                  ]}
+                >
+                  <Ionicons color={colors.surface} name="image-outline" size={14} />
+                  <Text style={styles.proofUploadButtonText}>IMG</Text>
+                </Pressable>
+                <Pressable
+                  disabled={saving}
+                  onPress={() => handleUploadProof(round, entry, "pdf")}
+                  style={({ pressed }) => [
+                    styles.proofUploadButton,
+                    saving ? styles.saveButtonDisabled : null,
+                    pressed && !saving ? styles.pressedState : null,
+                  ]}
+                >
+                  <Ionicons color={colors.surface} name="document-text-outline" size={14} />
+                  <Text style={styles.proofUploadButtonText}>PDF</Text>
+                </Pressable>
+              </View>
             ) : null}
           </View>
         )}
@@ -1269,19 +1300,32 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
                               </Pressable>
                             ) : null}
                             {entry.paymentStatus !== "pagado" ? (
-                              <Pressable
-                                disabled={saving}
-                                onPress={() => handleUploadProof(round, entry)}
-                                style={({ pressed }) => [
-                                  styles.playerPrimaryButton,
-                                  saving ? styles.saveButtonDisabled : null,
-                                  pressed && !saving ? styles.pressedState : null,
-                                ]}
-                              >
-                                <Text style={styles.playerPrimaryButtonText}>
-                                  {entry.proofUrl ? "Cambiar" : "Subir"}
-                                </Text>
-                              </Pressable>
+                              <View style={styles.proofUploadActions}>
+                                <Pressable
+                                  disabled={saving}
+                                  onPress={() => handleUploadProof(round, entry, "image")}
+                                  style={({ pressed }) => [
+                                    styles.proofUploadButton,
+                                    saving ? styles.saveButtonDisabled : null,
+                                    pressed && !saving ? styles.pressedState : null,
+                                  ]}
+                                >
+                                  <Ionicons color={colors.surface} name="image-outline" size={14} />
+                                  <Text style={styles.proofUploadButtonText}>IMG</Text>
+                                </Pressable>
+                                <Pressable
+                                  disabled={saving}
+                                  onPress={() => handleUploadProof(round, entry, "pdf")}
+                                  style={({ pressed }) => [
+                                    styles.proofUploadButton,
+                                    saving ? styles.saveButtonDisabled : null,
+                                    pressed && !saving ? styles.pressedState : null,
+                                  ]}
+                                >
+                                  <Ionicons color={colors.surface} name="document-text-outline" size={14} />
+                                  <Text style={styles.proofUploadButtonText}>PDF</Text>
+                                </Pressable>
+                              </View>
                             ) : null}
                           </View>
                         )}
@@ -1292,7 +1336,7 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
                     <View style={styles.playerPaymentHelpCard}>
                       <Text style={styles.playerPaymentHelpTitle}>Transferencia</Text>
                       <Text style={styles.playerPaymentHelpText}>
-                        Selecciona el comprobante de tu galeria. El organizador lo revisa y confirma el pago.
+                        Adjunta el comprobante en imagen o PDF. El organizador lo revisa y confirma el pago.
                       </Text>
                       <View style={styles.modalActionDisabled}>
                         <Text style={styles.modalActionDisabledText}>Mercado Pago proximamente</Text>
@@ -1726,11 +1770,18 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
               {selectedEntry?.participantLabel || "Participante"} · {selectedRound?.title || "Fecha"}
             </Text>
             <View style={styles.proofPreviewFrame}>
-              <Image
-                resizeMode="contain"
-                source={{ uri: selectedEntry?.proofUrl }}
-                style={styles.proofPreviewImage}
-              />
+              {isPdfProof(selectedEntry) ? (
+                <View style={styles.proofPdfPreview}>
+                  <Ionicons color="#B24343" name="document-text-outline" size={48} />
+                  <Text style={styles.proofPdfPreviewText}>PDF</Text>
+                </View>
+              ) : (
+                <Image
+                  resizeMode="contain"
+                  source={{ uri: selectedEntry?.proofUrl }}
+                  style={styles.proofPreviewImage}
+                />
+              )}
             </View>
             <Text style={styles.proofMetaText}>
               Adjuntado: {formatUpdatedAt(selectedEntry?.proofUploadedAtMillis)}
@@ -2167,6 +2218,25 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "900",
   },
+  proofUploadActions: {
+    flexDirection: "row",
+    gap: 4,
+  },
+  proofUploadButton: {
+    alignItems: "center",
+    backgroundColor: colors.primaryDark,
+    borderRadius: 8,
+    flexDirection: "row",
+    gap: 3,
+    justifyContent: "center",
+    minHeight: 32,
+    paddingHorizontal: 7,
+  },
+  proofUploadButtonText: {
+    color: colors.surface,
+    fontSize: 10,
+    fontWeight: "900",
+  },
   playerSecondaryButton: {
     minHeight: 32,
     borderRadius: 8,
@@ -2581,6 +2651,18 @@ const styles = StyleSheet.create({
   proofPreviewImage: {
     width: "100%",
     height: "100%",
+  },
+  proofPdfPreview: {
+    alignItems: "center",
+    backgroundColor: "#FFF3F3",
+    flex: 1,
+    gap: spacing.xs,
+    justifyContent: "center",
+  },
+  proofPdfPreviewText: {
+    color: "#B24343",
+    fontSize: 13,
+    fontWeight: "900",
   },
   proofMetaText: {
     color: colors.textMuted,

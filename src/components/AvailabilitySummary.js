@@ -2,11 +2,15 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { colors, spacing } from "../config/theme";
 
-export default function AvailabilitySummary({ items, onRemoveDay }) {
+export default function AvailabilitySummary({
+  emptyText = "Todavia no configuraste disponibilidad semanal.",
+  items,
+  onRemoveDay,
+}) {
   if (!items.length) {
     return (
       <View style={styles.emptyCard}>
-        <Text style={styles.emptyText}>Todavia no configuraste disponibilidad semanal.</Text>
+        <Text style={styles.emptyText}>{emptyText}</Text>
       </View>
     );
   }
