@@ -13,6 +13,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import BottomQuickActionsBar, {
   BOTTOM_QUICK_ACTIONS_SPACE,
 } from "../components/BottomQuickActionsBar";
+import AvailabilityEditor from "../components/AvailabilityEditor";
 import PlayerCard from "../components/PlayerCard";
 import SectionFilterBar from "../components/SectionFilterBar";
 import SectionHeader from "../components/SectionHeader";
@@ -94,11 +95,13 @@ function toggleCategorySelection(current, target) {
 }
 
 export default function JugadoresScreen({ navigation }) {
-  const { userData } = useAuth();
+  const { updateProfile, userData } = useAuth();
   const currentUserId = userData?.uid;
   const [query, setQuery] = useState("");
   const [playersSource, setPlayersSource] = useState(playersMock);
   const [playersLoading, setPlayersLoading] = useState(true);
+  const [isAvailabilityVisible, setIsAvailabilityVisible] = useState(false);
+  const [availabilitySaving, setAvailabilitySaving] = useState(false);
 
   const userLocalidad = useMemo(() => {
     const name = userData?.localidad?.nombre || userData?.city || "";
@@ -245,6 +248,16 @@ export default function JugadoresScreen({ navigation }) {
     });
   };
 
+  const handleSaveAvailability = async (availability) => {
+    setAvailabilitySaving(true);
+
+    try {
+      await updateProfile({ availability });
+    } finally {
+      setAvailabilitySaving(false);
+    }
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <SectionHeader onBack={() => navigation.goBack()} subtitle="Jugadores">
@@ -318,6 +331,24 @@ export default function JugadoresScreen({ navigation }) {
       <View style={styles.backgroundOrbBottom} />
 
       <View style={styles.container}>
+        <Pressable
+          onPress={() => setIsAvailabilityVisible(true)}
+          style={({ pressed }) => [
+            styles.availabilityButton,
+            pressed ? styles.availabilityButtonPressed : null,
+          ]}
+        >
+          <View style={styles.availabilityIconWrap}>
+            <Ionicons color="#2F7F96" name="calendar-outline" size={19} />
+            <Ionicons color="#2F7F96" name="time-outline" size={11} style={styles.availabilityTimeIcon} />
+          </View>
+          <View style={styles.availabilityCopy}>
+            <Text style={styles.availabilityTitle}>Disponibilidad</Text>
+            <Text style={styles.availabilityText}>Actualiza tus dias y horarios para jugar</Text>
+          </View>
+          <Ionicons color={colors.primaryDark} name="chevron-forward" size={18} />
+        </Pressable>
+
         <View style={styles.topSearchRow}>
           <View style={styles.searchWrap}>
             <TextInput
@@ -388,6 +419,14 @@ export default function JugadoresScreen({ navigation }) {
         />
       </View>
 
+      <AvailabilityEditor
+        initialAvailability={userData?.availability}
+        loading={availabilitySaving}
+        onClose={() => setIsAvailabilityVisible(false)}
+        onSave={handleSaveAvailability}
+        visible={isAvailabilityVisible}
+      />
+
       <BottomQuickActionsBar />
     </SafeAreaView>
   );
@@ -402,6 +441,57 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: spacing.lg,
     paddingTop: 2,
+  },
+  availabilityButton: {
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 18,
+    borderWidth: 1,
+    flexDirection: "row",
+    marginBottom: spacing.sm,
+    minHeight: 58,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.08,
+    shadowRadius: 14,
+    elevation: 3,
+  },
+  availabilityButtonPressed: {
+    opacity: 0.92,
+    transform: [{ scale: 0.99 }],
+  },
+  availabilityIconWrap: {
+    alignItems: "center",
+    backgroundColor: "#EAF6F8",
+    borderRadius: 999,
+    height: 36,
+    justifyContent: "center",
+    marginRight: spacing.sm,
+    position: "relative",
+    width: 36,
+  },
+  availabilityTimeIcon: {
+    position: "absolute",
+    right: 6,
+    top: 22,
+  },
+  availabilityCopy: {
+    flex: 1,
+  },
+  availabilityTitle: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: "900",
+    textTransform: "uppercase",
+  },
+  availabilityText: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "600",
+    marginTop: 2,
   },
   backgroundOrbTop: {
     position: "absolute",

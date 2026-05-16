@@ -14,9 +14,11 @@ import {
   View,
 } from "react-native";
 import DateTimePicker from "@react-native-community/datetimepicker";
+import * as Sharing from "expo-sharing";
 import { FontAwesome5, Ionicons } from "@expo/vector-icons";
 import { useFocusEffect } from "@react-navigation/native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { captureRef } from "react-native-view-shot";
 
 import BottomQuickActionsBar, {
   BOTTOM_QUICK_ACTIONS_SPACE,
@@ -117,12 +119,15 @@ const BRACKET_CARD_WIDTH = 258;
 const BRACKET_CARD_HEIGHT = 164;
 const BRACKET_TEAM_CARD_HEIGHT = 50;
 const BRACKET_TEAMS_STACK_HEIGHT = 126;
-const BRACKET_COLUMN_STEP = 298;
-const BRACKET_FIRST_ROUND_GAP = 30;
+const BRACKET_COLUMN_STEP = 282;
+const BRACKET_FIRST_ROUND_GAP = 6;
 const BRACKET_CONNECTOR_THICKNESS = 2;
 const BRACKET_MIN_ZOOM = 0.55;
 const BRACKET_FULLSCREEN_MIN_ZOOM = 0.35;
+const BRACKET_DEFAULT_OVERVIEW_ZOOM = 0.8;
 const BRACKET_MAX_ZOOM = 3;
+const BRACKET_ROUND_BADGE_COLORS = ["#AEEBFF", "#6FCBFF", "#2E8FE8", "#0B4FB3"];
+const BRACKET_SHARE_IMAGE_SCALE = 3;
 const VENUE_SCHEDULE_COLOR_KEYS = ["blue", "sky", "lilac"];
 const BRACKET_DOUBLE_TAP_DELAY = 280;
 const CLOSE_MATCH_VENUE_GAP_MINUTES = 90;
@@ -139,6 +144,36 @@ function normalizeText(value = "") {
 function normalizeFixtureActiveSection(value = "") {
   const normalizedValue = String(value || "").trim().toLowerCase();
   return FIXTURE_SECTION_KEYS.includes(normalizedValue) ? normalizedValue : "configuration";
+}
+
+function getBracketRoundBadgeColor(roundIndex = 0, totalRounds = 1) {
+  const safeTotalRounds = Math.max(Number(totalRounds || 1), 1);
+  const safeRoundIndex = clamp(Number(roundIndex || 0), 0, safeTotalRounds - 1);
+  const colorIndex =
+    safeTotalRounds <= 1
+      ? BRACKET_ROUND_BADGE_COLORS.length - 1
+      : Math.round(
+          (safeRoundIndex / (safeTotalRounds - 1)) *
+            (BRACKET_ROUND_BADGE_COLORS.length - 1)
+        );
+
+  return BRACKET_ROUND_BADGE_COLORS[
+    clamp(colorIndex, 0, BRACKET_ROUND_BADGE_COLORS.length - 1)
+  ];
+}
+
+function hexToRgba(hexColor = "#FFFFFF", opacity = 1) {
+  const hex = String(hexColor || "").replace("#", "").trim();
+
+  if (!/^[0-9a-fA-F]{6}$/.test(hex)) {
+    return `rgba(255,255,255,${opacity})`;
+  }
+
+  const red = Number.parseInt(hex.slice(0, 2), 16);
+  const green = Number.parseInt(hex.slice(2, 4), 16);
+  const blue = Number.parseInt(hex.slice(4, 6), 16);
+
+  return `rgba(${red},${green},${blue},${opacity})`;
 }
 
 function getDistanceBetweenTouches(touches = []) {
@@ -1798,6 +1833,7 @@ function buildBracketBoardLayout(bracketPreview = null) {
   const positionedRounds = [];
 
   bracketPreview.rounds.forEach((round, roundIndex) => {
+    const roundX = roundIndex * BRACKET_COLUMN_STEP;
     const matches = (round.matches || []).map((match, matchIndex) => {
       let y = BRACKET_HEADER_HEIGHT;
 
@@ -1819,14 +1855,14 @@ function buildBracketBoardLayout(bracketPreview = null) {
 
       return {
         ...match,
-        x: roundIndex * BRACKET_COLUMN_STEP,
+        x: roundX,
         y,
       };
     });
 
     positionedRounds.push({
       ...round,
-      x: roundIndex * BRACKET_COLUMN_STEP,
+      x: roundX,
       matches,
     });
   });
@@ -1847,12 +1883,14 @@ function buildBracketBoardLayout(bracketPreview = null) {
 
       const startX = sourceMatchA.x + BRACKET_CARD_WIDTH;
       const endX = match.x;
-      const midX = startX + Math.max((endX - startX) / 2, 18);
+      const connectorGap = Math.max(endX - startX, 0);
+      const midX = startX + connectorGap / 2;
       const currentCenterY = match.y + BRACKET_CARD_HEIGHT / 2;
 
       if (sourceMatchA && sourceMatchB) {
         const sourceCenterA = sourceMatchA.y + BRACKET_CARD_HEIGHT / 2;
         const sourceCenterB = sourceMatchB.y + BRACKET_CARD_HEIGHT / 2;
+        const sourcePairCenterY = (sourceCenterA + sourceCenterB) / 2;
         const topY = Math.min(sourceCenterA, sourceCenterB);
         const verticalHeight = Math.abs(sourceCenterB - sourceCenterA);
 
@@ -1882,7 +1920,7 @@ function buildBracketBoardLayout(bracketPreview = null) {
             id: `${match.id}-right`,
             type: "horizontal",
             x: midX,
-            y: currentCenterY,
+            y: sourcePairCenterY,
             width: endX - midX,
           }
         );
@@ -1914,7 +1952,10 @@ function buildBracketBoardLayout(bracketPreview = null) {
     connectors,
     boardWidth: Math.max(
       BRACKET_CARD_WIDTH,
-      (positionedRounds.length - 1) * BRACKET_COLUMN_STEP + BRACKET_CARD_WIDTH
+      positionedRounds.reduce(
+        (maxValue, round) => Math.max(maxValue, (round.x || 0) + BRACKET_CARD_WIDTH),
+        BRACKET_CARD_WIDTH
+      )
     ),
     boardHeight: maxBottom + spacing.sm,
   };
@@ -2058,29 +2099,34 @@ export default function TournamentFixtureScreen({ navigation, route }) {
   const workingZonesPreviewRef = useRef([]);
   const bracketSetInputRefs = useRef({});
   const bracketSaveTimeoutRef = useRef(null);
+  const bracketSaveGenerationRef = useRef(0);
+  const bracketShareViewRef = useRef(null);
   const workingBracketPreviewRef = useRef(null);
   const pendingFixtureSetupRef = useRef(fixtureSetup);
-  const bracketScale = useRef(new Animated.Value(1)).current;
+  const bracketScale = useRef(new Animated.Value(BRACKET_DEFAULT_OVERVIEW_ZOOM)).current;
   const bracketPanX = useRef(new Animated.Value(0)).current;
   const bracketPanY = useRef(new Animated.Value(0)).current;
-  const bracketScaleValueRef = useRef(1);
+  const bracketScaleValueRef = useRef(BRACKET_DEFAULT_OVERVIEW_ZOOM);
   const bracketPanValueRef = useRef({ x: 0, y: 0 });
   const bracketPanStartRef = useRef({ x: 0, y: 0 });
   const bracketPinchStartDistanceRef = useRef(0);
-  const bracketPinchStartScaleRef = useRef(1);
+  const bracketPinchStartScaleRef = useRef(BRACKET_DEFAULT_OVERVIEW_ZOOM);
   const bracketIsPinchingRef = useRef(false);
   const bracketLastTapRef = useRef(0);
-  const [bracketZoomScale, setBracketZoomScale] = useState(1);
+  const [bracketZoomScale, setBracketZoomScale] = useState(BRACKET_DEFAULT_OVERVIEW_ZOOM);
   const [isBracketPinching, setIsBracketPinching] = useState(false);
   const [bracketFullscreenVisible, setBracketFullscreenVisible] = useState(false);
   const [bracketSwapMode, setBracketSwapMode] = useState(false);
+  const [bracketActionsMenuVisible, setBracketActionsMenuVisible] = useState(false);
   const [bracketSwapSelection, setBracketSwapSelection] = useState(null);
   const bracketFullscreenVisibleRef = useRef(false);
+  const bracketIsFullscreenModeRef = useRef(Boolean(isBracketFullscreenStandalone));
   const bracketStandaloneLaunchHandledRef = useRef(false);
 
   useEffect(() => {
     bracketFullscreenVisibleRef.current = bracketFullscreenVisible;
-  }, [bracketFullscreenVisible]);
+    bracketIsFullscreenModeRef.current = Boolean(bracketFullscreenVisible || isBracketFullscreenStandalone);
+  }, [bracketFullscreenVisible, isBracketFullscreenStandalone]);
 
   useEffect(() => {
     pendingFixtureSetupRef.current = fixtureSetup;
@@ -2088,7 +2134,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
 
   const animateBracketZoom = useCallback(
     (nextScale) => {
-      const minZoom = bracketFullscreenVisibleRef.current
+      const minZoom = bracketIsFullscreenModeRef.current
         ? BRACKET_FULLSCREEN_MIN_ZOOM
         : BRACKET_MIN_ZOOM;
       const normalizedScale = clamp(nextScale, minZoom, BRACKET_MAX_ZOOM);
@@ -2117,7 +2163,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
         useNativeDriver: true,
       }),
     ]).start();
-    animateBracketZoom(1);
+    animateBracketZoom(BRACKET_DEFAULT_OVERVIEW_ZOOM);
   }, [animateBracketZoom, bracketPanX, bracketPanY]);
 
   const openBracketFullscreen = useCallback(() => {
@@ -2141,7 +2187,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
       const now = Date.now();
 
       if (
-        bracketFullscreenVisibleRef.current &&
+        bracketIsFullscreenModeRef.current &&
         now - bracketLastTapRef.current < BRACKET_DOUBLE_TAP_DELAY
       ) {
         resetBracketZoom();
@@ -2183,7 +2229,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
       const nextScale =
         bracketPinchStartScaleRef.current *
         (nextDistance / bracketPinchStartDistanceRef.current);
-      const minZoom = bracketFullscreenVisibleRef.current
+      const minZoom = bracketIsFullscreenModeRef.current
         ? BRACKET_FULLSCREEN_MIN_ZOOM
         : BRACKET_MIN_ZOOM;
       const clampedScale = clamp(nextScale, minZoom, BRACKET_MAX_ZOOM);
@@ -2988,6 +3034,60 @@ export default function TournamentFixtureScreen({ navigation, route }) {
       })
       .slice(0, 4);
   }, [currentBracketPreview, tournamentDayOptions]);
+  const activeBracketCourtPicker = useMemo(() => {
+    if (
+      bracketMatchPickerState.field !== "courtLabel" ||
+      !bracketMatchPickerState.roundId ||
+      !bracketMatchPickerState.matchId
+    ) {
+      return null;
+    }
+
+    const currentRound = (currentBracketPreview?.rounds || []).find(
+      (round) => round.id === bracketMatchPickerState.roundId
+    );
+    const currentMatch = (currentRound?.matches || []).find(
+      (match) => match.id === bracketMatchPickerState.matchId
+    );
+
+    if (!currentMatch || currentMatch.teamAIsBye || currentMatch.teamBIsBye) {
+      return null;
+    }
+
+    const parsedCourt = splitCourtLabelPartsSafe(currentMatch.courtLabel);
+    const venueId = String(currentMatch.venueId || "").trim();
+    const scheduleCourtCount = Math.max(
+      ...zoneVenueSchedules
+        .filter((entry) => entry.useForBracket && (!venueId || entry.venueId === venueId))
+        .map((entry) => Number(entry.courts || 0)),
+      0
+    );
+    const venue = tournamentVenueOptions.find((entry) => String(entry.id || "") === venueId);
+    const courtCount = Math.max(scheduleCourtCount || Number(venue?.totalCanchas || 0) || 1, 1);
+    const venueName =
+      parsedCourt.venueName ||
+      venue?.name ||
+      zoneVenueSchedules.find((entry) => entry.useForBracket && (!venueId || entry.venueId === venueId))?.venueName ||
+      "";
+
+    return {
+      currentCourtName: parsedCourt.courtName,
+      matchId: currentMatch.id,
+      options: Array.from({ length: courtCount }, (_, index) => {
+        const courtName = `Cancha ${index + 1}`;
+        return {
+          label: courtName,
+          value: venueName ? `${venueName} · ${courtName}` : courtName,
+        };
+      }),
+      roundId: currentRound.id,
+    };
+  }, [
+    bracketMatchPickerState,
+    currentBracketPreview,
+    tournamentVenueOptions,
+    zoneVenueSchedules,
+  ]);
 
   const saveFixtureSetup = async (partialSetup = {}, successMessage = "") => {
     if (!tournament?.id) {
@@ -3018,8 +3118,18 @@ export default function TournamentFixtureScreen({ navigation, route }) {
         },
         ...partialSetup,
       };
+      const bracketSaveGeneration = Number(nextSetup.bracketSaveGeneration || 0);
       delete nextSetup.savingKey;
       delete nextSetup.skipReload;
+      delete nextSetup.bracketSaveGeneration;
+
+      if (
+        (partialSetup.savingKey || "") === "bracket" &&
+        bracketSaveGeneration < bracketSaveGenerationRef.current
+      ) {
+        return;
+      }
+
       pendingFixtureSetupRef.current = nextSetup;
 
       const updatedTournament = await updateTournament(
@@ -3042,6 +3152,13 @@ export default function TournamentFixtureScreen({ navigation, route }) {
             matchFormat: currentMatchFormat,
           },
         });
+      }
+
+      if (
+        (partialSetup.savingKey || "") === "bracket" &&
+        bracketSaveGeneration < bracketSaveGenerationRef.current
+      ) {
+        return;
       }
 
       setTournament((current) =>
@@ -3099,12 +3216,13 @@ export default function TournamentFixtureScreen({ navigation, route }) {
         }
 
         try {
+          const latestFixtureSetup = pendingFixtureSetupRef.current || fixtureSetup;
           await updateTournament(
             tournament.id,
             currentOrganizer,
             {
               fixtureSetup: {
-                ...fixtureSetup,
+                ...latestFixtureSetup,
                 lastViewedSection: normalizedSection,
               },
             },
@@ -3167,6 +3285,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
         saveFixtureSetup({
           savingKey: "bracket",
           skipReload: true,
+          bracketSaveGeneration: bracketSaveGenerationRef.current,
           bracketStatus: nextBracketPreview?.mode === "manual" ? "manual_ready" : "automatic_ready",
           bracketPreview: nextBracketPreview,
         });
@@ -3476,6 +3595,18 @@ export default function TournamentFixtureScreen({ navigation, route }) {
         rounds: sourceBracketPreview.rounds.map((round) => ({
           ...round,
           matches: (round.matches || []).map((match) => {
+            if (match.teamAIsBye || match.teamBIsBye) {
+              return {
+                ...match,
+                distributionPending: false,
+                venueId: "",
+                courtLabel: "Cancha pendiente",
+                scheduleLabel: "Horario pendiente",
+                scheduledDayKey: "",
+                scheduledTime: "",
+              };
+            }
+
             let nextSlot = null;
 
             for (let index = 0; index < allSlots.length; index += 1) {
@@ -3630,6 +3761,16 @@ export default function TournamentFixtureScreen({ navigation, route }) {
       return;
     }
 
+    if (bracketSaveTimeoutRef.current) {
+      clearTimeout(bracketSaveTimeoutRef.current);
+      bracketSaveTimeoutRef.current = null;
+    }
+    bracketSaveGenerationRef.current += 1;
+    setBracketMatchPickerState({ roundId: "", matchId: "", field: "" });
+    setBracketMatchTimePickerTarget(null);
+    setBracketSwapSelection(null);
+    bracketSetInputRefs.current = {};
+
     const baseBracketPreview = applyBracketProgressions(buildBracketPreview({
       mode: selectedMode,
       manualBracketMode: selectedManualBracketMode,
@@ -3675,6 +3816,51 @@ export default function TournamentFixtureScreen({ navigation, route }) {
         ? assignSchedulesToBracketMatches(baseBracketPreview, effectiveVenueSchedules)
         : { nextBracketPreview: baseBracketPreview, unassignedCount: 0 };
     const bracketPreview = scheduledBracketResult.nextBracketPreview;
+    const bracketCreationStats = (bracketPreview?.rounds || []).reduce(
+      (stats, round) => {
+        (round.matches || []).forEach((match) => {
+          const isBye = Boolean(match.teamAIsBye || match.teamBIsBye);
+          const hasSchedule = Boolean(match.scheduledDayKey && match.scheduledTime);
+          const hasCourt = Boolean(
+            String(match.courtLabel || "").trim() &&
+              !String(match.courtLabel || "").toLowerCase().includes("pendiente")
+          );
+          const hasManualWinner = Boolean(match.result?.winner && match.result?.winnerSource !== "auto");
+          const hasScores = (match.result?.sets || []).some(
+            (set) => String(set?.teamA || "").trim() || String(set?.teamB || "").trim()
+          );
+
+          stats.total += 1;
+
+          if (isBye) {
+            stats.byes += 1;
+            return;
+          }
+
+          if (hasSchedule && hasCourt) {
+            stats.scheduled += 1;
+          } else {
+            stats.pending += 1;
+          }
+
+          if (hasManualWinner) {
+            stats.manualWinners += 1;
+          }
+          if (hasScores) {
+            stats.scoredMatches += 1;
+          }
+        });
+
+        return stats;
+      },
+      { total: 0, byes: 0, scheduled: 0, pending: 0, manualWinners: 0, scoredMatches: 0 }
+    );
+    console.log("[TournamentFixture] Crear llaves", {
+      tournamentId,
+      schedulesForBracket: effectiveVenueSchedules.filter((entry) => entry.useForBracket).length,
+      durationMinutes: currentZoneMatchDurationMinutes,
+      ...bracketCreationStats,
+    });
     if (effectiveVenueSchedules !== zoneVenueSchedules) {
       setZoneVenueSchedules(effectiveVenueSchedules);
     }
@@ -3685,6 +3871,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
       {
         savingKey: "bracket",
         skipReload: true,
+        bracketSaveGeneration: bracketSaveGenerationRef.current,
         bracketStatus: bracketPreview.mode === "manual" ? "manual_ready" : "automatic_ready",
         bracketPreview,
         zoneVenueSchedules: effectiveVenueSchedules,
@@ -3692,8 +3879,8 @@ export default function TournamentFixtureScreen({ navigation, route }) {
       bracketPreview.mode === "manual"
         ? "La recomendacion de llaves quedo lista para ser completada manualmente."
         : scheduledBracketResult.unassignedCount > 0
-        ? `La recomendacion de llaves quedo creada. ${scheduledBracketResult.unassignedCount} cruce(s) no pudieron distribuirse y quedaron pendientes.`
-        : "La recomendacion de llaves quedo creada automaticamente."
+        ? `Llaves creadas: ${bracketCreationStats.scheduled} programado(s), ${bracketCreationStats.byes} BYE sin horario y ${bracketCreationStats.pending} pendiente(s).`
+        : `Llaves creadas: ${bracketCreationStats.scheduled} programado(s), ${bracketCreationStats.byes} BYE sin horario.`
     );
     handleChangeActiveSection("bracket");
   };
@@ -4349,6 +4536,142 @@ export default function TournamentFixtureScreen({ navigation, route }) {
     setBracketMatchPickerState({ roundId: "", matchId: "", field: "" });
   };
 
+  const handleUpdateBracketMatchCourt = (roundId, matchId, courtLabel) => {
+    const baseBracketPreview = workingBracketPreviewRef.current || currentBracketPreview || {};
+    const nextBracketPreview = {
+      ...baseBracketPreview,
+      rounds: (baseBracketPreview?.rounds || []).map((round) =>
+        round.id !== roundId
+          ? round
+          : {
+              ...round,
+              matches: (round.matches || []).map((match) =>
+                match.id !== matchId
+                  ? match
+                  : {
+                      ...match,
+                      courtLabel: String(courtLabel || ""),
+                    }
+              ),
+            }
+      ),
+    };
+
+    setBracketDraft(nextBracketPreview);
+    workingBracketPreviewRef.current = nextBracketPreview;
+    scheduleBracketSave(nextBracketPreview);
+    setBracketMatchPickerState({ roundId: "", matchId: "", field: "" });
+  };
+
+  const handleClearBracketCourts = () => {
+    const baseBracketPreview = workingBracketPreviewRef.current || currentBracketPreview || {};
+    const venueNameById = new Map(
+      tournamentVenueOptions.map((venue) => [
+        String(venue.id || ""),
+        String(venue.name || venue.nombre || "").trim(),
+      ])
+    );
+    const scheduleVenueNameById = new Map(
+      zoneVenueSchedules.map((entry) => [
+        String(entry.venueId || ""),
+        String(entry.venueName || "").trim(),
+      ])
+    );
+    const nextBracketPreview = {
+      ...baseBracketPreview,
+      rounds: (baseBracketPreview?.rounds || []).map((round) => ({
+        ...round,
+        matches: (round.matches || []).map((match) => {
+          if (match.teamAIsBye || match.teamBIsBye) {
+            return match;
+          }
+
+          const parsedCourt = splitCourtLabelPartsSafe(match.courtLabel);
+          const venueId = String(match.venueId || "").trim();
+          const venueName =
+            parsedCourt.venueName ||
+            venueNameById.get(venueId) ||
+            scheduleVenueNameById.get(venueId) ||
+            "";
+
+          return {
+            ...match,
+            courtLabel: venueName,
+          };
+        }),
+      })),
+    };
+
+    setBracketDraft(nextBracketPreview);
+    workingBracketPreviewRef.current = nextBracketPreview;
+    scheduleBracketSave(nextBracketPreview);
+    setBracketMatchPickerState({ roundId: "", matchId: "", field: "" });
+  };
+
+  const handleToggleBracketSwapMode = () => {
+    setBracketActionsMenuVisible(false);
+    setBracketSwapMode((current) => !current);
+    setBracketSwapSelection(null);
+  };
+
+  const handleClearBracketCourtsFromMenu = () => {
+    setBracketActionsMenuVisible(false);
+    handleClearBracketCourts();
+  };
+
+  const handleShareBracketImage = async () => {
+    setBracketActionsMenuVisible(false);
+
+    if (!bracketBoard || !bracketShareViewRef.current) {
+      setFeedback({
+        message: "Primero abrí las llaves para generar la captura.",
+        title: "No hay llaves para compartir",
+        tone: "error",
+        visible: true,
+      });
+      return;
+    }
+
+    try {
+      const canShare = await Sharing.isAvailableAsync();
+
+      if (!canShare) {
+        setFeedback({
+          message: "Este dispositivo no tiene disponible el panel para compartir imagenes.",
+          title: "No se pudo compartir",
+          tone: "error",
+          visible: true,
+        });
+        return;
+      }
+
+      const imageUri = await captureRef(bracketShareViewRef.current, {
+        format: "png",
+        height: Math.ceil(
+          (bracketBoard.boardHeight + spacing.lg * 2) * BRACKET_SHARE_IMAGE_SCALE
+        ),
+        quality: 1,
+        result: "tmpfile",
+        width: Math.ceil(
+          (bracketBoard.boardWidth + spacing.lg * 2) * BRACKET_SHARE_IMAGE_SCALE
+        ),
+      });
+
+      await Sharing.shareAsync(imageUri, {
+        dialogTitle: "Compartir llaves",
+        mimeType: "image/png",
+        UTI: "public.png",
+      });
+    } catch (error) {
+      setFeedback({
+        message: error?.message || "No pudimos generar la imagen de las llaves.",
+        title: "No se pudo compartir",
+        tone: "error",
+        visible: true,
+      });
+    }
+  };
+
   const handleBracketMatchTimePickerChange = useCallback(
     (_, selectedDate) => {
       if (
@@ -4380,13 +4703,17 @@ export default function TournamentFixtureScreen({ navigation, route }) {
   const isBracketSwapSlotSelected = (roundId, matchId, teamKey) =>
     getBracketSwapSlotId(bracketSwapSelection) === getBracketSwapSlotId({ roundId, matchId, teamKey });
 
-  const hasBracketMatchResult = (match = {}) => {
+  const hasBracketMatchResult = (match = {}, { ignoreAutoBye = false } = {}) => {
     const hasWinner = Boolean(match?.result?.winner);
     const hasSets = (match?.result?.sets || []).some((set) =>
       Boolean(String(set?.teamA || "").trim() || String(set?.teamB || "").trim())
     );
+    const isAutoByeResult =
+      ignoreAutoBye &&
+      match?.result?.winnerSource === "auto" &&
+      Boolean(match?.teamAIsBye || match?.teamBIsBye);
 
-    return hasWinner || hasSets;
+    return (hasWinner && !isAutoByeResult) || hasSets;
   };
 
   const canSelectBracketSwapSlot = (match = {}, teamKey = "teamA", roundIndex = 0) => {
@@ -4394,16 +4721,17 @@ export default function TournamentFixtureScreen({ navigation, route }) {
       return false;
     }
 
-    if (hasBracketMatchResult(match)) {
+    if (hasBracketMatchResult(match, { ignoreAutoBye: true })) {
       return false;
     }
 
+    const isBye = Boolean(match?.[`${teamKey}IsBye`]);
     const seed = String(match?.[`${teamKey}Seed`] || "").trim();
     const name = String(match?.[`${teamKey}Name`] || "").trim();
     const lines = Array.isArray(match?.[`${teamKey}Lines`]) ? match[`${teamKey}Lines`] : [];
     const hasVisibleTeam = Boolean(seed || name || lines.some((line) => String(line || "").trim()));
 
-    return hasVisibleTeam && !match?.[`${teamKey}IsBye`];
+    return hasVisibleTeam || isBye;
   };
 
   const handleSelectBracketSwapSlot = (roundId, matchId, teamKey) => {
@@ -4421,6 +4749,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
     }
 
     const readTeam = (match, key) => ({
+      id: match?.[`${key}Id`] || "",
       seed: match?.[`${key}Seed`] || "",
       name: match?.[`${key}Name`] || "",
       lines: Array.isArray(match?.[`${key}Lines`]) ? match[`${key}Lines`] : [],
@@ -4428,11 +4757,30 @@ export default function TournamentFixtureScreen({ navigation, route }) {
     });
     const writeTeam = (match, key, team) => ({
       ...match,
+      [`${key}Id`]: team.isBye ? "" : team.id,
       [`${key}Seed`]: team.seed,
       [`${key}Name`]: team.name,
       [`${key}Lines`]: team.lines,
       [`${key}IsBye`]: team.isBye,
     });
+    const buildSwapMatchResult = (match, round) => {
+      const autoWinner =
+        match.teamAIsBye && !match.teamBIsBye
+          ? "teamB"
+          : match.teamBIsBye && !match.teamAIsBye
+          ? "teamA"
+          : "";
+
+      return {
+        ...match,
+        result: {
+          ...buildDefaultBracketResult(resolveCurrentBracketRoundFormat(round)),
+          winnerSource: autoWinner ? "auto" : "",
+          winner: autoWinner,
+        },
+        resultLabel: autoWinner ? "Avanza por BYE" : "Resultado pendiente",
+      };
+    };
     let firstTeam = null;
     let secondTeam = null;
 
@@ -4474,24 +4822,21 @@ export default function TournamentFixtureScreen({ navigation, route }) {
             nextMatch = writeTeam(nextMatch, teamKey, firstTeam);
           }
 
-          return {
-            ...nextMatch,
-            result: buildDefaultBracketResult(resolveCurrentBracketRoundFormat(round)),
-            resultLabel: "Resultado pendiente",
-          };
+          return buildSwapMatchResult(nextMatch, round);
         }),
       })),
     }, resolveCurrentBracketRoundFormat);
 
     setBracketDraft(nextBracketPreview);
+    workingBracketPreviewRef.current = nextBracketPreview;
     scheduleBracketSave(nextBracketPreview);
     setBracketSwapSelection(null);
   };
 
   const renderBracketMatchScheduleHeader = (round, match, isFullscreen = false) => {
     const hasBye = Boolean(match.teamAIsBye || match.teamBIsBye);
-    const displayDayKey = String(match.scheduledDayKey || bracketDisplayFallbackSchedule?.dayKey || "");
-    const displayTime = String(match.scheduledTime || bracketDisplayFallbackSchedule?.time || "");
+    const displayDayKey = String(hasBye ? "" : match.scheduledDayKey || bracketDisplayFallbackSchedule?.dayKey || "");
+    const displayTime = String(hasBye ? "" : match.scheduledTime || bracketDisplayFallbackSchedule?.time || "");
     const dayLabel = displayDayKey
       ? formatScheduleDayDisplay(displayDayKey, tournamentDayOptions)
       : hasBye
@@ -4508,7 +4853,8 @@ export default function TournamentFixtureScreen({ navigation, route }) {
       <View style={styles.bracketMatchHeader}>
         <View style={styles.bracketMatchScheduleWrap}>
           <Pressable
-            disabled={!canEditFixture}
+            disabled={!canEditFixture || hasBye}
+            hitSlop={{ bottom: 8, left: 10, right: 8, top: 8 }}
             onPress={() =>
               canEditFixture
                 ? setBracketMatchPickerState({
@@ -4520,14 +4866,18 @@ export default function TournamentFixtureScreen({ navigation, route }) {
             }
             style={({ pressed }) => [
               styles.bracketMatchScheduleButton,
+              !hasBye ? styles.bracketMatchScheduleButtonActive : null,
               pressed ? styles.primaryButtonPressed : null,
             ]}
           >
-            <Ionicons color="#1B5D92" name="calendar-outline" size={11} />
-            <Text style={styles.bracketMatchSchedulePill}>{dayLabel}</Text>
+            <Ionicons color={!hasBye ? colors.surface : "#1B5D92"} name="calendar-outline" size={11} />
+            <Text style={[styles.bracketMatchSchedulePill, !hasBye ? styles.bracketMatchSchedulePillActive : null]}>
+              {dayLabel}
+            </Text>
           </Pressable>
           <Pressable
-            disabled={!canEditFixture}
+            disabled={!canEditFixture || hasBye}
+            hitSlop={{ bottom: 8, left: 8, right: 10, top: 8 }}
             onPress={() =>
               canEditFixture
                 ? setBracketMatchTimePickerTarget({
@@ -4539,11 +4889,14 @@ export default function TournamentFixtureScreen({ navigation, route }) {
             }
             style={({ pressed }) => [
               styles.bracketMatchScheduleButton,
+              !hasBye ? styles.bracketMatchScheduleButtonActive : null,
               pressed ? styles.primaryButtonPressed : null,
             ]}
           >
-            <Ionicons color="#1B5D92" name="time-outline" size={11} />
-            <Text style={styles.bracketMatchSchedulePill}>{timeLabel}</Text>
+            <Ionicons color={!hasBye ? colors.surface : "#1B5D92"} name="time-outline" size={11} />
+            <Text style={[styles.bracketMatchSchedulePill, !hasBye ? styles.bracketMatchSchedulePillActive : null]}>
+              {timeLabel}
+            </Text>
           </Pressable>
         </View>
       </View>
@@ -4607,9 +4960,11 @@ export default function TournamentFixtureScreen({ navigation, route }) {
     );
   };
 
-  const renderBracketMatchLocation = (match) => {
+  const renderBracketMatchLocation = (round, match) => {
     const hasBye = Boolean(match.teamAIsBye || match.teamBIsBye);
-    const rawCourtLabel = String(match.courtLabel || "").toLowerCase().includes("pendiente")
+    const rawCourtLabel = hasBye
+      ? ""
+      : String(match.courtLabel || "").toLowerCase().includes("pendiente")
       ? bracketDisplayFallbackSchedule?.courtLabel || match.courtLabel
       : match.courtLabel;
     const { venueName: rawVenueName, courtName: rawCourtName } = splitCourtLabelPartsSafe(rawCourtLabel);
@@ -4625,12 +4980,31 @@ export default function TournamentFixtureScreen({ navigation, route }) {
 
     return (
       <View style={styles.bracketMatchLocationWrap}>
-        <Text numberOfLines={1} style={styles.bracketMatchVenueText}>
+        <Text numberOfLines={2} style={styles.bracketMatchVenueText}>
           {venueName || (hasBye ? "Sede -- --" : "Sede pendiente")}
         </Text>
-        <Text numberOfLines={1} style={styles.bracketMatchCourtText}>
-          {courtName || (hasBye ? "Cancha -- --" : "Cancha pendiente")}
-        </Text>
+        {courtName || hasBye || !venueName ? (
+          <Pressable
+            disabled={!canEditFixture || hasBye || !courtName}
+            hitSlop={{ bottom: 6, left: 8, right: 8, top: 6 }}
+            onPress={() =>
+              setBracketMatchPickerState({
+                roundId: round.id,
+                matchId: match.id,
+                field: "courtLabel",
+              })
+            }
+            style={({ pressed }) => [
+              styles.bracketCourtChip,
+              pressed ? styles.primaryButtonPressed : null,
+              !canEditFixture || hasBye || !courtName ? styles.bracketCourtChipDisabled : null,
+            ]}
+          >
+            <Text numberOfLines={1} style={styles.bracketMatchCourtText}>
+              {courtName || (hasBye ? "Cancha -- --" : "Cancha pendiente")}
+            </Text>
+          </Pressable>
+        ) : null}
       </View>
     );
   };
@@ -4639,7 +5013,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
     round,
     match,
     roundIndex,
-    { isResolved = false, teamAIsBye = false, teamBIsBye = false, isHighlightedTeamA = false, isHighlightedTeamB = false, compactResults = false } = {}
+    { isResolved = false, teamAIsBye = false, teamBIsBye = false, isHighlightedTeamA = false, isHighlightedTeamB = false, compactResults = false, isShareCapture = false } = {}
   ) => (
     <View style={styles.bracketMatchBodyRow}>
       <View style={styles.bracketSideControlsColumn}>
@@ -4697,13 +5071,9 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                   ]}
                 >
                   <Ionicons
-                    color={
-                      isBracketSwapSlotSelected(round.id, match.id, "teamA")
-                        ? colors.surface
-                        : colors.primaryDark
-                    }
+                    color={colors.surface}
                     name="swap-horizontal-outline"
-                    size={11}
+                    size={14}
                   />
                 </View>
               ) : null}
@@ -4777,13 +5147,9 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                   ]}
                 >
                   <Ionicons
-                    color={
-                      isBracketSwapSlotSelected(round.id, match.id, "teamB")
-                        ? colors.surface
-                        : colors.primaryDark
-                    }
+                    color={colors.surface}
                     name="swap-horizontal-outline"
-                    size={11}
+                    size={14}
                   />
                 </View>
               ) : null}
@@ -4828,7 +5194,6 @@ export default function TournamentFixtureScreen({ navigation, route }) {
           </View>
         </Pressable>
 
-        {renderBracketMatchLocation(match)}
       </View>
 
       <View
@@ -4869,7 +5234,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                 </Text>
                 <View style={styles.bracketVerticalSetInputs}>
                   <TextInput
-                    editable={isScoreEditable}
+                    editable={isScoreEditable && !isShareCapture}
                     keyboardType="number-pad"
                     maxLength={maxDigits}
                     onChangeText={(value) => {
@@ -4886,9 +5251,15 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                     }}
                     placeholder="-"
                     placeholderTextColor={!isScoreEditable ? "#A8B1B8" : colors.muted}
-                    ref={(ref) => {
-                      bracketSetInputRefs.current[`${round.id}-${match.id}-${setIndex}-a`] = ref;
-                    }}
+                    ref={
+                      isShareCapture
+                        ? undefined
+                        : (ref) => {
+                            bracketSetInputRefs.current[
+                              `${round.id}-${match.id}-${setIndex}-a`
+                            ] = ref;
+                          }
+                    }
                     style={[
                       styles.bracketVerticalSetInput,
                       !isScoreEditable ? styles.bracketVerticalSetInputDisabled : null,
@@ -4896,7 +5267,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                     value={isScoreEditable ? String(set.teamA || "") : ""}
                   />
                   <TextInput
-                    editable={isScoreEditable}
+                    editable={isScoreEditable && !isShareCapture}
                     keyboardType="number-pad"
                     maxLength={maxDigits}
                     onChangeText={(value) => {
@@ -4913,9 +5284,15 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                     }}
                     placeholder="-"
                     placeholderTextColor={!isScoreEditable ? "#A8B1B8" : colors.muted}
-                    ref={(ref) => {
-                      bracketSetInputRefs.current[`${round.id}-${match.id}-${setIndex}-b`] = ref;
-                    }}
+                    ref={
+                      isShareCapture
+                        ? undefined
+                        : (ref) => {
+                            bracketSetInputRefs.current[
+                              `${round.id}-${match.id}-${setIndex}-b`
+                            ] = ref;
+                          }
+                    }
                     style={[
                       styles.bracketVerticalSetInput,
                       !isScoreEditable ? styles.bracketVerticalSetInputDisabled : null,
@@ -4927,7 +5304,75 @@ export default function TournamentFixtureScreen({ navigation, route }) {
             );
           })}
         </View>
+        {renderBracketMatchLocation(round, match)}
       </View>
+    </View>
+  );
+
+  const renderBracketActionsMenu = ({ inHeader = false } = {}) => (
+    <View
+      style={[
+        styles.bracketActionsMenuWrap,
+        inHeader ? styles.bracketActionsMenuWrapHeader : null,
+      ]}
+    >
+      <Pressable
+        accessibilityLabel="Abrir acciones de llaves"
+        onPress={() => setBracketActionsMenuVisible((current) => !current)}
+        style={({ pressed }) => [
+          styles.bracketActionsMenuButton,
+          inHeader ? styles.bracketActionsMenuButtonHeader : null,
+          bracketActionsMenuVisible || bracketSwapMode ? styles.bracketActionsMenuButtonActive : null,
+          pressed ? styles.primaryButtonPressed : null,
+        ]}
+      >
+        <Ionicons
+          color={bracketActionsMenuVisible || bracketSwapMode ? colors.surface : colors.primaryDark}
+          name="ellipsis-horizontal"
+          size={22}
+        />
+      </Pressable>
+
+      {bracketActionsMenuVisible ? (
+        <View style={styles.bracketActionsMenuCard}>
+          {canEditFixture ? (
+            <>
+              <Pressable
+                onPress={handleToggleBracketSwapMode}
+                style={({ pressed }) => [
+                  styles.bracketActionsMenuItem,
+                  pressed ? styles.bracketActionsMenuItemPressed : null,
+                ]}
+              >
+                <Ionicons color="#1E88C8" name="swap-horizontal-outline" size={18} />
+                <Text style={styles.bracketActionsMenuItemText}>
+                  {bracketSwapMode ? "Salir de cambiar parejas" : "Cambiar parejas"}
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={handleClearBracketCourtsFromMenu}
+                style={({ pressed }) => [
+                  styles.bracketActionsMenuItem,
+                  pressed ? styles.bracketActionsMenuItemPressed : null,
+                ]}
+              >
+                <Ionicons color={colors.danger} name="trash-outline" size={18} />
+                <Text style={styles.bracketActionsMenuItemText}>Eliminar canchas</Text>
+              </Pressable>
+            </>
+          ) : null}
+          <Pressable
+            onPress={handleShareBracketImage}
+            style={({ pressed }) => [
+              styles.bracketActionsMenuItem,
+              pressed ? styles.bracketActionsMenuItemPressed : null,
+            ]}
+          >
+            <Ionicons color={colors.primaryDark} name="share-social-outline" size={18} />
+            <Text style={styles.bracketActionsMenuItemText}>Compartir</Text>
+          </Pressable>
+        </View>
+      ) : null}
     </View>
   );
 
@@ -4999,20 +5444,30 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                   />
                 ))}
 
-                {bracketBoard.rounds.map((round) => (
-                  <View
-                    key={`${round.id}-label`}
-                    style={[
-                      styles.bracketRoundBadge,
-                      {
-                        left: round.x,
-                        width: BRACKET_CARD_WIDTH,
-                      },
-                    ]}
-                  >
-                    <Text style={styles.roundTitle}>{round.title}</Text>
-                  </View>
-                ))}
+                {bracketBoard.rounds.map((round, roundIndex) => {
+                  const roundBadgeColor = getBracketRoundBadgeColor(
+                    roundIndex,
+                    bracketBoard.rounds.length
+                  );
+
+                  return (
+                    <View
+                      key={`${round.id}-label`}
+                      style={[
+                        styles.bracketRoundBadge,
+                        {
+                          backgroundColor: roundBadgeColor,
+                          borderColor: roundBadgeColor,
+                          left: round.x,
+                          shadowColor: roundBadgeColor,
+                          width: BRACKET_CARD_WIDTH,
+                        },
+                      ]}
+                    >
+                      <Text style={styles.roundTitle}>{round.title}</Text>
+                    </View>
+                  );
+                })}
 
                 {bracketBoard.rounds.flatMap((round, roundIndex) =>
                   (round.matches || []).map((match) => (
@@ -5021,6 +5476,14 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                       style={[
                         styles.bracketAbsoluteMatchCard,
                         {
+                          backgroundColor: hexToRgba(
+                            getBracketRoundBadgeColor(roundIndex, bracketBoard.rounds.length),
+                            0.14
+                          ),
+                          borderColor: hexToRgba(
+                            getBracketRoundBadgeColor(roundIndex, bracketBoard.rounds.length),
+                            0.38
+                          ),
                           left: match.x,
                           top: match.y,
                           width: BRACKET_CARD_WIDTH,
@@ -5112,20 +5575,30 @@ export default function TournamentFixtureScreen({ navigation, route }) {
               />
             ))}
 
-            {bracketBoard.rounds.map((round) => (
-              <View
-                key={`${round.id}-label`}
-                style={[
-                  styles.bracketRoundBadge,
-                  {
-                    left: round.x,
-                    width: BRACKET_CARD_WIDTH,
-                  },
-                ]}
-              >
-                <Text style={styles.roundTitle}>{round.title}</Text>
-              </View>
-            ))}
+            {bracketBoard.rounds.map((round, roundIndex) => {
+              const roundBadgeColor = getBracketRoundBadgeColor(
+                roundIndex,
+                bracketBoard.rounds.length
+              );
+
+              return (
+                <View
+                  key={`${round.id}-label`}
+                  style={[
+                    styles.bracketRoundBadge,
+                    {
+                      backgroundColor: roundBadgeColor,
+                      borderColor: roundBadgeColor,
+                      left: round.x,
+                      shadowColor: roundBadgeColor,
+                      width: BRACKET_CARD_WIDTH,
+                    },
+                  ]}
+                >
+                  <Text style={styles.roundTitle}>{round.title}</Text>
+                </View>
+              );
+            })}
 
             {bracketBoard.rounds.flatMap((round, roundIndex) =>
               (round.matches || []).map((match) => (
@@ -5134,6 +5607,14 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                   style={[
                     styles.bracketAbsoluteMatchCard,
                     {
+                      backgroundColor: hexToRgba(
+                        getBracketRoundBadgeColor(roundIndex, bracketBoard.rounds.length),
+                        0.14
+                      ),
+                      borderColor: hexToRgba(
+                        getBracketRoundBadgeColor(roundIndex, bracketBoard.rounds.length),
+                        0.38
+                      ),
                       left: match.x,
                       top: match.y,
                       width: BRACKET_CARD_WIDTH,
@@ -5174,10 +5655,127 @@ export default function TournamentFixtureScreen({ navigation, route }) {
     );
   };
 
+  const renderBracketShareBoard = () => {
+    if (!bracketBoard) {
+      return null;
+    }
+
+    return (
+      <View
+        collapsable={false}
+        pointerEvents="none"
+        ref={bracketShareViewRef}
+        style={[
+          styles.bracketShareCaptureWrap,
+          {
+            height: bracketBoard.boardHeight + spacing.lg * 2,
+            width: bracketBoard.boardWidth + spacing.lg * 2,
+          },
+        ]}
+      >
+        <View
+          style={[
+            styles.bracketBoardCanvas,
+            {
+              height: bracketBoard.boardHeight,
+              width: bracketBoard.boardWidth,
+            },
+          ]}
+        >
+          {bracketBoard.connectors.map((connector) => (
+            <View
+              key={`share-${connector.id}`}
+              style={[
+                connector.type === "vertical"
+                  ? styles.bracketConnectorVertical
+                  : styles.bracketConnectorHorizontal,
+                connector.type === "vertical"
+                  ? {
+                      left: connector.x - BRACKET_CONNECTOR_THICKNESS / 2,
+                      top: connector.y,
+                      height: connector.height,
+                    }
+                  : {
+                      left: connector.x,
+                      top: connector.y - BRACKET_CONNECTOR_THICKNESS / 2,
+                      width: connector.width,
+                    },
+              ]}
+            />
+          ))}
+
+          {bracketBoard.rounds.map((round, roundIndex) => {
+            const roundBadgeColor = getBracketRoundBadgeColor(
+              roundIndex,
+              bracketBoard.rounds.length
+            );
+
+            return (
+              <View
+                key={`share-${round.id}-label`}
+                style={[
+                  styles.bracketRoundBadge,
+                  {
+                    backgroundColor: roundBadgeColor,
+                    borderColor: roundBadgeColor,
+                    left: round.x,
+                    shadowColor: roundBadgeColor,
+                    width: BRACKET_CARD_WIDTH,
+                  },
+                ]}
+              >
+                <Text style={styles.roundTitle}>{round.title}</Text>
+              </View>
+            );
+          })}
+
+          {bracketBoard.rounds.flatMap((round, roundIndex) =>
+            (round.matches || []).map((match) => {
+              const teamAIsBye = Boolean(match.teamAIsBye);
+              const teamBIsBye = Boolean(match.teamBIsBye);
+
+              return (
+                <View
+                  key={`share-${match.id}`}
+                  style={[
+                    styles.bracketAbsoluteMatchCard,
+                    {
+                      backgroundColor: hexToRgba(
+                        getBracketRoundBadgeColor(roundIndex, bracketBoard.rounds.length),
+                        0.14
+                      ),
+                      borderColor: hexToRgba(
+                        getBracketRoundBadgeColor(roundIndex, bracketBoard.rounds.length),
+                        0.38
+                      ),
+                      left: match.x,
+                      minHeight: BRACKET_CARD_HEIGHT,
+                      top: match.y,
+                      width: BRACKET_CARD_WIDTH,
+                    },
+                  ]}
+                >
+                  {renderBracketMatchScheduleHeader(round, match, true)}
+                  {renderBracketMatchBody(round, match, roundIndex, {
+                    isResolved: Boolean(match.result?.winner || teamAIsBye || teamBIsBye),
+                    isShareCapture: true,
+                    teamAIsBye,
+                    teamBIsBye,
+                  })}
+                </View>
+              );
+            })
+          )}
+        </View>
+      </View>
+    );
+  };
+
   if (isBracketFullscreenStandalone) {
     return (
       <SafeAreaView style={styles.bracketFullscreenSafeArea}>
         <View style={styles.bracketFullscreenHeader}>
+          {bracketBoard ? renderBracketActionsMenu({ inHeader: true }) : null}
           <Text style={styles.bracketFullscreenTitle}>Llaves</Text>
           <Pressable
             accessibilityLabel="Salir de pantalla completa"
@@ -5196,35 +5794,6 @@ export default function TournamentFixtureScreen({ navigation, route }) {
         </View>
         {bracketBoard ? (
           <>
-            <View style={[styles.bracketToolbar, styles.bracketFullscreenToolbar]}>
-              {canEditFixture ? (
-                <Pressable
-                  onPress={() => {
-                    setBracketSwapMode((current) => !current);
-                    setBracketSwapSelection(null);
-                  }}
-                  style={({ pressed }) => [
-                    styles.bracketToolbarButton,
-                    bracketSwapMode ? styles.bracketToolbarButtonActive : null,
-                    pressed ? styles.primaryButtonPressed : null,
-                  ]}
-                >
-                  <Ionicons
-                    color={bracketSwapMode ? colors.surface : colors.primaryDark}
-                    name="swap-horizontal-outline"
-                    size={17}
-                  />
-                  <Text
-                    style={[
-                      styles.bracketToolbarButtonText,
-                      bracketSwapMode ? styles.bracketToolbarButtonTextActive : null,
-                    ]}
-                  >
-                    Cambiar parejas
-                  </Text>
-                </Pressable>
-              ) : null}
-            </View>
             {canEditFixture && bracketSwapMode ? (
               <Text style={[styles.bracketSwapHelpText, styles.bracketFullscreenSwapHelpText]}>
                 Selecciona parejas de partidos sin resultado para intercambiarlas.
@@ -5232,6 +5801,11 @@ export default function TournamentFixtureScreen({ navigation, route }) {
             ) : null}
             {renderBracketBoard(true)}
           </>
+        ) : loading ? (
+          <View style={styles.loaderWrap}>
+            <ActivityIndicator color={colors.primaryDark} />
+            <Text style={styles.loaderText}>Cargando llaves...</Text>
+          </View>
         ) : (
           <View style={styles.loaderWrap}>
             <Text style={styles.loaderText}>
@@ -5241,6 +5815,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
             </Text>
           </View>
         )}
+        {renderBracketShareBoard()}
 
         <FeedbackModal
           message={feedback.message}
@@ -5294,6 +5869,62 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                           bracketMatchPickerState.matchId,
                           "scheduledDayKey",
                           option.key
+                        )
+                      }
+                      style={[
+                        styles.zoneInlinePickerOption,
+                        isSelected ? styles.zoneInlinePickerOptionSelected : null,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.zoneInlinePickerOptionText,
+                          isSelected ? styles.zoneInlinePickerOptionTextSelected : null,
+                        ]}
+                      >
+                        {option.label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+              <Pressable
+                onPress={() => setBracketMatchPickerState({ roundId: "", matchId: "", field: "" })}
+                style={({ pressed }) => [
+                  styles.zoneInlinePickerCloseButton,
+                  pressed ? styles.primaryButtonPressed : null,
+                ]}
+              >
+                <Text style={styles.zoneInlinePickerCloseButtonText}>Cerrar</Text>
+              </Pressable>
+            </View>
+          </View>
+        </Modal>
+        <Modal
+          animationType="fade"
+          onRequestClose={() => setBracketMatchPickerState({ roundId: "", matchId: "", field: "" })}
+          transparent
+          visible={Boolean(activeBracketCourtPicker)}
+        >
+          <View style={styles.confirmOverlay}>
+            <Pressable
+              onPress={() => setBracketMatchPickerState({ roundId: "", matchId: "", field: "" })}
+              style={styles.confirmBackdrop}
+            />
+            <View style={styles.bracketDayPickerModalCard}>
+              <Text style={styles.bracketDayPickerModalTitle}>Seleccionar cancha</Text>
+              <View style={styles.zoneInlinePickerOptions}>
+                {(activeBracketCourtPicker?.options || []).map((option) => {
+                  const isSelected = option.label === activeBracketCourtPicker?.currentCourtName;
+
+                  return (
+                    <Pressable
+                      key={`bracket-standalone-court-${option.label}`}
+                      onPress={() =>
+                        handleUpdateBracketMatchCourt(
+                          activeBracketCourtPicker.roundId,
+                          activeBracketCourtPicker.matchId,
+                          option.value
                         )
                       }
                       style={[
@@ -6445,7 +7076,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                                               : null,
                                           ]}
                                         >
-                                          <View style={styles.bracketTeamContentRow}>
+                                          <View style={styles.zoneTeamContentRow}>
                                             <View style={styles.bracketStatusIconLeftWrap}>
                                               {!match.result?.winner ? (
                                                 <FontAwesome5
@@ -6463,7 +7094,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                                               )}
                                               <Text style={styles.bracketTeamSeedSide}>{match.teamASeed}</Text>
                                             </View>
-                                            <View style={styles.bracketTeamPlayersBlock}>
+                                            <View style={styles.zoneTeamPlayersCompactBlock}>
                                               {(Array.isArray(match.teamALines) && match.teamALines.length
                                                 ? match.teamALines
                                                 : formatShortPairLines(match.teamAName)
@@ -6532,7 +7163,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                                               : null,
                                           ]}
                                         >
-                                          <View style={styles.bracketTeamContentRow}>
+                                          <View style={styles.zoneTeamContentRow}>
                                             <View style={styles.bracketStatusIconLeftWrap}>
                                               {!match.result?.winner ? (
                                                 <FontAwesome5
@@ -6550,7 +7181,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                                               )}
                                               <Text style={styles.bracketTeamSeedSide}>{match.teamBSeed}</Text>
                                             </View>
-                                            <View style={styles.bracketTeamPlayersBlock}>
+                                            <View style={styles.zoneTeamPlayersCompactBlock}>
                                               {(Array.isArray(match.teamBLines) && match.teamBLines.length
                                                 ? match.teamBLines
                                                 : formatShortPairLines(match.teamBName)
@@ -6724,21 +7355,8 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                   <View style={styles.bracketSummaryCard}>
                     <View style={styles.bracketSummaryHeader}>
                       <View style={styles.bracketSummaryHeaderCopy}>
-                        <Text style={styles.bracketSummaryTitle}>Llaves</Text>
-                        <Text style={styles.bracketSummaryText}>
-                          Consulta los cruces y sus proximos partidos.
-                        </Text>
+                        <Text style={styles.bracketSummaryTitle}>Proximos partidos</Text>
                       </View>
-                      <Pressable
-                        onPress={openBracketFullscreen}
-                        style={({ pressed }) => [
-                          styles.bracketSummaryActionButton,
-                          pressed ? styles.primaryButtonPressed : null,
-                        ]}
-                      >
-                        <Ionicons color={colors.primaryDark} name="git-branch-outline" size={16} />
-                        <Text style={styles.bracketSummaryActionButtonText}>Ver llaves</Text>
-                      </Pressable>
                     </View>
 
                     {upcomingBracketMatches.length ? (
@@ -6751,10 +7369,10 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                                 {match.dayLabel} · {match.timeLabel}
                               </Text>
                             </View>
-                            <Text style={styles.bracketUpcomingTeams}>
+                            <Text numberOfLines={1} style={styles.bracketUpcomingTeams}>
                               {match.teamALines.join(" / ")} vs {match.teamBLines.join(" / ")}
                             </Text>
-                            <Text style={styles.bracketUpcomingVenue}>
+                            <Text numberOfLines={1} style={styles.bracketUpcomingVenue}>
                               {match.venueLabel} · {match.courtLabel}
                             </Text>
                           </View>
@@ -6782,6 +7400,8 @@ export default function TournamentFixtureScreen({ navigation, route }) {
           </View>
         )}
       </View>
+
+      {renderBracketShareBoard()}
 
       <FeedbackModal
         message={feedback.message}
@@ -6887,6 +7507,62 @@ export default function TournamentFixtureScreen({ navigation, route }) {
       </Modal>
       <Modal
         animationType="fade"
+        onRequestClose={() => setBracketMatchPickerState({ roundId: "", matchId: "", field: "" })}
+        transparent
+        visible={Boolean(activeBracketCourtPicker)}
+      >
+        <View style={styles.confirmOverlay}>
+          <Pressable
+            onPress={() => setBracketMatchPickerState({ roundId: "", matchId: "", field: "" })}
+            style={styles.confirmBackdrop}
+          />
+          <View style={styles.bracketDayPickerModalCard}>
+            <Text style={styles.bracketDayPickerModalTitle}>Seleccionar cancha</Text>
+            <View style={styles.zoneInlinePickerOptions}>
+              {(activeBracketCourtPicker?.options || []).map((option) => {
+                const isSelected = option.label === activeBracketCourtPicker?.currentCourtName;
+
+                return (
+                  <Pressable
+                    key={`bracket-court-${option.label}`}
+                    onPress={() =>
+                      handleUpdateBracketMatchCourt(
+                        activeBracketCourtPicker.roundId,
+                        activeBracketCourtPicker.matchId,
+                        option.value
+                      )
+                    }
+                    style={[
+                      styles.zoneInlinePickerOption,
+                      isSelected ? styles.zoneInlinePickerOptionSelected : null,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.zoneInlinePickerOptionText,
+                        isSelected ? styles.zoneInlinePickerOptionTextSelected : null,
+                      ]}
+                    >
+                      {option.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            <Pressable
+              onPress={() => setBracketMatchPickerState({ roundId: "", matchId: "", field: "" })}
+              style={({ pressed }) => [
+                styles.zoneInlinePickerCloseButton,
+                pressed ? styles.primaryButtonPressed : null,
+              ]}
+            >
+              <Text style={styles.zoneInlinePickerCloseButtonText}>Cerrar</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+      <Modal
+        animationType="fade"
         onRequestClose={() => {
           setBracketMatchPickerState({ roundId: "", matchId: "", field: "" });
           setBracketMatchTimePickerTarget(null);
@@ -6896,6 +7572,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
       >
         <SafeAreaView style={styles.bracketFullscreenSafeArea}>
           <View style={styles.bracketFullscreenHeader}>
+            {bracketBoard ? renderBracketActionsMenu({ inHeader: true }) : null}
             <Text style={styles.bracketFullscreenTitle}>Llaves</Text>
             <Pressable
               accessibilityLabel="Salir de pantalla completa"
@@ -6914,35 +7591,6 @@ export default function TournamentFixtureScreen({ navigation, route }) {
           </View>
           {bracketBoard ? (
             <>
-              <View style={[styles.bracketToolbar, styles.bracketFullscreenToolbar]}>
-                {canEditFixture ? (
-                  <Pressable
-                    onPress={() => {
-                      setBracketSwapMode((current) => !current);
-                      setBracketSwapSelection(null);
-                    }}
-                    style={({ pressed }) => [
-                      styles.bracketToolbarButton,
-                      bracketSwapMode ? styles.bracketToolbarButtonActive : null,
-                      pressed ? styles.primaryButtonPressed : null,
-                    ]}
-                  >
-                    <Ionicons
-                      color={bracketSwapMode ? colors.surface : colors.primaryDark}
-                      name="swap-horizontal-outline"
-                      size={17}
-                    />
-                    <Text
-                      style={[
-                        styles.bracketToolbarButtonText,
-                        bracketSwapMode ? styles.bracketToolbarButtonTextActive : null,
-                      ]}
-                    >
-                      Cambiar parejas
-                    </Text>
-                  </Pressable>
-                ) : null}
-              </View>
               {canEditFixture && bracketSwapMode ? (
                 <Text style={[styles.bracketSwapHelpText, styles.bracketFullscreenSwapHelpText]}>
                   Selecciona parejas de partidos sin resultado para intercambiarlas.
@@ -8214,6 +8862,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     minHeight: 78,
+    maxHeight: 92,
     paddingHorizontal: 8,
     paddingVertical: 6,
   },
@@ -8241,6 +8890,17 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
     marginTop: 4,
     width: "100%",
+  },
+  zoneTeamContentRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    width: "100%",
+  },
+  zoneTeamPlayersCompactBlock: {
+    alignItems: "center",
+    flex: 1,
+    justifyContent: "center",
+    paddingHorizontal: 3,
   },
   zoneTeamPlayerSubname: {
     color: colors.muted,
@@ -8320,6 +8980,7 @@ const styles = StyleSheet.create({
     fontSize: 8,
     fontWeight: "800",
     textAlign: "center",
+    transform: [{ translateY: 3 }],
   },
   zoneSetInputsRow: {
     alignItems: "center",
@@ -8453,22 +9114,25 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     borderWidth: 1,
     marginTop: spacing.md,
-    padding: spacing.md,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
   },
   bracketSummaryHeader: {
     alignItems: "center",
     flexDirection: "row",
     gap: spacing.sm,
-    justifyContent: "space-between",
+    justifyContent: "center",
   },
   bracketSummaryHeaderCopy: {
+    alignItems: "center",
     flex: 1,
     gap: 2,
   },
   bracketSummaryTitle: {
-    color: colors.text,
-    fontSize: 16,
-    fontWeight: "900",
+    color: colors.muted,
+    fontSize: 15,
+    fontWeight: "800",
+    textAlign: "center",
     textTransform: "uppercase",
   },
   bracketSummaryText: {
@@ -8480,63 +9144,71 @@ const styles = StyleSheet.create({
   bracketSummaryActionButton: {
     alignItems: "center",
     alignSelf: "flex-start",
-    backgroundColor: "#E7F1F8",
-    borderColor: "#BED5E6",
+    backgroundColor: colors.primaryDark,
+    borderColor: colors.primaryDark,
     borderRadius: 999,
     borderWidth: 1,
     flexDirection: "row",
-    gap: 6,
+    gap: spacing.xs,
     justifyContent: "center",
-    minHeight: 34,
-    paddingHorizontal: spacing.md,
+    minHeight: 42,
+    paddingHorizontal: spacing.lg,
+    shadowColor: colors.primaryDark,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.22,
+    shadowRadius: 7,
+    elevation: 4,
   },
   bracketSummaryActionButtonText: {
-    color: colors.primaryDark,
-    fontSize: 11,
+    color: colors.surface,
+    fontSize: 12,
     fontWeight: "900",
     textTransform: "uppercase",
   },
   bracketUpcomingList: {
-    gap: spacing.sm,
-    marginTop: spacing.md,
+    gap: 6,
+    marginTop: spacing.sm,
   },
   bracketUpcomingItem: {
     backgroundColor: "#FFFFFF",
     borderColor: "#DCE6E0",
-    borderRadius: 12,
+    borderRadius: 8,
     borderWidth: 1,
-    gap: 4,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.sm,
+    gap: 2,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
   },
   bracketUpcomingTopRow: {
     alignItems: "center",
     flexDirection: "row",
-    gap: spacing.sm,
+    gap: 6,
     justifyContent: "space-between",
   },
   bracketUpcomingRound: {
     color: colors.text,
-    fontSize: 11,
+    flexShrink: 1,
+    fontSize: 10,
     fontWeight: "900",
     textTransform: "uppercase",
   },
   bracketUpcomingSchedule: {
     color: "#1E88C8",
-    fontSize: 11,
+    flexShrink: 0,
+    fontSize: 10,
     fontWeight: "800",
     textAlign: "right",
   },
   bracketUpcomingTeams: {
     color: colors.text,
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "800",
-    lineHeight: 17,
+    lineHeight: 15,
   },
   bracketUpcomingVenue: {
     color: colors.muted,
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: "700",
+    lineHeight: 13,
   },
   bracketSummaryEmptyText: {
     color: colors.muted,
@@ -8583,6 +9255,77 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
     justifyContent: "center",
     marginTop: 4,
+    position: "relative",
+    zIndex: 8,
+  },
+  bracketActionsMenuWrap: {
+    alignItems: "flex-end",
+    alignSelf: "stretch",
+    minHeight: 40,
+    position: "relative",
+    width: "100%",
+    zIndex: 12,
+  },
+  bracketActionsMenuWrapHeader: {
+    alignItems: "flex-start",
+    alignSelf: "auto",
+    left: spacing.md,
+    minHeight: 38,
+    position: "absolute",
+    top: 8,
+    width: 230,
+    zIndex: 30,
+  },
+  bracketActionsMenuButton: {
+    alignItems: "center",
+    backgroundColor: "#EEF7F3",
+    borderColor: "#CFE3D9",
+    borderRadius: 999,
+    borderWidth: 1,
+    height: 38,
+    justifyContent: "center",
+    width: 38,
+  },
+  bracketActionsMenuButtonHeader: {
+    backgroundColor: colors.surface,
+    borderColor: colors.surface,
+  },
+  bracketActionsMenuButtonActive: {
+    backgroundColor: "#1E88C8",
+    borderColor: "#1E88C8",
+  },
+  bracketActionsMenuCard: {
+    backgroundColor: colors.surface,
+    borderColor: "#CFE3D9",
+    borderRadius: 14,
+    borderWidth: 1,
+    minWidth: 218,
+    paddingVertical: spacing.xs,
+    position: "absolute",
+    right: 0,
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.16,
+    shadowRadius: 10,
+    top: 44,
+    zIndex: 20,
+    elevation: 8,
+  },
+  bracketActionsMenuItem: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.sm,
+    minHeight: 42,
+    paddingHorizontal: spacing.md,
+  },
+  bracketActionsMenuItemPressed: {
+    backgroundColor: "#EEF7F3",
+  },
+  bracketActionsMenuItemText: {
+    color: colors.text,
+    flex: 1,
+    fontSize: 13,
+    fontWeight: "800",
   },
   bracketToolbarButton: {
     alignItems: "center",
@@ -8605,6 +9348,15 @@ const styles = StyleSheet.create({
     minHeight: 36,
     paddingHorizontal: 0,
     width: 42,
+  },
+  bracketClearCourtsButton: {
+    backgroundColor: "#EEF7F3",
+    borderColor: "#CFE3D9",
+    minHeight: 31,
+    paddingHorizontal: spacing.sm,
+  },
+  bracketClearCourtsButtonText: {
+    fontSize: 9,
   },
   bracketToolbarIconButtonCompact: {
     height: 31,
@@ -8706,6 +9458,13 @@ const styles = StyleSheet.create({
   bracketBoardCanvas: {
     position: "relative",
   },
+  bracketShareCaptureWrap: {
+    backgroundColor: colors.background,
+    left: -10000,
+    padding: spacing.lg,
+    position: "absolute",
+    top: -10000,
+  },
   bracketDayPickerModalCard: {
     alignSelf: "center",
     backgroundColor: colors.surface,
@@ -8730,15 +9489,20 @@ const styles = StyleSheet.create({
   },
   bracketRoundBadge: {
     alignItems: "center",
-    backgroundColor: "#E6F2FB",
-    borderColor: "#B9D4EA",
-    borderRadius: 999,
-    borderWidth: 1,
+    backgroundColor: BRACKET_ROUND_BADGE_COLORS[0],
+    borderColor: BRACKET_ROUND_BADGE_COLORS[0],
+    borderRadius: 10,
+    borderWidth: 2,
     justifyContent: "center",
-    minHeight: 26,
-    paddingHorizontal: spacing.sm,
+    minHeight: 34,
+    paddingHorizontal: spacing.md,
     position: "absolute",
-    top: 0,
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.18,
+    shadowRadius: 4,
+    top: -2,
+    elevation: 4,
   },
   bracketConnectorHorizontal: {
     backgroundColor: "#B6CBD9",
@@ -8766,10 +9530,14 @@ const styles = StyleSheet.create({
     padding: spacing.xs,
   },
   roundTitle: {
-    color: colors.primaryDark,
-    fontSize: 11,
+    color: colors.surface,
+    fontSize: 15,
     fontWeight: "900",
+    letterSpacing: 0.6,
     textAlign: "center",
+    textShadowColor: "rgba(0,0,0,0.82)",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
     textTransform: "uppercase",
   },
   matchFormatMeta: {
@@ -8809,8 +9577,10 @@ const styles = StyleSheet.create({
   bracketMatchHeader: {
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 3,
-    minHeight: 22,
+    marginBottom: 1,
+    marginTop: 2,
+    minHeight: 28,
+    transform: [{ translateY: 8 }],
     width: "100%",
   },
   bracketMatchScheduleWrap: {
@@ -8829,14 +9599,21 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     flexDirection: "row",
     gap: 2,
-    minHeight: 18,
-    paddingHorizontal: 4,
-    paddingVertical: 1,
+    minHeight: 24,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+  },
+  bracketMatchScheduleButtonActive: {
+    backgroundColor: "#1B5D92",
+    borderColor: "#1B5D92",
   },
   bracketMatchSchedulePill: {
     color: "#1B5D92",
     fontSize: 8,
     fontWeight: "900",
+  },
+  bracketMatchSchedulePillActive: {
+    color: colors.surface,
   },
   bracketTeamsColumn: {
     alignItems: "center",
@@ -8879,7 +9656,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 2,
     justifyContent: "center",
-    paddingTop: 8,
+    paddingTop: 14,
   },
   bracketResultsColumnDisabled: {
     opacity: 0.78,
@@ -8893,7 +9670,7 @@ const styles = StyleSheet.create({
   bracketVerticalSetInputs: {
     alignItems: "center",
     gap: 3,
-    marginTop: 8,
+    marginTop: 10,
   },
   bracketVerticalSetInput: {
     backgroundColor: "#FFFFFF",
@@ -8957,18 +9734,23 @@ const styles = StyleSheet.create({
   },
   bracketSwapSelectBadge: {
     alignItems: "center",
-    backgroundColor: "#EEF7F3",
-    borderColor: "#CFE3D9",
+    backgroundColor: "#0B4FB3",
+    borderColor: "#FFFFFF",
     borderRadius: 999,
-    borderWidth: 1,
-    height: 22,
+    borderWidth: 2,
+    height: 26,
     justifyContent: "center",
     marginBottom: 4,
-    width: 22,
+    shadowColor: "#0B4FB3",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.35,
+    shadowRadius: 4,
+    width: 26,
+    elevation: 4,
   },
   bracketSwapSelectBadgeActive: {
     backgroundColor: "#1E88C8",
-    borderColor: "#1E88C8",
+    borderColor: "#0A2F6F",
   },
   bracketTeamSeedSide: {
     color: colors.muted,
@@ -9027,29 +9809,43 @@ const styles = StyleSheet.create({
   },
   bracketMatchLocationWrap: {
     alignItems: "center",
-    flexDirection: "row",
-    gap: 2,
+    flexDirection: "column",
+    gap: 0,
     justifyContent: "center",
-    marginTop: 0,
-    minHeight: 18,
-    paddingHorizontal: 2,
+    marginTop: 2,
+    minHeight: 22,
+    paddingHorizontal: 0,
     width: "100%",
   },
   bracketMatchVenueText: {
-    color: colors.text,
-    fontSize: 8,
+    color: "#2EA8D9",
+    fontSize: 7,
     fontWeight: "800",
-    flexShrink: 1,
-    maxWidth: "48%",
+    lineHeight: 8,
     textAlign: "center",
+    width: "100%",
   },
   bracketMatchCourtText: {
-    color: colors.text,
+    color: "#1B5D92",
     fontSize: 8,
     fontWeight: "800",
-    flexShrink: 1,
-    maxWidth: "52%",
     textAlign: "center",
+  },
+  bracketCourtChip: {
+    alignItems: "center",
+    alignSelf: "center",
+    backgroundColor: "#E7F1FF",
+    borderColor: "#9EC3F1",
+    borderRadius: 999,
+    borderWidth: 1,
+    justifyContent: "center",
+    marginTop: 1,
+    minHeight: 16,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+  },
+  bracketCourtChipDisabled: {
+    opacity: 0.78,
   },
   bracketCenterInfo: {
     alignItems: "center",

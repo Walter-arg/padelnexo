@@ -1,6 +1,7 @@
 import {
   addDoc,
   collection,
+  deleteDoc,
   doc,
   getDoc,
   getDocs,
@@ -13,6 +14,7 @@ import {
 } from "../../services/firebaseFirestore";
 
 import { db } from "../../services/firebaseConfig";
+import { sendOrganizerRequestNotificationToAdmins } from "./chatService";
 import { ORGANIZER_ROLE, ORGANIZER_STATUS, USER_ROLE } from "./roleService";
 
 export function createEmptyComplex() {
@@ -92,7 +94,7 @@ export async function submitOrganizerRequest(userId, payload) {
     organizerStatus: ORGANIZER_STATUS.PENDING,
   });
 
-  return {
+  const submittedRequest = {
     userId,
     nombre: payload.nombre.trim(),
     dni: payload.dni.trim(),
@@ -102,6 +104,12 @@ export async function submitOrganizerRequest(userId, payload) {
     complejos,
     status: ORGANIZER_STATUS.PENDING,
   };
+
+  sendOrganizerRequestNotificationToAdmins(submittedRequest).catch((error) => {
+    console.log("[organizerService] No pudimos notificar a administradores", error);
+  });
+
+  return submittedRequest;
 }
 
 export async function updateOrganizerComplexes(userId, complejos) {
@@ -223,6 +231,33 @@ export async function rejectOrganizerRequest(userId) {
   });
 
   await batch.commit();
+}
+
+export async function deleteOrganizerRequest(userId) {
+  if (!userId) {
+    throw new Error("No encontramos la solicitud seleccionada.");
+  }
+
+  const requestRef = doc(db, "organizerRequests", userId);
+  const userRef = doc(db, "users", userId);
+  const batch = writeBatch(db);
+
+  batch.delete(requestRef);
+  batch.update(userRef, {
+    role: USER_ROLE,
+    organizerStatus: ORGANIZER_STATUS.NONE,
+    complejos: [],
+  });
+
+  await batch.commit();
+}
+
+export async function deleteComplexRequest(requestId) {
+  if (!requestId) {
+    throw new Error("No encontramos la solicitud seleccionada.");
+  }
+
+  await deleteDoc(doc(db, "complexRequests", requestId));
 }
 
 export async function approveComplexRequest(requestId) {

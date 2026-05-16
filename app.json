@@ -24,6 +24,9 @@
         "projectId": "70621faf-0db4-4145-b973-4803e2eb209d"
       }
     },
-    "owner": "waltwr"
+    "owner": "waltwr",
+    "plugins": [
+      "expo-web-browser"
+    ]
   }
 }

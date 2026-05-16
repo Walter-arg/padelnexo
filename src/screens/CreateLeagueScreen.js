@@ -22,6 +22,7 @@ import LocationPicker from "../components/LocationPicker";
 import OrganizerRequestModal from "../components/OrganizerRequestModal";
 import SectionHeader from "../components/SectionHeader";
 import SelectField from "../components/SelectField";
+import { canAccessAdminPanel } from "../config/admin";
 import { colors, spacing } from "../config/theme";
 import { useAuth } from "../context/AuthContext";
 import {
@@ -405,7 +406,7 @@ export default function CreateLeagueScreen({ navigation, route }) {
       (userData?.complejos || []).find((complex) => complex.nombre === form.complexName) || null,
     [form.complexName, userData?.complejos]
   );
-  const canCreateLeague = isApprovedOrganizer(userData);
+  const canCreateLeague = isApprovedOrganizer(userData) || canAccessAdminPanel(userData);
   const selectedGameMode = getGameModeValue(form);
   const filteredFirstCategoryOptions = useMemo(() => {
     if (selectedGameMode !== "sum_fixed" || !form.sumTarget) {

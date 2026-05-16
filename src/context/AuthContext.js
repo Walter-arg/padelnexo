@@ -5,6 +5,7 @@ import { onAuthStateChanged } from "../../services/firebaseAuth";
 import { auth } from "../../services/firebaseConfig";
 import {
   deleteCurrentUserAccount,
+  loginWithGoogleIdToken,
   loginUser,
   logoutUser,
   registerUser,
@@ -15,6 +16,7 @@ import {
   deleteUserProfileData,
   getUserProfile,
   hideUserProfile,
+  recordUserLogin,
   removeUserProfilePhoto,
   updateUserProfile,
 } from "../services/userService";
@@ -69,6 +71,42 @@ const FALLBACK_PROFILE = {
   createdAt: null,
 };
 
+function getAccountBlockMessage(profile = {}) {
+  if (profile?.blockStatus === "temporary") {
+    const blockedUntilMillis = Number(profile.blockedUntilMillis || 0);
+
+    if (blockedUntilMillis && blockedUntilMillis <= Date.now()) {
+      return "";
+    }
+
+    return "Tu cuenta se encuentra bloqueada por 7 dias por acciones impropias.";
+  }
+
+  if (
+    profile?.blockStatus === "indefinite" ||
+    (profile?.role === "blocked" && profile?.blockStatus !== "temporary")
+  ) {
+    return "Tu cuenta fue bloqueada por acciones impropias.";
+  }
+
+  if (profile?.accountDeleted) {
+    return "Esta cuenta no se encuentra disponible.";
+  }
+
+  return "";
+}
+
+async function assertProfileCanAccess(profile = {}) {
+  const blockMessage = getAccountBlockMessage(profile);
+
+  if (!blockMessage) {
+    return;
+  }
+
+  await logoutUser().catch(() => {});
+  throw new Error(blockMessage);
+}
+
 function buildMissingProfilePayload(email = "") {
   const normalizedEmail = String(email || "").trim().toLowerCase();
   const emailPrefix = normalizedEmail.split("@")[0] || FALLBACK_PROFILE.name;
@@ -98,6 +136,17 @@ function buildMissingProfilePayload(email = "") {
     country: FALLBACK_PROFILE.location.pais,
     localidad: FALLBACK_PROFILE.localidad,
     availability: FALLBACK_PROFILE.availability,
+  };
+}
+
+function buildGoogleProfilePayload(firebaseUser = {}) {
+  const email = firebaseUser.email || "";
+  const fallbackProfile = buildMissingProfilePayload(email);
+
+  return {
+    ...fallbackProfile,
+    name: firebaseUser.displayName || fallbackProfile.name,
+    avatarUrl: firebaseUser.photoURL || "",
   };
 }
 
@@ -158,6 +207,18 @@ export function AuthProvider({ children }) {
             buildMissingProfilePayload(firebaseUser.email)
           );
         }
+
+        try {
+          await assertProfileCanAccess(profile);
+        } catch (error) {
+          if (isMounted) {
+            setUser(null);
+            setUserData(null);
+          }
+          return;
+        }
+
+        await recordUserLogin(firebaseUser.uid).catch(() => {});
 
         setUserData(
           profile || {
@@ -227,6 +288,8 @@ export function AuthProvider({ children }) {
             );
           }
 
+          await assertProfileCanAccess(profile);
+
           await persistLastLoginEmail(email);
 
           setUser(credentials.user);
@@ -240,6 +303,36 @@ export function AuthProvider({ children }) {
           );
 
           return credentials.user;
+        } finally {
+          setLoading(false);
+        }
+      },
+      loginWithGoogle: async (idToken) => {
+        setLoading(true);
+
+        try {
+          const credentials = await loginWithGoogleIdToken(idToken);
+          const googleUser = credentials.user;
+          const email = googleUser.email || "";
+          let profile = await getUserProfile(googleUser.uid, email);
+
+          if (!profile) {
+            profile = await createUserProfile(
+              googleUser.uid,
+              buildGoogleProfilePayload(googleUser)
+            );
+          }
+
+          await assertProfileCanAccess(profile);
+
+          if (email) {
+            await persistLastLoginEmail(email);
+          }
+
+          setUser(googleUser);
+          setUserData(profile);
+
+          return googleUser;
         } finally {
           setLoading(false);
         }

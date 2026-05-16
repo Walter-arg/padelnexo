@@ -16,6 +16,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
 import SectionHeader from "../components/SectionHeader";
+import FeedbackModal from "../components/FeedbackModal";
+import ReportModal from "../components/ReportModal";
 import { colors, spacing } from "../config/theme";
 import { useAuth } from "../context/AuthContext";
 import {
@@ -25,19 +27,22 @@ import {
   unblockUser,
 } from "../services/blockingService";
 import {
+  deleteConversationForUser,
   markConversationAsRead,
   sendChatMessage,
   subscribeToConversation,
   subscribeToUserConversations,
 } from "../services/chatService";
+import { submitReport } from "../services/reportsService";
 
-function buildConversation({ playerId, playerName }) {
+function buildConversation({ conversationId, playerId, playerName }) {
   if (!playerId && !playerName) {
     return null;
   }
 
   return {
-    id: `chat-${playerId ?? "new"}`,
+    id: conversationId || `chat-${playerId ?? "new"}`,
+    conversationId,
     playerId,
     title: playerName ?? "Jugador",
     subtitle: "Todavia no hay mensajes en esta conversacion.",
@@ -92,30 +97,54 @@ function buildMessagesWithDateDividers(messages = []) {
 export default function MensajesScreen({ navigation, route }) {
   const { userData } = useAuth();
   const insets = useSafeAreaInsets();
-  const currentUserId = userData?.uid;
+  const currentUserId = userData?.uid || userData?.id;
   const currentUserName = userData?.name || userData?.email || "Jugador";
   const selectedPlayerId = route?.params?.playerId;
   const selectedPlayerName = route?.params?.playerName?.trim();
+  const selectedConversationId = route?.params?.conversationId;
   const activeConversation = useMemo(
     () =>
       buildConversation({
+        conversationId: selectedConversationId,
         playerId: selectedPlayerId,
         playerName: selectedPlayerName,
       }),
-    [selectedPlayerId, selectedPlayerName]
+    [selectedConversationId, selectedPlayerId, selectedPlayerName]
   );
   const [draftMessage, setDraftMessage] = useState("");
   const [conversationMessages, setConversationMessages] = useState([]);
   const [conversationList, setConversationList] = useState([]);
   const [blockedUserIds, setBlockedUserIds] = useState([]);
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+  const [deletingConversationId, setDeletingConversationId] = useState("");
+  const [deleteSelectionMode, setDeleteSelectionMode] = useState(false);
+  const [selectedConversationIds, setSelectedConversationIds] = useState([]);
+  const [pendingDeleteConversations, setPendingDeleteConversations] = useState([]);
   const [pendingBlockConversation, setPendingBlockConversation] = useState(null);
+  const [reportingConversation, setReportingConversation] = useState(null);
+  const [submittingReport, setSubmittingReport] = useState(false);
+  const [feedback, setFeedback] = useState({
+    visible: false,
+    title: "",
+    message: "",
+    tone: "default",
+  });
   const [activeBlockState, setActiveBlockState] = useState({
     blockedByCurrentUser: false,
     blockedByOtherUser: false,
     isBlocked: false,
   });
   const listRef = useRef(null);
+
+  const handleMessageAction = (action) => {
+    if (!action?.type) {
+      return;
+    }
+
+    if (action.type === "admin_organizer_requests") {
+      navigation.navigate("Admin", { initialTab: "requests" });
+    }
+  };
 
   useEffect(() => {
     setDraftMessage("");
@@ -274,6 +303,135 @@ export default function MensajesScreen({ navigation, route }) {
     setPendingBlockConversation(conversation);
   };
 
+  const handleOpenDeleteModal = (conversations, { leaveChat = false } = {}) => {
+    const nextConversations = Array.isArray(conversations)
+      ? conversations.filter(Boolean)
+      : [conversations].filter(Boolean);
+
+    if (!nextConversations.length || !currentUserId) {
+      return;
+    }
+
+    setPendingDeleteConversations(
+      nextConversations.map((item) => ({
+        ...item,
+        leaveChat,
+      }))
+    );
+  };
+
+  const handleCloseDeleteModal = () => {
+    if (deletingConversationId) {
+      return;
+    }
+
+    setPendingDeleteConversations([]);
+  };
+
+  const handleConfirmDeleteConversations = async () => {
+    if (!pendingDeleteConversations.length || !currentUserId) {
+      return;
+    }
+
+    try {
+      setDeletingConversationId("bulk");
+      await Promise.all(
+        pendingDeleteConversations.map((conversation) =>
+          deleteConversationForUser({
+            conversationId:
+              conversation.conversationId ||
+              (String(conversation.id || "").includes("__") ? conversation.id : undefined),
+            currentUserId,
+            otherUserId: conversation.playerId,
+          })
+        )
+      );
+
+      const shouldLeaveChat = pendingDeleteConversations.some((item) => item.leaveChat);
+      setPendingDeleteConversations([]);
+      setSelectedConversationIds([]);
+      setDeleteSelectionMode(false);
+
+      if (shouldLeaveChat) {
+        navigation.navigate("Mensajes");
+      }
+    } catch (error) {
+      Alert.alert("No pudimos eliminar", "Intenta nuevamente en unos instantes.");
+    } finally {
+      setDeletingConversationId("");
+    }
+  };
+
+  const toggleConversationSelection = (conversationId) => {
+    setSelectedConversationIds((current) =>
+      current.includes(conversationId)
+        ? current.filter((item) => item !== conversationId)
+        : [...current, conversationId]
+    );
+  };
+
+  const handleSelectAllConversations = () => {
+    setSelectedConversationIds((current) =>
+      current.length === conversationList.length ? [] : conversationList.map((item) => item.id)
+    );
+  };
+
+  const selectedConversations = conversationList.filter((item) =>
+    selectedConversationIds.includes(item.id)
+  );
+
+  const deleteModalCount = pendingDeleteConversations.length;
+
+  const deleteConfirmModal = (
+    <Modal
+      animationType="fade"
+      onRequestClose={handleCloseDeleteModal}
+      transparent
+      visible={deleteModalCount > 0}
+    >
+      <View style={styles.modalOverlay}>
+        <Pressable onPress={handleCloseDeleteModal} style={styles.modalBackdrop} />
+        <View style={styles.modalCard}>
+          <Text style={styles.modalTitle}>
+            {deleteModalCount > 1 ? "Eliminar conversaciones" : "Eliminar conversacion"}
+          </Text>
+          <Text style={styles.modalText}>
+            {deleteModalCount > 1
+              ? `Se quitaran ${deleteModalCount} conversaciones de tus mensajes.`
+              : `Se quitara esta conversacion con ${
+                  pendingDeleteConversations[0]?.title || "este usuario"
+                } de tus mensajes.`}
+          </Text>
+          <View style={styles.modalActions}>
+            <Pressable
+              disabled={Boolean(deletingConversationId)}
+              onPress={handleCloseDeleteModal}
+              style={({ pressed }) => [
+                styles.modalSecondaryButton,
+                pressed && !deletingConversationId ? styles.modalButtonPressed : null,
+              ]}
+            >
+              <Text style={styles.modalSecondaryButtonText}>Cancelar</Text>
+            </Pressable>
+            <Pressable
+              disabled={Boolean(deletingConversationId)}
+              onPress={handleConfirmDeleteConversations}
+              style={({ pressed }) => [
+                styles.modalPrimaryButton,
+                styles.modalDeleteButton,
+                pressed && !deletingConversationId ? styles.modalButtonPressed : null,
+              ]}
+            >
+              <Text style={styles.modalPrimaryButtonText}>
+                {deletingConversationId ? "Eliminando..." : "Eliminar"}
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+
   const handleConfirmBlockToggle = async () => {
     if (!pendingBlockConversation) {
       return;
@@ -303,6 +461,44 @@ export default function MensajesScreen({ navigation, route }) {
         "No pudimos actualizar el bloqueo",
         "Intenta nuevamente en unos instantes."
       );
+    }
+  };
+
+  const handleSubmitConversationReport = async (description) => {
+    if (!reportingConversation || !currentUserId) {
+      return;
+    }
+
+    try {
+      setSubmittingReport(true);
+      await submitReport({
+        reporter: userData,
+        targetType: "conversation",
+        targetId: reportingConversation.conversationId || reportingConversation.id,
+        targetTitle: reportingConversation.title,
+        description,
+        metadata: {
+          otherUserId: reportingConversation.playerId,
+          reportedUserId: reportingConversation.playerId,
+          reportedUserName: reportingConversation.title,
+        },
+      });
+      setReportingConversation(null);
+      setFeedback({
+        visible: true,
+        title: "Reporte enviado",
+        message: "Gracias. El equipo administrador lo va a revisar.",
+        tone: "default",
+      });
+    } catch (error) {
+      setFeedback({
+        visible: true,
+        title: "No pudimos enviar el reporte",
+        message: "Intenta nuevamente en unos instantes.",
+        tone: "danger",
+      });
+    } finally {
+      setSubmittingReport(false);
     }
   };
 
@@ -336,7 +532,44 @@ export default function MensajesScreen({ navigation, route }) {
           <View pointerEvents="none" style={styles.backgroundRacketRight} />
           <View pointerEvents="none" style={styles.backgroundBall} />
           <View style={styles.chatHeader}>
-            <Text style={styles.chatTitle}>{activeConversation.title}</Text>
+            <View style={styles.chatTitleRow}>
+              <Pressable
+                hitSlop={8}
+                onPress={() => handleOpenDeleteModal(activeConversation, { leaveChat: true })}
+                style={({ pressed }) => [
+                  styles.chatDeleteButton,
+                  pressed && styles.blockButtonPressed,
+                ]}
+              >
+                <Ionicons color="#B43A32" name="trash-outline" size={16} />
+              </Pressable>
+              <Text style={styles.chatTitle}>{activeConversation.title}</Text>
+              <Pressable
+                hitSlop={8}
+                onPress={() => handleToggleBlock(activeConversation)}
+                style={({ pressed }) => [
+                  styles.chatBlockButton,
+                  activeBlockState.blockedByCurrentUser && styles.chatBlockButtonActive,
+                  pressed && styles.blockButtonPressed,
+                ]}
+              >
+                <Ionicons
+                  color={activeBlockState.blockedByCurrentUser ? "#7A1F1F" : "#7D8790"}
+                  name={activeBlockState.blockedByCurrentUser ? "ban" : "ban-outline"}
+                  size={16}
+                />
+              </Pressable>
+              <Pressable
+                hitSlop={8}
+                onPress={() => setReportingConversation(activeConversation)}
+                style={({ pressed }) => [
+                  styles.chatReportButton,
+                  pressed && styles.blockButtonPressed,
+                ]}
+              >
+                <Ionicons color="#C45B00" name="flag-outline" size={16} />
+              </Pressable>
+            </View>
             <Text style={styles.chatSubtitle}>
               Conversacion individual con este jugador
             </Text>
@@ -395,6 +628,19 @@ export default function MensajesScreen({ navigation, route }) {
                       >
                         {item.text}
                       </Text>
+                      {item.action?.type ? (
+                        <Pressable
+                          onPress={() => handleMessageAction(item.action)}
+                          style={({ pressed }) => [
+                            styles.messageActionButton,
+                            pressed && styles.blockButtonPressed,
+                          ]}
+                        >
+                          <Text style={styles.messageActionText}>
+                            {item.action.label || "Ver detalle"}
+                          </Text>
+                        </Pressable>
+                      ) : null}
                     </View>
                     {!isSystemMessage ? (
                       <Text
@@ -450,6 +696,22 @@ export default function MensajesScreen({ navigation, route }) {
             </View>
           </View>
         </KeyboardAvoidingView>
+        {deleteConfirmModal}
+        <ReportModal
+          onCancel={() => setReportingConversation(null)}
+          onSubmit={handleSubmitConversationReport}
+          submitting={submittingReport}
+          targetLabel={reportingConversation?.title}
+          title="Reportar conversacion"
+          visible={Boolean(reportingConversation)}
+        />
+        <FeedbackModal
+          message={feedback.message}
+          onClose={() => setFeedback((current) => ({ ...current, visible: false }))}
+          title={feedback.title}
+          tone={feedback.tone}
+          visible={feedback.visible}
+        />
         <Modal
           animationType="fade"
           onRequestClose={() => setPendingBlockConversation(null)}
@@ -514,6 +776,57 @@ export default function MensajesScreen({ navigation, route }) {
         <View pointerEvents="none" style={styles.backgroundRacketRight} />
         <View pointerEvents="none" style={styles.backgroundBall} />
         <Text style={styles.subtitle}>Conversaciones activas con la comunidad</Text>
+        {conversationList.length > 0 ? (
+          <View style={styles.selectionToolbar}>
+            <Pressable
+              onPress={() => {
+                if (!deleteSelectionMode) {
+                  setDeleteSelectionMode(true);
+                  setSelectedConversationIds(conversationList.map((item) => item.id));
+                  return;
+                }
+
+                handleSelectAllConversations();
+              }}
+              style={({ pressed }) => [
+                styles.selectionAllButton,
+                deleteSelectionMode &&
+                selectedConversationIds.length === conversationList.length
+                  ? styles.selectionCheckActive
+                  : null,
+                pressed && styles.blockButtonPressed,
+              ]}
+            >
+              {deleteSelectionMode &&
+              selectedConversationIds.length === conversationList.length ? (
+                <Ionicons color="#FFFFFF" name="checkmark" size={13} />
+              ) : null}
+            </Pressable>
+            {deleteSelectionMode ? (
+              <>
+                <Pressable
+                  disabled={!selectedConversations.length}
+                  onPress={() => handleOpenDeleteModal(selectedConversations)}
+                  style={({ pressed }) => [
+                    styles.selectionToolbarButton,
+                    styles.selectionToolbarDeleteButton,
+                    !selectedConversations.length ? styles.selectionToolbarButtonDisabled : null,
+                    pressed && selectedConversations.length ? styles.blockButtonPressed : null,
+                  ]}
+                >
+                  {selectedConversations.length ? (
+                    <>
+                      <Ionicons color="#B43A32" name="trash-outline" size={15} />
+                      <Text style={styles.selectionToolbarDeleteText}>
+                        {selectedConversations.length}
+                      </Text>
+                    </>
+                  ) : null}
+                </Pressable>
+              </>
+            ) : null}
+          </View>
+        ) : null}
 
         <FlatList
           contentContainerStyle={styles.listContent}
@@ -525,58 +838,89 @@ export default function MensajesScreen({ navigation, route }) {
               <Text style={styles.emptyText}>Cuando inicies un chat, aparecera aca.</Text>
             </View>
           }
-          renderItem={({ item }) => (
-            <Pressable
-              onPress={() =>
-                navigation.navigate("Mensajes", {
-                  playerId: item.playerId,
-                  playerName: item.title,
-                })
-              }
-              style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
-            >
-              <View style={styles.cardRow}>
-                <View style={styles.cardContent}>
-                  <View style={styles.cardTitleWrap}>
-                    <Text style={styles.cardTitle}>{item.title}</Text>
-                    {item.blockedByCurrentUser ? (
-                      <View style={styles.blockedPill}>
-                        <Text style={styles.blockedPillText}>Bloqueado</Text>
-                      </View>
-                    ) : null}
-                  </View>
-                  <Text numberOfLines={2} style={styles.cardSubtitle}>
-                    {item.subtitle}
-                  </Text>
-                </View>
-                <View style={styles.cardActionWrap}>
-                  {item.unreadCount > 0 ? (
-                    <Text style={styles.unreadCountText}>
-                      ({item.unreadCount}) no leidos
-                    </Text>
+          renderItem={({ item }) => {
+            const hasUnread = item.hasUnread || item.unreadCount > 0;
+
+            return (
+              <Pressable
+                onLongPress={() => {
+                  setDeleteSelectionMode(true);
+                  toggleConversationSelection(item.id);
+                }}
+                onPress={() => {
+                  if (deleteSelectionMode) {
+                    toggleConversationSelection(item.id);
+                    return;
+                  }
+
+                  navigation.navigate("Mensajes", {
+                    conversationId: item.id,
+                    playerId: item.playerId,
+                    playerName: item.title,
+                  });
+                }}
+                style={({ pressed }) => [
+                  styles.card,
+                  hasUnread ? styles.cardUnread : null,
+                  selectedConversationIds.includes(item.id) ? styles.cardSelected : null,
+                  pressed && styles.cardPressed,
+                ]}
+              >
+                <View style={styles.cardRow}>
+                  {deleteSelectionMode ? (
+                    <View
+                      style={[
+                        styles.selectionCheck,
+                        selectedConversationIds.includes(item.id) ? styles.selectionCheckActive : null,
+                      ]}
+                    >
+                      {selectedConversationIds.includes(item.id) ? (
+                        <Ionicons color="#FFFFFF" name="checkmark" size={13} />
+                      ) : null}
+                    </View>
                   ) : null}
-                  <Pressable
-                    hitSlop={8}
-                    onPress={() => handleToggleBlock(item)}
-                    style={({ pressed }) => [
-                      styles.blockButtonInline,
-                      item.blockedByCurrentUser && styles.blockButtonInlineActive,
-                      pressed && styles.blockButtonPressed,
-                    ]}
-                  >
-                    <Ionicons
-                      color={item.blockedByCurrentUser ? "#7A1F1F" : "#7D8790"}
-                      name={item.blockedByCurrentUser ? "ban" : "ban-outline"}
-                      size={16}
-                    />
-                  </Pressable>
+                  <View style={styles.cardContent}>
+                    <Text
+                      numberOfLines={1}
+                      style={[styles.cardTitle, hasUnread ? styles.cardTitleUnread : null]}
+                    >
+                      {item.title}
+                    </Text>
+                    <Text
+                      numberOfLines={2}
+                      style={[styles.cardSubtitle, hasUnread ? styles.cardSubtitleUnread : null]}
+                    >
+                      {item.subtitle}
+                    </Text>
+                  </View>
+                  {item.unreadCount > 0 ? (
+                    <View style={styles.unreadBadge}>
+                      <Text style={styles.unreadBadgeText}>{item.unreadCount}</Text>
+                    </View>
+                  ) : null}
                 </View>
-              </View>
-            </Pressable>
-          )}
+              </Pressable>
+            );
+          }}
           showsVerticalScrollIndicator={false}
         />
       </View>
+      {deleteConfirmModal}
+      <ReportModal
+        onCancel={() => setReportingConversation(null)}
+        onSubmit={handleSubmitConversationReport}
+        submitting={submittingReport}
+        targetLabel={reportingConversation?.title}
+        title="Reportar conversacion"
+        visible={Boolean(reportingConversation)}
+      />
+      <FeedbackModal
+        message={feedback.message}
+        onClose={() => setFeedback((current) => ({ ...current, visible: false }))}
+        title={feedback.title}
+        tone={feedback.tone}
+        visible={feedback.visible}
+      />
       <Modal
         animationType="fade"
         onRequestClose={() => setPendingBlockConversation(null)}
@@ -698,6 +1042,59 @@ const styles = StyleSheet.create({
   listContent: {
     paddingBottom: spacing.lg,
   },
+  selectionToolbar: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.xs,
+    justifyContent: "flex-start",
+    marginBottom: spacing.sm,
+  },
+  selectionToolbarButton: {
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderColor: "#D7E6DE",
+    borderRadius: 14,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 5,
+    justifyContent: "center",
+    minHeight: 34,
+    paddingHorizontal: spacing.md,
+  },
+  selectionAllButton: {
+    alignItems: "center",
+    backgroundColor: "#F4F7F5",
+    borderColor: "#B8C8C0",
+    borderRadius: 9,
+    borderWidth: 1.5,
+    height: 20,
+    justifyContent: "center",
+    width: 20,
+  },
+  selectionToolbarButtonActive: {
+    backgroundColor: "#E7F7EF",
+    borderColor: "#7ECFA5",
+  },
+  selectionToolbarButtonDisabled: {
+    opacity: 0.5,
+  },
+  selectionToolbarText: {
+    color: colors.text,
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  selectionToolbarTextActive: {
+    color: "#0C6A49",
+  },
+  selectionToolbarDeleteButton: {
+    backgroundColor: "#FFF0EE",
+    borderColor: "#F2B8B2",
+  },
+  selectionToolbarDeleteText: {
+    color: "#B43A32",
+    fontSize: 12,
+    fontWeight: "900",
+  },
   card: {
     backgroundColor: colors.surface,
     borderColor: "#D7E6DE",
@@ -707,11 +1104,19 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
     padding: spacing.md,
   },
+  cardUnread: {
+    borderColor: "#7ECFA5",
+    borderWidth: 1.5,
+  },
+  cardSelected: {
+    backgroundColor: "#F0FAF5",
+    borderColor: "#0C6A49",
+  },
   cardPressed: {
     opacity: 0.9,
   },
   cardRow: {
-    alignItems: "stretch",
+    alignItems: "center",
     flexDirection: "row",
     gap: spacing.xs,
   },
@@ -720,23 +1125,33 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     overflow: "hidden",
   },
-  cardTitleWrap: {
+  selectionCheck: {
     alignItems: "center",
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: spacing.xs,
-  },
-  cardActionWrap: {
-    alignItems: "center",
+    backgroundColor: "#F4F7F5",
+    borderColor: "#B8C8C0",
+    borderRadius: 9,
+    borderWidth: 1.5,
+    height: 20,
     justifyContent: "center",
-    gap: 4,
-    minHeight: 44,
-    width: 64,
+    width: 20,
   },
-  unreadCountText: {
-    color: "#7A1F1F",
-    fontSize: 10,
-    fontWeight: "800",
+  selectionCheckActive: {
+    backgroundColor: colors.primaryDark,
+    borderColor: colors.primaryDark,
+  },
+  unreadBadge: {
+    alignItems: "center",
+    backgroundColor: colors.primaryDark,
+    borderRadius: 999,
+    justifyContent: "center",
+    minHeight: 24,
+    minWidth: 24,
+    paddingHorizontal: 7,
+  },
+  unreadBadgeText: {
+    color: colors.surface,
+    fontSize: 11,
+    fontWeight: "900",
     textAlign: "center",
   },
   cardTitle: {
@@ -745,41 +1160,23 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     lineHeight: 20,
   },
+  cardTitleUnread: {
+    fontWeight: "900",
+  },
   cardSubtitle: {
     color: colors.muted,
     fontSize: 14,
+    fontWeight: "500",
     lineHeight: 20,
     marginTop: spacing.xs,
     maxWidth: "96%",
   },
-  blockButtonInline: {
-    alignItems: "center",
-    alignSelf: "center",
-    backgroundColor: "#FFF5F5",
-    borderColor: "#D96B6B",
-    borderRadius: 14,
-    borderWidth: 1.5,
-    height: 30,
-    justifyContent: "center",
-    width: 30,
-  },
-  blockButtonInlineActive: {
-    backgroundColor: "#FCEBEB",
-    borderColor: "#B94141",
+  cardSubtitleUnread: {
+    color: colors.text,
+    fontWeight: "900",
   },
   blockButtonPressed: {
     opacity: 0.9,
-  },
-  blockedPill: {
-    backgroundColor: "#FCEBEB",
-    borderRadius: 999,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 4,
-  },
-  blockedPillText: {
-    color: "#7A1F1F",
-    fontSize: 11,
-    fontWeight: "700",
   },
   emptyCard: {
     alignItems: "center",
@@ -810,17 +1207,67 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: 8,
   },
+  chatTitleRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "center",
+    minHeight: 30,
+    paddingHorizontal: 40,
+    position: "relative",
+  },
   chatTitle: {
     color: colors.text,
     fontSize: 20,
     fontWeight: "800",
     lineHeight: 22,
+    textAlign: "center",
   },
   chatSubtitle: {
     color: colors.muted,
     fontSize: 13,
     lineHeight: 16,
     marginTop: 0,
+    textAlign: "center",
+  },
+  chatBlockButton: {
+    alignItems: "center",
+    backgroundColor: "#FFF5F5",
+    borderColor: "#D96B6B",
+    borderRadius: 14,
+    borderWidth: 1.5,
+    height: 30,
+    justifyContent: "center",
+    position: "absolute",
+    right: 0,
+    width: 30,
+  },
+  chatDeleteButton: {
+    alignItems: "center",
+    backgroundColor: "#FFF0EE",
+    borderColor: "#F2B8B2",
+    borderRadius: 14,
+    borderWidth: 1.5,
+    height: 30,
+    justifyContent: "center",
+    left: 0,
+    position: "absolute",
+    width: 30,
+  },
+  chatReportButton: {
+    alignItems: "center",
+    backgroundColor: "#FFF3E0",
+    borderColor: "#FFB866",
+    borderRadius: 14,
+    borderWidth: 1.5,
+    height: 30,
+    justifyContent: "center",
+    position: "absolute",
+    right: 36,
+    width: 30,
+  },
+  chatBlockButtonActive: {
+    backgroundColor: "#FCEBEB",
+    borderColor: "#B94141",
   },
   blockBanner: {
     alignItems: "center",
@@ -899,6 +1346,22 @@ const styles = StyleSheet.create({
   },
   messageTextSystem: {
     color: colors.muted,
+    textAlign: "center",
+  },
+  messageActionButton: {
+    alignSelf: "center",
+    backgroundColor: "#FFF3E0",
+    borderColor: "#FF9D2E",
+    borderRadius: 14,
+    borderWidth: 1,
+    marginTop: spacing.xs,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 7,
+  },
+  messageActionText: {
+    color: "#C45B00",
+    fontSize: 13,
+    fontWeight: "900",
     textAlign: "center",
   },
   dateDividerWrap: {
@@ -1017,6 +1480,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     minHeight: 46,
     paddingHorizontal: spacing.md,
+  },
+  modalDeleteButton: {
+    backgroundColor: "#C53B3B",
   },
   modalSecondaryButtonText: {
     color: colors.text,

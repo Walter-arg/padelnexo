@@ -1,14 +1,18 @@
-import { Alert, Image, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useState } from "react";
+import { Alert, Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import AppButton from "../components/AppButton";
+import FeedbackModal from "../components/FeedbackModal";
 import PublicAvailabilityPreview from "../components/PublicAvailabilityPreview";
+import ReportModal from "../components/ReportModal";
 import SectionHeader from "../components/SectionHeader";
 import { colors, spacing } from "../config/theme";
 import { useAuth } from "../context/AuthContext";
 import { playersMock } from "../data/playersMock";
 import { createInvitation } from "../services/invitationsService";
+import { submitReport } from "../services/reportsService";
 import { hasProfileImage } from "../utils/defaultProfileImage";
 
 function formatPhoneNumber(countryCode = "+54", phone = "") {
@@ -23,6 +27,14 @@ function formatPhoneNumber(countryCode = "+54", phone = "") {
 
 export default function PlayerDetailScreen({ navigation, route }) {
   const { userData } = useAuth();
+  const [reportVisible, setReportVisible] = useState(false);
+  const [submittingReport, setSubmittingReport] = useState(false);
+  const [feedback, setFeedback] = useState({
+    visible: false,
+    title: "",
+    message: "",
+    tone: "default",
+  });
   const playerId = route?.params?.playerId;
   const playerFromParams = route?.params?.player;
   const player =
@@ -54,6 +66,45 @@ export default function PlayerDetailScreen({ navigation, route }) {
     }
   };
 
+  const handleSubmitProfileReport = async (description) => {
+    if (!userData?.uid || !player?.id) {
+      return;
+    }
+
+    try {
+      setSubmittingReport(true);
+      await submitReport({
+        reporter: userData,
+        targetType: "profile",
+        targetId: player.id,
+        targetTitle: player.nombre,
+        description,
+        metadata: {
+          category: player.categoria || "",
+          city: player.ciudad || "",
+          reportedUserId: player.id,
+          reportedUserName: player.nombre,
+        },
+      });
+      setReportVisible(false);
+      setFeedback({
+        visible: true,
+        title: "Reporte enviado",
+        message: "Gracias. El equipo administrador lo va a revisar.",
+        tone: "default",
+      });
+    } catch (error) {
+      setFeedback({
+        visible: true,
+        title: "No pudimos enviar el reporte",
+        message: "Intenta nuevamente en unos instantes.",
+        tone: "danger",
+      });
+    } finally {
+      setSubmittingReport(false);
+    }
+  };
+
   if (!player) {
     return (
       <SafeAreaView style={styles.safeArea}>
@@ -72,6 +123,13 @@ export default function PlayerDetailScreen({ navigation, route }) {
   return (
     <SafeAreaView style={styles.safeArea}>
       <SectionHeader onBack={() => navigation.goBack()} subtitle="Perfil jugador" />
+      <Pressable
+        onPress={() => setReportVisible(true)}
+        style={({ pressed }) => [styles.reportButton, pressed && styles.reportButtonPressed]}
+      >
+        <Ionicons color="#C45B00" name="flag-outline" size={16} />
+        <Text style={styles.reportButtonText}>Reportar perfil</Text>
+      </Pressable>
       <View style={styles.backgroundOrbTop} />
       <View style={styles.backgroundOrbBottom} />
 
@@ -125,6 +183,21 @@ export default function PlayerDetailScreen({ navigation, route }) {
 
         <AppButton onPress={handleInvite} style={styles.inviteButton} title="Invitar" />
       </ScrollView>
+      <ReportModal
+        onCancel={() => setReportVisible(false)}
+        onSubmit={handleSubmitProfileReport}
+        submitting={submittingReport}
+        targetLabel={player?.nombre}
+        title="Reportar perfil"
+        visible={reportVisible}
+      />
+      <FeedbackModal
+        message={feedback.message}
+        onClose={() => setFeedback((current) => ({ ...current, visible: false }))}
+        title={feedback.title}
+        tone={feedback.tone}
+        visible={feedback.visible}
+      />
     </SafeAreaView>
   );
 }
@@ -156,6 +229,27 @@ const styles = StyleSheet.create({
     height: 220,
     borderRadius: 999,
     backgroundColor: "rgba(11,132,87,0.08)",
+  },
+  reportButton: {
+    alignItems: "center",
+    alignSelf: "center",
+    backgroundColor: "#FFF3E0",
+    borderColor: "#FFB866",
+    borderRadius: 16,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 6,
+    marginTop: spacing.xs,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 8,
+  },
+  reportButtonPressed: {
+    opacity: 0.9,
+  },
+  reportButtonText: {
+    color: "#C45B00",
+    fontSize: 12,
+    fontWeight: "900",
   },
   heroCard: {
     alignItems: "center",

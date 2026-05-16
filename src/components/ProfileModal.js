@@ -18,7 +18,7 @@ import {
   playerCategories,
   sexOptions,
 } from "../data/profileOptions";
-import { isAdminEmail } from "../config/admin";
+import { canAccessAdminPanel } from "../config/admin";
 import { colors, spacing } from "../config/theme";
 import { useAuth } from "../context/AuthContext";
 import { phoneCountryOptions } from "../data/phoneCountryOptions";
@@ -436,7 +436,7 @@ export default function ProfileModal({
                 ) : null}
               </View>
 
-              {isAdminEmail(profile.email) ? (
+              {canAccessAdminPanel(profile) ? (
                 <AppButton
                   title="Ir a panel admin"
                   onPress={() => {

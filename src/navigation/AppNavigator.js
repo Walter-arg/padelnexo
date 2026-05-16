@@ -59,7 +59,7 @@ export default function AppNavigator() {
       <Stack.Screen
         component={AdminScreen}
         name="Admin"
-        options={{ title: "Panel Admin" }}
+        options={{ headerShown: false }}
       />
       <Stack.Screen
         component={LigasHubScreen}

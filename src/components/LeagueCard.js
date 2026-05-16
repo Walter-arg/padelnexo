@@ -5,7 +5,7 @@ import { colors, spacing } from "../config/theme";
 import LeagueSuspensionNotice from "./LeagueSuspensionNotice";
 import { getActiveLeagueSuspensionNotice } from "../services/leaguesService";
 
-const FAVORITE_COLOR = "#BF6F00";
+const FAVORITE_COLOR = "#1FAB89";
 const COMPLEX_NAME_COLORS = ["#24A8D8", "#5B63C8", "#B965B8"];
 const DAY_LABELS = {
   monday: "Lunes",
@@ -114,16 +114,17 @@ function buildProgressStatus(league) {
     return {
       accent: "#295400",
       border: "#A6D831",
-      label: "Completa",
+      label: "Por iniciar",
       tint: "#D9FF63",
     };
   }
 
   return {
-    accent: "#9B5E00",
-    border: "#FFBF66",
-    label: "Incompleta",
-    tint: "#FFF2D9",
+    accent: "#087A5A",
+    border: "#35D6A3",
+    icon: "person-add-outline",
+    label: "Disponible",
+    tint: "#E6FFF6",
   };
 }
 
@@ -173,6 +174,7 @@ export default function LeagueCard({
 }) {
   const scheduleSummary = buildScheduleSummary(league);
   const progressStatus = showProgressStatus ? buildProgressStatus(league) : null;
+  const showComingSoonNote = progressStatus?.label === "Disponible";
   const suspensionNotice = getActiveLeagueSuspensionNotice(league);
   const showSex = shouldShowSexMeta(league?.categoria, league?.sexo);
   const complexNameColor =
@@ -181,29 +183,13 @@ export default function LeagueCard({
       getStableColorIndex(league?.complejoNombre) % COMPLEX_NAME_COLORS.length
     ];
   const categoryLine = [league?.categoria, showSex ? league?.sexo : ""].filter(Boolean).join(" · ");
-  const locationLine = [league?.localidad, league?.provincia].filter(Boolean).join(", ");
-  const complexLocationLine = [league?.complejoNombre, locationLine].filter(Boolean).join(" · ");
+  const complexName = league?.complejoNombre || "";
+
+  const teamTypeLabel = league?.teamType === "individual" ? "Individual" : "Pareja fija";
+  const teamTypeIcon = league?.teamType === "individual" ? "person-outline" : "people-outline";
 
   return (
     <View style={styles.card}>
-      {progressStatus ? (
-        <View style={styles.statusWrap}>
-          <View
-            style={[
-              styles.statusPill,
-              {
-                backgroundColor: progressStatus.tint,
-                borderColor: progressStatus.border,
-              },
-            ]}
-          >
-            <Text style={[styles.statusPillText, { color: progressStatus.accent }]}>
-              {progressStatus.label}
-            </Text>
-          </View>
-        </View>
-      ) : null}
-
       <View style={styles.headerRow}>
         <View style={styles.copy}>
           <View style={styles.titleInline}>
@@ -251,7 +237,9 @@ export default function LeagueCard({
       <View style={styles.detailsList}>
         {categoryLine ? (
           <View style={styles.detailRow}>
-            <Ionicons color={colors.primaryDark} name="ribbon-outline" size={15} />
+            <View style={styles.detailIconSlot}>
+              <Ionicons color={colors.primaryDark} name="ribbon-outline" size={15} />
+            </View>
             <Text numberOfLines={1} style={[styles.detailText, styles.detailTextStrong]}>
               {categoryLine}
             </Text>
@@ -259,17 +247,30 @@ export default function LeagueCard({
         ) : null}
 
         <View style={styles.detailRow}>
-          <Ionicons color={colors.primaryDark} name="calendar-outline" size={15} />
+          <View style={styles.detailIconSlot}>
+            <Ionicons color={colors.primaryDark} name={teamTypeIcon} size={15} />
+          </View>
+          <Text numberOfLines={1} style={[styles.detailText, styles.detailTextStrong]}>
+            {teamTypeLabel}
+          </Text>
+        </View>
+
+        <View style={styles.detailRow}>
+          <View style={styles.detailIconSlot}>
+            <Ionicons color={colors.primaryDark} name="calendar-outline" size={15} />
+          </View>
           <Text numberOfLines={1} style={[styles.detailText, styles.detailTextMuted]}>
             {scheduleSummary}
           </Text>
         </View>
 
-        {complexLocationLine ? (
+        {complexName ? (
           <View style={styles.detailRow}>
-            <Ionicons color={complexNameColor} name="business-outline" size={15} />
+            <View style={styles.detailIconSlot}>
+              <Ionicons color={complexNameColor} name="business-outline" size={15} />
+            </View>
             <Text numberOfLines={1} style={[styles.detailText, styles.detailTextStrong]}>
-              {complexLocationLine}
+              {complexName}
             </Text>
           </View>
         ) : null}
@@ -277,20 +278,63 @@ export default function LeagueCard({
 
       <LeagueSuspensionNotice compact notice={suspensionNotice} />
 
-      {managementActions.length > 0 ? (
-        <View style={styles.managementActionsRow}>
+      {progressStatus || managementActions.length > 0 ? (
+        <View style={styles.cardFooterRow}>
+          {progressStatus ? (
+            <View
+              style={[
+                styles.statusPill,
+                {
+                  backgroundColor: progressStatus.tint,
+                  borderColor: progressStatus.border,
+                },
+              ]}
+            >
+              {progressStatus.icon ? (
+                <Ionicons color={progressStatus.accent} name={progressStatus.icon} size={13} />
+              ) : null}
+              <Text style={[styles.statusPillText, { color: progressStatus.accent }]}>
+                {progressStatus.label}
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.footerSpacer} />
+          )}
+          {showComingSoonNote ? (
+            <Text numberOfLines={2} style={styles.comingSoonNote}>
+              COMIENZA{"\n"}PRONTO
+            </Text>
+          ) : (
+            <View style={styles.footerMiddleSpacer} />
+          )}
           {managementActions.map((action) => (
             <Pressable
+              disabled={action.disabled}
               key={action.key}
               onPress={action.onPress}
               style={({ pressed }) => [
                 styles.managementActionButton,
                 action.tone === "primary" ? styles.managementActionButtonPrimary : null,
-                pressed ? styles.favoriteButtonPressed : null,
+                action.disabled ? styles.managementActionButtonDisabled : null,
+                action.tone === "pending" ? styles.managementActionButtonPending : null,
+                action.tone === "success" ? styles.managementActionButtonSuccess : null,
+                pressed && !action.disabled ? styles.favoriteButtonPressed : null,
               ]}
             >
               <Ionicons
-                color={action.tone === "primary" ? colors.surface : colors.primaryDark}
+                color={
+                  action.tone === "primary"
+                    ? action.disabled
+                      ? colors.muted
+                      : colors.surface
+                    : action.tone === "pending"
+                      ? "#1E5F86"
+                      : action.tone === "success"
+                        ? "#1E6B45"
+                        : action.disabled
+                          ? colors.muted
+                          : colors.primaryDark
+                }
                 name={action.icon}
                 size={14}
               />
@@ -298,6 +342,9 @@ export default function LeagueCard({
                 style={[
                   styles.managementActionText,
                   action.tone === "primary" ? styles.managementActionTextPrimary : null,
+                  action.disabled ? styles.managementActionTextDisabled : null,
+                  action.tone === "pending" ? styles.managementActionTextPending : null,
+                  action.tone === "success" ? styles.managementActionTextSuccess : null,
                 ]}
               >
                 {action.label}
@@ -326,14 +373,15 @@ const styles = StyleSheet.create({
     shadowRadius: 16,
     elevation: 3,
   },
-  statusWrap: {
-    alignItems: "center",
-  },
   statusPill: {
+    alignItems: "center",
     borderRadius: 999,
     borderWidth: 1,
+    flexDirection: "row",
+    gap: 5,
     justifyContent: "center",
-    minHeight: 24,
+    minHeight: 34,
+    minWidth: 118,
     paddingHorizontal: spacing.sm,
   },
   statusPillText: {
@@ -371,8 +419,8 @@ const styles = StyleSheet.create({
   },
   favoriteButton: {
     alignItems: "center",
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
+    backgroundColor: "#EAF8F3",
+    borderColor: "#B8E3D2",
     borderRadius: 10,
     borderWidth: 1,
     height: 26,
@@ -403,19 +451,29 @@ const styles = StyleSheet.create({
     opacity: 0.9,
   },
   detailsList: {
+    alignItems: "center",
     gap: 5,
   },
   detailRow: {
     alignItems: "center",
     columnGap: 8,
     flexDirection: "row",
+    justifyContent: "flex-start",
+    marginLeft: 28,
+    maxWidth: 220,
+    minWidth: 180,
+  },
+  detailIconSlot: {
+    alignItems: "center",
     justifyContent: "center",
+    width: 18,
   },
   detailText: {
+    flex: 1,
     fontSize: 12,
     fontWeight: "800",
     lineHeight: 15,
-    textAlign: "center",
+    textAlign: "left",
   },
   detailTextStrong: {
     color: "#101820",
@@ -423,11 +481,27 @@ const styles = StyleSheet.create({
   detailTextMuted: {
     color: "#66737F",
   },
-  managementActionsRow: {
+  cardFooterRow: {
+    alignItems: "center",
     flexDirection: "row",
-    flexWrap: "wrap",
     gap: spacing.xs,
+    justifyContent: "space-between",
     marginTop: spacing.sm,
+  },
+  footerSpacer: {
+    minWidth: 118,
+  },
+  footerMiddleSpacer: {
+    flex: 1,
+  },
+  comingSoonNote: {
+    color: "#FF7A00",
+    flex: 1,
+    fontSize: 9,
+    fontWeight: "900",
+    lineHeight: 10,
+    textAlign: "center",
+    textTransform: "uppercase",
   },
   managementActionButton: {
     alignItems: "center",
@@ -436,13 +510,27 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     borderWidth: 1,
     flexDirection: "row",
+    justifyContent: "center",
     minHeight: 34,
+    minWidth: 118,
     paddingHorizontal: 10,
     paddingVertical: 6,
   },
   managementActionButtonPrimary: {
     backgroundColor: colors.primaryDark,
     borderColor: colors.primaryDark,
+  },
+  managementActionButtonDisabled: {
+    backgroundColor: "#F4F5F7",
+    borderColor: colors.border,
+  },
+  managementActionButtonPending: {
+    backgroundColor: "#E5F4FF",
+    borderColor: "#8CCAF0",
+  },
+  managementActionButtonSuccess: {
+    backgroundColor: "#E5F7EE",
+    borderColor: "#91D7B2",
   },
   managementActionText: {
     color: colors.primaryDark,
@@ -452,5 +540,14 @@ const styles = StyleSheet.create({
   },
   managementActionTextPrimary: {
     color: colors.surface,
+  },
+  managementActionTextDisabled: {
+    color: colors.muted,
+  },
+  managementActionTextPending: {
+    color: "#1E5F86",
+  },
+  managementActionTextSuccess: {
+    color: "#1E6B45",
   },
 });

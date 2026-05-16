@@ -1,5 +1,6 @@
 export const USER_ROLE = "user";
 export const ORGANIZER_ROLE = "organizer";
+export const ADMIN_ROLE = "admin";
 
 export const ORGANIZER_STATUS = {
   NONE: "none",
@@ -29,6 +30,10 @@ export function isApprovedOrganizer(profile) {
   );
 }
 
+export function isAdminProfile(profile) {
+  return profile?.role === ADMIN_ROLE || profile?.adminStatus === "active";
+}
+
 export function isPendingOrganizer(profile) {
   return (
     profile?.role === ORGANIZER_ROLE &&
@@ -53,6 +58,10 @@ export function getOrganizerRestrictionMessage(profile) {
 }
 
 export function getAccountTypeLabel(profile) {
+  if (isAdminProfile(profile)) {
+    return "Administrador";
+  }
+
   if (isRejectedOrganizer(profile)) {
     return "Jugador";
   }

@@ -20,6 +20,7 @@ import AppInput from "../components/AppInput";
 import FeedbackModal from "../components/FeedbackModal";
 import SectionHeader from "../components/SectionHeader";
 import SelectField from "../components/SelectField";
+import { canAccessAdminPanel } from "../config/admin";
 import { colors, spacing } from "../config/theme";
 import { useAuth } from "../context/AuthContext";
 import { isApprovedOrganizer } from "../services/roleService";
@@ -649,7 +650,7 @@ export default function CreateTournamentScreen({ navigation, route }) {
   const [temporaryComplex, setTemporaryComplex] = useState(() => createEmptyComplex());
   const [datePickerTarget, setDatePickerTarget] = useState("");
 
-  const canCreateTournament = isApprovedOrganizer(userData);
+  const canCreateTournament = isApprovedOrganizer(userData) || canAccessAdminPanel(userData);
   const organizerComplexes = Array.isArray(userData?.complejos) ? userData.complejos : [];
   const tournamentComplexes = Array.isArray(userData?.tournamentComplexes)
     ? userData.tournamentComplexes

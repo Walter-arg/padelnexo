@@ -30,10 +30,14 @@ import {
 import {
   archiveLeague,
   canManageLeague,
+  createLeagueRegistrationRequest,
   getLeagueComplexOptions,
   isLeagueParticipant,
   listLeagues,
+  listLeagueRegistrationRequests,
 } from "../services/leaguesService";
+import { createInvitation } from "../services/invitationsService";
+import { listPlayers } from "../services/playersService";
 import { isApprovedOrganizer } from "../services/roleService";
 
 const SEX_FILTER_OPTIONS = ["Todos", "Masculino", "Femenino", "Mixto"];
@@ -58,6 +62,7 @@ export default function LigasHubScreen({ navigation }) {
   const [query, setQuery] = useState("");
   const [activeTab, setActiveTab] = useState("all");
   const [leaguesSource, setLeaguesSource] = useState([]);
+  const [registrationRequests, setRegistrationRequests] = useState([]);
   const [favoriteLeagueIds, setFavoriteLeagueIds] = useState(new Set());
   const [reloadKey, setReloadKey] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -69,6 +74,11 @@ export default function LigasHubScreen({ navigation }) {
     tone: "default",
   });
   const [leaguePendingDelete, setLeaguePendingDelete] = useState(null);
+  const [leaguePendingRegistration, setLeaguePendingRegistration] = useState(null);
+  const [partnerPickerPlayers, setPartnerPickerPlayers] = useState([]);
+  const [partnerPickerQuery, setPartnerPickerQuery] = useState("");
+  const [partnerPickerLoading, setPartnerPickerLoading] = useState(false);
+  const [registrationSaving, setRegistrationSaving] = useState(false);
   const [deletingLeague, setDeletingLeague] = useState(false);
 
   const userLocalidad = useMemo(() => {
@@ -120,16 +130,21 @@ export default function LigasHubScreen({ navigation }) {
         setLoading(true);
         setLoadError("");
         const leagues = await listLeagues();
+        const requestsByLeague = await Promise.all(
+          leagues.map((league) => listLeagueRegistrationRequests(league.id))
+        );
 
         if (isCancelled) {
           return;
         }
 
         setLeaguesSource(applyLeagueFavoriteFlags(leagues, favoriteLeagueIds));
+        setRegistrationRequests(requestsByLeague.flat());
       } catch (error) {
         if (!isCancelled) {
           setLoadError("No pudimos cargar las ligas por ahora.");
           setLeaguesSource([]);
+          setRegistrationRequests([]);
         }
       } finally {
         if (!isCancelled) {
@@ -215,6 +230,56 @@ export default function LigasHubScreen({ navigation }) {
 
     return filtered;
   }, [activeTab, appliedFilters, leaguesSource, query]);
+  const partnerPickerFilteredPlayers = useMemo(() => {
+    const normalizedQuery = normalizeText(partnerPickerQuery);
+
+    if (!normalizedQuery) {
+      return partnerPickerPlayers;
+    }
+
+    return partnerPickerPlayers.filter((player) =>
+      [
+        player.nombre,
+        player.apellido,
+        `${player.nombre || ""} ${player.apellido || ""}`,
+        player.categoria,
+      ]
+        .filter(Boolean)
+        .some((value) => normalizeText(value).includes(normalizedQuery))
+    );
+  }, [partnerPickerPlayers, partnerPickerQuery]);
+
+  const getUserLeagueRegistration = (league) => {
+    const userKey = normalizeText(userData?.uid || userData?.id || "");
+
+    if (!userKey || !league?.id) {
+      return null;
+    }
+
+    return registrationRequests.find((request) => {
+      if (request.leagueId !== league.id) {
+        return false;
+      }
+
+      const requesterKey = normalizeText(
+        request.requester?.linkedUserId || request.requester?.id || ""
+      );
+      const partnerKey = normalizeText(request.partner?.linkedUserId || request.partner?.id || "");
+
+      return requesterKey === userKey || partnerKey === userKey;
+    });
+  };
+
+  const isLeagueClosedForRegistration = (league = {}) => {
+    const rounds = Array.isArray(league?.fixture?.rounds) ? league.fixture.rounds : [];
+    const matches = rounds.flatMap((round) => (Array.isArray(round?.matches) ? round.matches : []));
+    const playableMatches = matches.filter(
+      (match) => match?.teamA?.id !== "__bye__" && match?.teamB?.id !== "__bye__"
+    );
+    const hasStarted = playableMatches.length > 0;
+
+    return hasStarted;
+  };
 
   const showFeedback = (title, message, tone = "default") => {
     setFeedback({
@@ -325,6 +390,100 @@ export default function LigasHubScreen({ navigation }) {
       leagueId: league.id,
       leagueName: league.nombre,
     });
+  };
+
+  const buildRegistrationRequester = () => ({
+    ...userData,
+    id: userData?.uid || userData?.id || "",
+    uid: userData?.uid || userData?.id || "",
+  });
+
+  const handleRequestLeagueRegistration = async (league) => {
+    if (isLeagueParticipant(league, userData)) {
+      handleOpenParticipantLeague(league);
+      return;
+    }
+
+    if (league.teamType === "pair") {
+      try {
+        setPartnerPickerLoading(true);
+        setLeaguePendingRegistration(league);
+        setPartnerPickerQuery("");
+        const players = await listPlayers();
+        const currentUserKey = normalizeText(userData?.uid || userData?.id || "");
+        setPartnerPickerPlayers(
+          players.filter((player) => normalizeText(player.id) !== currentUserKey)
+        );
+      } catch (error) {
+        showFeedback("No pudimos cargar jugadores", "Intenta nuevamente en unos instantes.", "danger");
+      } finally {
+        setPartnerPickerLoading(false);
+      }
+      return;
+    }
+
+    try {
+      setRegistrationSaving(true);
+      const request = await createLeagueRegistrationRequest({
+        league,
+        requester: buildRegistrationRequester(),
+      });
+      setRegistrationRequests((current) => [request, ...current]);
+      showFeedback(
+        "Solicitud enviada",
+        "El organizador revisara tu inscripcion a la liga.",
+        "success"
+      );
+    } catch (error) {
+      showFeedback("No pudimos enviar la solicitud", "Intenta nuevamente en unos instantes.", "danger");
+    } finally {
+      setRegistrationSaving(false);
+    }
+  };
+
+  const handleSelectLeaguePartner = async (partner) => {
+    if (!leaguePendingRegistration || registrationSaving) {
+      return;
+    }
+
+    try {
+      setRegistrationSaving(true);
+      const request = await createLeagueRegistrationRequest({
+        league: leaguePendingRegistration,
+        requester: buildRegistrationRequester(),
+        partner,
+      });
+      setRegistrationRequests((current) => [request, ...current]);
+
+      await createInvitation({
+        senderId: userData?.uid || userData?.id || "",
+        senderName: userData?.name || userData?.nombre || "Jugador",
+        recipientId: partner.id,
+        recipientName: [partner.nombre, partner.apellido].filter(Boolean).join(" ") || "Jugador",
+        title: "Invitacion a liga",
+        subtitle: `${userData?.name || userData?.nombre || "Jugador"} te invito a jugar ${
+          leaguePendingRegistration.nombre || "una liga"
+        } como pareja fija.`,
+        type: "league_pair_invitation",
+        metadata: {
+          leagueId: leaguePendingRegistration.id,
+          leagueName: leaguePendingRegistration.nombre || "Liga",
+          requestId: request.id,
+        },
+      });
+
+      setLeaguePendingRegistration(null);
+      setPartnerPickerQuery("");
+      showFeedback(
+        "Invitacion enviada",
+        "Cuando tu pareja acepte, el organizador podra confirmar la inscripcion.",
+        "success"
+      );
+    } catch (error) {
+      showFeedback("No pudimos enviar la invitacion", "Intenta nuevamente en unos instantes.", "danger");
+    } finally {
+      setRegistrationSaving(false);
+    }
   };
 
   const emptyTitle = loading
@@ -494,7 +653,7 @@ export default function LigasHubScreen({ navigation }) {
             ]}
           >
             <Ionicons
-              color={activeTab === "mine" ? colors.surface : "#B87407"}
+              color={activeTab === "mine" ? colors.surface : "#1FAB89"}
               name={activeTab === "mine" ? "star" : "star-outline"}
               size={18}
             />
@@ -574,17 +733,66 @@ export default function LigasHubScreen({ navigation }) {
               <Text style={styles.emptyText}>{emptyText}</Text>
             </View>
           }
-          renderItem={({ item }) => (
-            <LeagueCard
-              league={item}
-              onDetails={
-                isLeagueParticipant(item, userData)
-                  ? () => handleOpenParticipantLeague(item)
-                  : undefined
-              }
-              onToggleFavorite={() => handleToggleFavorite(item)}
-            />
-          )}
+          renderItem={({ item }) => {
+            const isParticipant = isLeagueParticipant(item, userData);
+            const currentRegistration = getUserLeagueRegistration(item);
+            const isRegistrationConfirmed = currentRegistration?.status === "confirmed";
+            const isRegistrationRejected = ["rejected", "partner_rejected"].includes(
+              currentRegistration?.status
+            );
+            const hasPendingRegistration =
+              currentRegistration &&
+              !["confirmed", "rejected", "partner_rejected"].includes(currentRegistration.status);
+            const canRegister = !isParticipant && (!currentRegistration || isRegistrationRejected);
+            const registrationClosed = isLeagueClosedForRegistration(item);
+
+            return (
+              <LeagueCard
+                league={item}
+                managementActions={
+                  isParticipant || isRegistrationConfirmed
+                    ? [
+                        {
+                          disabled: true,
+                          icon: "checkmark-circle-outline",
+                          key: `registered-${item.id}`,
+                          label: "INSCRIPTO",
+                          tone: "success",
+                        },
+                      ]
+                    : hasPendingRegistration
+                    ? [
+                        {
+                          disabled: true,
+                          icon: "time-outline",
+                          key: `pending-${item.id}`,
+                          label: "Pendiente",
+                          tone: "pending",
+                        },
+                      ]
+                    : canRegister
+                    ? [
+                        {
+                          disabled: registrationClosed || registrationSaving,
+                          icon: registrationClosed ? "lock-closed-outline" : "person-add-outline",
+                          key: `register-${item.id}`,
+                          label: registrationSaving ? "Enviando..." : "Inscribirme",
+                          onPress: () => handleRequestLeagueRegistration(item),
+                          tone: "primary",
+                        },
+                      ]
+                    : []
+                }
+                onDetails={
+                  isParticipant
+                    ? () => handleOpenParticipantLeague(item)
+                    : undefined
+                }
+                onToggleFavorite={() => handleToggleFavorite(item)}
+                showProgressStatus
+              />
+            );
+          }}
           showsVerticalScrollIndicator={false}
         />
       </View>
@@ -650,6 +858,64 @@ export default function LigasHubScreen({ navigation }) {
           </View>
         </View>
       </Modal>
+      <Modal
+        animationType="fade"
+        onRequestClose={() => (registrationSaving ? null : setLeaguePendingRegistration(null))}
+        transparent
+        visible={Boolean(leaguePendingRegistration)}
+      >
+        <View style={styles.confirmOverlay}>
+          <Pressable
+            onPress={() => (registrationSaving ? null : setLeaguePendingRegistration(null))}
+            style={styles.confirmBackdrop}
+          />
+          <View style={styles.confirmCard}>
+            <Text style={styles.confirmTitle}>Elegir pareja</Text>
+            <Text style={styles.confirmMessage}>
+              Selecciona quien recibira la invitacion para jugar esta liga.
+            </Text>
+            {partnerPickerLoading ? (
+              <Text style={styles.confirmMessage}>Cargando jugadores...</Text>
+            ) : (
+              <>
+                <TextInput
+                  autoCapitalize="words"
+                  onChangeText={setPartnerPickerQuery}
+                  placeholder="Buscar por nombre o categoria"
+                  placeholderTextColor={colors.muted}
+                  style={styles.partnerPickerSearchInput}
+                  value={partnerPickerQuery}
+                />
+                <FlatList
+                  data={partnerPickerFilteredPlayers}
+                  keyExtractor={(item) => item.id}
+                  ListEmptyComponent={
+                    <Text style={styles.partnerPickerEmpty}>No encontramos jugadores.</Text>
+                  }
+                  style={styles.partnerPickerList}
+                  renderItem={({ item }) => (
+                    <Pressable
+                      disabled={registrationSaving}
+                      onPress={() => handleSelectLeaguePartner(item)}
+                      style={({ pressed }) => [
+                        styles.partnerPickerRow,
+                        pressed && !registrationSaving ? styles.confirmButtonPressed : null,
+                      ]}
+                    >
+                      <Text style={styles.partnerPickerName}>
+                        {[item.nombre, item.apellido].filter(Boolean).join(" ") || "Jugador"}
+                      </Text>
+                      <Text style={styles.partnerPickerMeta}>
+                        {[item.categoria, item.sexo].filter(Boolean).join(" - ")}
+                      </Text>
+                    </Pressable>
+                  )}
+                />
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
       <BottomQuickActionsBar />
     </SafeAreaView>
   );
@@ -710,8 +976,8 @@ const styles = StyleSheet.create({
   },
   favoriteInlineButton: {
     alignItems: "center",
-    backgroundColor: "#FFF8E8",
-    borderColor: "#F2D89C",
+    backgroundColor: "#EAF8F3",
+    borderColor: "#B8E3D2",
     borderRadius: 18,
     borderWidth: 1,
     flexDirection: "row",
@@ -726,14 +992,14 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   favoriteInlineButtonActive: {
-    backgroundColor: "#B87407",
-    borderColor: "#B87407",
+    backgroundColor: "#1FAB89",
+    borderColor: "#1FAB89",
   },
   favoriteInlineButtonPressed: {
     opacity: 0.92,
   },
   favoriteInlineButtonText: {
-    color: "#8A5700",
+    color: "#12745E",
     fontSize: 13,
     fontWeight: "800",
     marginLeft: 6,
@@ -1005,6 +1271,49 @@ const styles = StyleSheet.create({
   },
   confirmButtonDisabled: {
     opacity: 0.7,
+  },
+  partnerPickerSearchInput: {
+    backgroundColor: colors.surfaceAlt,
+    borderColor: colors.border,
+    borderRadius: 12,
+    borderWidth: 1,
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: "700",
+    marginTop: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 10,
+  },
+  partnerPickerList: {
+    marginTop: spacing.sm,
+    maxHeight: 320,
+  },
+  partnerPickerEmpty: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "700",
+    paddingVertical: spacing.md,
+    textAlign: "center",
+  },
+  partnerPickerRow: {
+    backgroundColor: "#F7FCFA",
+    borderColor: colors.border,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 8,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 10,
+  },
+  partnerPickerName: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  partnerPickerMeta: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "700",
+    marginTop: 2,
   },
 });
 

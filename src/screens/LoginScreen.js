@@ -4,13 +4,27 @@ import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
 
 import AppButton from "../components/AppButton";
 import AppInput from "../components/AppInput";
+import GoogleSignInButton from "../components/GoogleSignInButton";
 import ScreenWrapper from "../components/ScreenWrapper";
 import { colors, spacing } from "../config/theme";
 import { useAuth } from "../context/AuthContext";
 
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function getLoginErrorTitle(message = "") {
+  if (message.includes("bloqueada por 7 dias")) {
+    return "CUENTA BLOQUEADA TEMPORALMENTE";
+  }
+
+  if (message.includes("bloqueada por acciones impropias")) {
+    return "CUENTA BLOQUEADA";
+  }
+
+  return "No pudimos ingresar";
+}
+
 export default function LoginScreen({ navigation }) {
-  const { login, sendResetPassword, lastLoginEmail } = useAuth();
+  const { login, loginWithGoogle, sendResetPassword, lastLoginEmail } = useAuth();
   const [mode, setMode] = useState("login");
   const [identifier, setIdentifier] = useState(lastLoginEmail || "");
   const [password, setPassword] = useState("");
@@ -54,7 +68,7 @@ export default function LoginScreen({ navigation }) {
       Alert.alert("Sesion iniciada", "Accediste correctamente a PadelNexo.");
       navigation.goBack();
     } catch (error) {
-      Alert.alert("No pudimos ingresar", error.message);
+      Alert.alert(getLoginErrorTitle(error.message), error.message);
     }
   };
 
@@ -73,6 +87,16 @@ export default function LoginScreen({ navigation }) {
     }
   };
 
+  const handleGoogleToken = async (idToken) => {
+    try {
+      await loginWithGoogle(idToken);
+      Alert.alert("Sesion iniciada", "Accediste correctamente a PadelNexo.");
+      navigation.goBack();
+    } catch (error) {
+      Alert.alert(getLoginErrorTitle(error.message), error.message);
+    }
+  };
+
   return (
     <ScreenWrapper>
       <View style={styles.card}>
@@ -85,6 +109,27 @@ export default function LoginScreen({ navigation }) {
             : "Te enviaremos un link para restablecer tu contrase\u00f1a."}
         </Text>
 
+        {mode === "login" ? (
+          <View style={styles.googleBlock}>
+            <Text style={styles.googleBlockTitle}>Ingreso rapido</Text>
+            <GoogleSignInButton
+              onError={(error) =>
+                Alert.alert(
+                  "No pudimos ingresar con Google",
+                  error?.message || "Intenta nuevamente en unos instantes."
+                )
+              }
+              onMissingConfig={() =>
+                Alert.alert(
+                  "Google no configurado",
+                  "Falta cargar el Client ID de Google para habilitar este ingreso."
+                )
+              }
+              onSuccess={handleGoogleToken}
+            />
+          </View>
+        ) : null}
+
         <AppInput
           autoCapitalize="none"
           autoComplete="email"
@@ -95,7 +140,6 @@ export default function LoginScreen({ navigation }) {
           placeholder="tuemail@mail.com"
           value={identifier}
         />
-
         {mode === "login" ? (
           <AppInput
             autoComplete="password"
@@ -169,6 +213,17 @@ const styles = StyleSheet.create({
   },
   compactField: {
     marginBottom: spacing.sm,
+  },
+  googleBlock: {
+    marginBottom: spacing.sm,
+  },
+  googleBlockTitle: {
+    color: colors.primaryDark,
+    fontSize: 12,
+    fontWeight: "900",
+    marginBottom: spacing.xs,
+    textAlign: "center",
+    textTransform: "uppercase",
   },
   passwordToggle: {
     alignItems: "center",

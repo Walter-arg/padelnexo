@@ -13,6 +13,10 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 
 import { colors, spacing } from "../config/theme";
+import FeedbackModal from "../components/FeedbackModal";
+import ReportModal from "../components/ReportModal";
+import { useAuth } from "../context/AuthContext";
+import { submitReport } from "../services/reportsService";
 
 const MIN_SCALE = 1;
 const MAX_SCALE = 3;
@@ -35,9 +39,22 @@ function getDistanceBetweenTouches(touches = []) {
 }
 
 export default function TournamentPosterViewerScreen({ navigation, route }) {
+  const { userData } = useAuth();
   const posterUrl = route?.params?.posterUrl || "";
+  const tournamentName = route?.params?.tournamentName || "Torneo";
+  const tournamentId = route?.params?.tournamentId || "";
+  const organizerId = route?.params?.organizerId || "";
+  const organizerName = route?.params?.organizerName || "";
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [reportVisible, setReportVisible] = useState(false);
+  const [submittingReport, setSubmittingReport] = useState(false);
+  const [feedback, setFeedback] = useState({
+    visible: false,
+    title: "",
+    message: "",
+    tone: "default",
+  });
   const scale = useRef(new Animated.Value(1)).current;
   const translateX = useRef(new Animated.Value(0)).current;
   const translateY = useRef(new Animated.Value(0)).current;
@@ -203,6 +220,45 @@ export default function TournamentPosterViewerScreen({ navigation, route }) {
     animateToScale(scaleValueRef.current);
   };
 
+  const handleSubmitPosterReport = async (description) => {
+    if (!userData?.uid || !posterUrl) {
+      return;
+    }
+
+    try {
+      setSubmittingReport(true);
+      await submitReport({
+        reporter: userData,
+        targetType: "tournament_poster",
+        targetId: tournamentId || posterUrl,
+        targetTitle: tournamentName,
+        description,
+        metadata: {
+          posterUrl,
+          tournamentId,
+          reportedUserId: organizerId,
+          reportedUserName: organizerName,
+        },
+      });
+      setReportVisible(false);
+      setFeedback({
+        visible: true,
+        title: "Reporte enviado",
+        message: "Gracias. El equipo administrador lo va a revisar.",
+        tone: "default",
+      });
+    } catch (error) {
+      setFeedback({
+        visible: true,
+        title: "No pudimos enviar el reporte",
+        message: "Intenta nuevamente en unos instantes.",
+        tone: "danger",
+      });
+    } finally {
+      setSubmittingReport(false);
+    }
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <Pressable
@@ -211,6 +267,14 @@ export default function TournamentPosterViewerScreen({ navigation, route }) {
       >
         <Ionicons color={colors.primaryDark} name="chevron-back" size={20} />
       </Pressable>
+      {posterUrl ? (
+        <Pressable
+          onPress={() => setReportVisible(true)}
+          style={({ pressed }) => [styles.reportButton, pressed ? styles.backButtonPressed : null]}
+        >
+          <Ionicons color="#C45B00" name="flag-outline" size={18} />
+        </Pressable>
+      ) : null}
 
       <View style={styles.container}>
         {!posterUrl ? (
@@ -263,6 +327,21 @@ export default function TournamentPosterViewerScreen({ navigation, route }) {
           </View>
         )}
       </View>
+      <ReportModal
+        onCancel={() => setReportVisible(false)}
+        onSubmit={handleSubmitPosterReport}
+        submitting={submittingReport}
+        targetLabel={tournamentName}
+        title="Reportar afiche"
+        visible={reportVisible}
+      />
+      <FeedbackModal
+        message={feedback.message}
+        onClose={() => setFeedback((current) => ({ ...current, visible: false }))}
+        title={feedback.title}
+        tone={feedback.tone}
+        visible={feedback.visible}
+      />
     </SafeAreaView>
   );
 }
@@ -290,6 +369,20 @@ const styles = StyleSheet.create({
   },
   backButtonPressed: {
     opacity: 0.86,
+  },
+  reportButton: {
+    alignItems: "center",
+    backgroundColor: "rgba(255,243,224,0.96)",
+    borderColor: "#FFB866",
+    borderRadius: 999,
+    borderWidth: 1,
+    height: 40,
+    justifyContent: "center",
+    position: "absolute",
+    right: spacing.md,
+    top: 56,
+    width: 40,
+    zIndex: 2,
   },
   posterCard: {
     alignItems: "center",

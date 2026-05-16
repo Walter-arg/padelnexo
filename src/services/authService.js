@@ -1,8 +1,10 @@
 import {
   createUserWithEmailAndPassword,
   deleteUser,
+  GoogleAuthProvider,
   sendPasswordResetEmail,
   signInWithEmailAndPassword,
+  signInWithCredential,
   signOut,
 } from "../../services/firebaseAuth";
 
@@ -25,6 +27,21 @@ export async function loginUser(email, password) {
   } catch (error) {
     throw new Error(
       getFirebaseErrorMessage(error, "No pudimos iniciar sesion en este momento.")
+    );
+  }
+}
+
+export async function loginWithGoogleIdToken(idToken) {
+  if (!idToken) {
+    throw new Error("No pudimos obtener la autorizacion de Google.");
+  }
+
+  try {
+    const credential = GoogleAuthProvider.credential(idToken);
+    return await signInWithCredential(auth, credential);
+  } catch (error) {
+    throw new Error(
+      getFirebaseErrorMessage(error, "No pudimos ingresar con Google en este momento.")
     );
   }
 }
@@ -71,6 +88,7 @@ export async function deleteCurrentUserAccount() {
 
 export const authService = {
   login: loginUser,
+  loginWithGoogleIdToken,
   register: registerUser,
   requestPasswordReset: resetPassword,
   resetPassword,

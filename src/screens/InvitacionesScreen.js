@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { FlatList, StyleSheet, Text, View } from "react-native";
+import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import SectionHeader from "../components/SectionHeader";
@@ -7,12 +7,14 @@ import { colors, spacing } from "../config/theme";
 import { useAuth } from "../context/AuthContext";
 import {
   markInvitationsAsViewed,
+  respondToInvitation,
   subscribeToUserInvitations,
 } from "../services/invitationsService";
 
 export default function InvitacionesScreen({ navigation }) {
   const { userData } = useAuth();
   const [invitations, setInvitations] = useState([]);
+  const [respondingId, setRespondingId] = useState("");
 
   useEffect(() => {
     const unsubscribe = subscribeToUserInvitations({
@@ -44,12 +46,54 @@ export default function InvitacionesScreen({ navigation }) {
               <Text style={styles.emptyText}>Cuando recibas una, aparecera en esta pantalla.</Text>
             </View>
           }
-          renderItem={({ item }) => (
-            <View style={styles.card}>
-              <Text style={styles.cardTitle}>{item.title}</Text>
-              <Text style={styles.cardSubtitle}>{item.subtitle}</Text>
-            </View>
-          )}
+          renderItem={({ item }) => {
+            const canRespond =
+              item.type === "league_pair_invitation" && item.responseStatus === "pending";
+
+            return (
+              <View style={styles.card}>
+                <Text style={styles.cardTitle}>{item.title}</Text>
+                <Text style={styles.cardSubtitle}>{item.subtitle}</Text>
+                {item.responseStatus && item.responseStatus !== "pending" ? (
+                  <Text style={styles.responseStatusText}>
+                    {item.responseStatus === "accepted" ? "Aceptada" : "Rechazada"}
+                  </Text>
+                ) : null}
+                {canRespond ? (
+                  <View style={styles.actionsRow}>
+                    <Pressable
+                      disabled={Boolean(respondingId)}
+                      onPress={async () => {
+                        setRespondingId(item.id);
+                        await respondToInvitation(item, false).finally(() => setRespondingId(""));
+                      }}
+                      style={({ pressed }) => [
+                        styles.rejectButton,
+                        pressed && !respondingId ? styles.actionPressed : null,
+                      ]}
+                    >
+                      <Text style={styles.rejectButtonText}>Rechazar</Text>
+                    </Pressable>
+                    <Pressable
+                      disabled={Boolean(respondingId)}
+                      onPress={async () => {
+                        setRespondingId(item.id);
+                        await respondToInvitation(item, true).finally(() => setRespondingId(""));
+                      }}
+                      style={({ pressed }) => [
+                        styles.acceptButton,
+                        pressed && !respondingId ? styles.actionPressed : null,
+                      ]}
+                    >
+                      <Text style={styles.acceptButtonText}>
+                        {respondingId === item.id ? "..." : "Aceptar"}
+                      </Text>
+                    </Pressable>
+                  </View>
+                ) : null}
+              </View>
+            );
+          }}
           showsVerticalScrollIndicator={false}
         />
       </View>
@@ -95,6 +139,49 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
     marginTop: spacing.xs,
+  },
+  responseStatusText: {
+    color: colors.primaryDark,
+    fontSize: 12,
+    fontWeight: "900",
+    marginTop: spacing.sm,
+    textTransform: "uppercase",
+  },
+  actionsRow: {
+    flexDirection: "row",
+    gap: spacing.sm,
+    marginTop: spacing.md,
+  },
+  acceptButton: {
+    alignItems: "center",
+    backgroundColor: colors.primaryDark,
+    borderRadius: 14,
+    flex: 1,
+    minHeight: 40,
+    justifyContent: "center",
+  },
+  rejectButton: {
+    alignItems: "center",
+    backgroundColor: colors.surfaceAlt,
+    borderColor: colors.border,
+    borderRadius: 14,
+    borderWidth: 1,
+    flex: 1,
+    minHeight: 40,
+    justifyContent: "center",
+  },
+  acceptButtonText: {
+    color: colors.surface,
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  rejectButtonText: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  actionPressed: {
+    opacity: 0.9,
   },
   emptyCard: {
     alignItems: "center",

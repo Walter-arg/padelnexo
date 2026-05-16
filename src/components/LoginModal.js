@@ -24,12 +24,25 @@ import AppButton from "./AppButton";
 import AppInput from "./AppInput";
 import CountryCodeSelector from "./CountryCodeSelector";
 import FeedbackModal from "./FeedbackModal";
+import GoogleSignInButton from "./GoogleSignInButton";
 import LocationPicker from "./LocationPicker";
 import SelectField from "./SelectField";
 import { defaultPhoneCountry, phoneCountryOptions } from "../data/phoneCountryOptions";
 
 const NAME_REGEX = /^[A-Za-z\u00c0-\u00ff\s]+$/;
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function getLoginErrorTitle(message = "") {
+  if (message.includes("bloqueada por 7 dias")) {
+    return "CUENTA BLOQUEADA TEMPORALMENTE";
+  }
+
+  if (message.includes("bloqueada por acciones impropias")) {
+    return "CUENTA BLOQUEADA";
+  }
+
+  return "No pudimos ingresar";
+}
 
 const categoryOptions = playerCategories.map((option) => ({
   label: option,
@@ -114,7 +127,7 @@ function isValidLocalidad(localidad, inputValue) {
 }
 
 export default function LoginModal({ onClose, onLogin, visible }) {
-  const { login, register, sendResetPassword, lastLoginEmail } = useAuth();
+  const { login, loginWithGoogle, register, sendResetPassword, lastLoginEmail } = useAuth();
   const [feedback, setFeedback] = useState({
     visible: false,
     title: "",
@@ -421,11 +434,44 @@ export default function LoginModal({ onClose, onLogin, visible }) {
     } catch (error) {
       setFeedback({
         visible: true,
-        title: "No pudimos ingresar",
+        title: getLoginErrorTitle(error.message),
         message: error.message,
         tone: "danger",
       });
     }
+  };
+
+  const handleGoogleToken = async (idToken) => {
+    try {
+      await loginWithGoogle(idToken);
+      onLogin?.();
+      onClose();
+    } catch (error) {
+      setFeedback({
+        visible: true,
+        title: getLoginErrorTitle(error.message),
+        message: error.message,
+        tone: "danger",
+      });
+    }
+  };
+
+  const handleGoogleConfigMissing = () => {
+    setFeedback({
+      visible: true,
+      title: "Google no configurado",
+      message: "Falta cargar el Client ID de Google para habilitar este ingreso.",
+      tone: "warning",
+    });
+  };
+
+  const handleGoogleError = (error) => {
+    setFeedback({
+      visible: true,
+      title: "No pudimos ingresar con Google",
+      message: error?.message || "Intenta nuevamente en unos instantes.",
+      tone: "danger",
+    });
   };
 
   const title =
@@ -460,6 +506,17 @@ export default function LoginModal({ onClose, onLogin, visible }) {
           <View style={styles.handle} />
           <Text style={styles.title}>{title}</Text>
           {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
+
+          {mode === "login" ? (
+            <View style={styles.googleBlock}>
+              <Text style={styles.googleBlockTitle}>Ingreso rapido</Text>
+              <GoogleSignInButton
+                onError={handleGoogleError}
+                onMissingConfig={handleGoogleConfigMissing}
+                onSuccess={handleGoogleToken}
+              />
+            </View>
+          ) : null}
 
           <ScrollView
             contentContainerStyle={styles.formContent}
@@ -719,6 +776,17 @@ const styles = StyleSheet.create({
   },
   formContent: {
     paddingBottom: spacing.xs,
+  },
+  googleBlock: {
+    marginTop: spacing.sm,
+  },
+  googleBlockTitle: {
+    color: colors.primaryDark,
+    fontSize: 12,
+    fontWeight: "900",
+    marginBottom: spacing.xs,
+    textAlign: "center",
+    textTransform: "uppercase",
   },
   submit: {
     marginTop: spacing.sm,

@@ -674,6 +674,80 @@ function normalizeReplacementPlayer(player = {}, type = "registered") {
   };
 }
 
+function formatReplacementNoticeDate(round = {}) {
+  const dateMillis = Number(round?.scheduledDateMillis || round?.rescheduledDateMillis || 0);
+
+  if (!dateMillis) {
+    return "";
+  }
+
+  return new Date(dateMillis).toLocaleDateString("es-AR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+}
+
+function getReplacementPlayerKey(player = {}) {
+  return String(player?.linkedUserId || player?.id || "").trim();
+}
+
+function collectReplacementConfirmationNotices(fixture = {}, league = {}) {
+  return (fixture.rounds || []).flatMap((round) =>
+    (round.matches || []).flatMap((match) =>
+      Object.entries(match.replacements || {})
+        .filter(([, replacement]) => replacement?.confirmedNoticePending)
+        .map(([, replacement]) => {
+          const replacementPlayer = replacement.replacement || {};
+          const recipientId = getReplacementPlayerKey(replacementPlayer);
+          const dateLabel = formatReplacementNoticeDate(round);
+          const timeLabel = match.timeSlot || round.scheduleLabel || "Horario a definir";
+          const complexLabel =
+            league?.complejoNombre ||
+            league?.complejo?.nombre ||
+            league?.complexName ||
+            "Complejo a definir";
+
+          return {
+            recipientId,
+            recipientName: formatPlayerShortName(replacementPlayer),
+            text: [
+              `Fuiste confirmado como remplazo en ${league?.nombre || "la liga"}.`,
+              `Categoria: ${league?.categoria || "A confirmar"}${league?.sexo ? ` - ${league.sexo}` : ""}.`,
+              `Fecha: ${round.title || "Fecha"}${dateLabel ? ` (${dateLabel})` : ""}.`,
+              `Hora: ${timeLabel}.`,
+              `Complejo: ${complexLabel}.`,
+            ].join("\n"),
+          };
+        })
+        .filter((notice) => notice.recipientId)
+    )
+  );
+}
+
+function clearReplacementConfirmationNoticeFlags(fixture = {}) {
+  return {
+    ...fixture,
+    rounds: (fixture.rounds || []).map((round) => ({
+      ...round,
+      matches: (round.matches || []).map((match) => ({
+        ...match,
+        replacements: Object.entries(match.replacements || {}).reduce(
+          (nextReplacements, [replacementKey, replacement]) => {
+            nextReplacements[replacementKey] = {
+              ...(replacement || {}),
+              confirmedNoticePending: false,
+            };
+
+            return nextReplacements;
+          },
+          {}
+        ),
+      })),
+    })),
+  };
+}
+
 export default function LeagueFixtureScreen({ navigation, route }) {
   const { userData } = useAuth();
   const leagueId = route?.params?.leagueId || "";
@@ -1989,6 +2063,7 @@ export default function LeagueFixtureScreen({ navigation, route }) {
     }
 
     const replacement = normalizeReplacementPlayer(player, type);
+    const shouldNotifyConfirmedReplacement = Boolean(getReplacementPlayerKey(replacement));
 
     updateMatchReplacement(
       replacementTarget.roundId,
@@ -1998,6 +2073,7 @@ export default function LeagueFixtureScreen({ navigation, route }) {
         ...(currentReplacement || {}),
         requested: true,
         replacement,
+        confirmedNoticePending: shouldNotifyConfirmedReplacement,
         penaltySnapshot:
           currentReplacement?.penaltySnapshot ?? league?.scoringSettings?.replacementPenalty ?? null,
         penaltyModeSnapshot:
@@ -2024,8 +2100,8 @@ export default function LeagueFixtureScreen({ navigation, route }) {
     );
     setReplacementPendingRemoval(null);
     showFeedback(
-      "Remplazo quitado",
-      "Guarda los cambios para actualizar la tabla de puntajes.",
+      "Pedido de remplazo cancelado",
+      "Guarda los cambios para quitarlo de Remplazos y del resumen de ligas.",
       "success"
     );
   };
@@ -2325,19 +2401,36 @@ export default function LeagueFixtureScreen({ navigation, route }) {
       getFixtureReplacementRequestSignature(nextFixture);
     const didResultDataChange = hasResultDataChanged(league.fixture || {}, nextFixture);
     const didAssignNewWinner = hasNewWinnerAssigned(league.fixture || {}, nextFixture);
+    const replacementConfirmationNotices = collectReplacementConfirmationNotices(nextFixture, league);
+    const fixtureToSave = replacementConfirmationNotices.length
+      ? clearReplacementConfirmationNoticeFlags(nextFixture)
+      : nextFixture;
 
     try {
       setSavingMatchId("saving");
-      await updateLeagueFixture(league.id, nextFixture);
+      await updateLeagueFixture(league.id, fixtureToSave);
+      if (replacementConfirmationNotices.length) {
+        await Promise.allSettled(
+          replacementConfirmationNotices.map((notice) =>
+            sendChatMessage({
+              currentUserId: userData?.uid || userData?.id || "",
+              currentUserName: userData?.name || "Organizador",
+              otherUserId: notice.recipientId,
+              otherUserName: notice.recipientName,
+              text: notice.text,
+            })
+          )
+        );
+      }
       setLeague((current) => ({
         ...current,
-        fixture: nextFixture,
+        fixture: fixtureToSave,
       }));
-      setFixtureDraft(nextFixture);
+      setFixtureDraft(fixtureToSave);
       setExpandedRoundIds((currentRoundIds) => {
-        const nextRoundIds = new Set((nextFixture.rounds || []).map((round) => round.id));
+        const nextRoundIds = new Set((fixtureToSave.rounds || []).map((round) => round.id));
         const validRoundIds = currentRoundIds.filter((roundId) => nextRoundIds.has(roundId));
-        const currentRoundId = resolveCurrentRoundId(nextFixture.rounds || []);
+        const currentRoundId = resolveCurrentRoundId(fixtureToSave.rounds || []);
 
         if (fixtureVisibilityMode === "current") {
           return [currentRoundId].filter(Boolean);
@@ -3939,10 +4032,10 @@ export default function LeagueFixtureScreen({ navigation, route }) {
             style={styles.modalBackdrop}
           />
           <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Quitar reemplazo</Text>
+            <Text style={styles.modalTitle}>Cancelar pedido de remplazo</Text>
             <Text style={styles.modalMessage}>
-              Vas a quitar el reemplazo {replacementPendingRemoval?.playerName || ""}. Al guardar,
-              se recalculara la tabla y se devolvera el descuento si correspondia.
+              Vas a quitar el remplazo {replacementPendingRemoval?.playerName || ""} y cancelar
+              este pedido. Al guardar, ya no aparecera en Remplazos ni en el resumen de ligas.
             </Text>
             <View style={styles.modalActionsRow}>
               <Pressable
@@ -3961,7 +4054,7 @@ export default function LeagueFixtureScreen({ navigation, route }) {
                   pressed ? styles.generateButtonPressed : null,
                 ]}
               >
-                <Text style={styles.modalPrimaryButtonText}>Quitar</Text>
+                <Text style={styles.modalPrimaryButtonText}>Cancelar pedido</Text>
               </Pressable>
             </View>
           </View>

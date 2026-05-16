@@ -10,11 +10,143 @@ import BottomQuickActionsBar, {
 import SectionHeader from "../components/SectionHeader";
 import { colors, spacing } from "../config/theme";
 import { useAuth } from "../context/AuthContext";
-import { listLeagues } from "../services/leaguesService";
+import { sendChatMessage } from "../services/chatService";
+import { isLeagueParticipant, listLeagues, updateLeagueFixture } from "../services/leaguesService";
 import { formatPlayerShortName } from "../utils/playerDisplayName";
 
 function normalizeText(value = "") {
   return String(value || "").trim().toLowerCase();
+}
+
+function getCandidateKey(candidate = {}) {
+  return normalizeText(candidate.linkedUserId || candidate.id || "");
+}
+
+function isSameCandidate(first = {}, second = {}) {
+  const firstKey = getCandidateKey(first);
+  const secondKey = getCandidateKey(second);
+
+  return Boolean(firstKey && secondKey && firstKey === secondKey);
+}
+
+function candidatePlaysLeague(league = {}, candidate = {}) {
+  return isLeagueParticipant(league, {
+    id: candidate.id || "",
+    uid: candidate.linkedUserId || candidate.id || "",
+  });
+}
+
+function normalizeCandidateForReplacement(candidate = {}) {
+  return {
+    id: candidate.id || "",
+    type: candidate.type || (candidate.linkedUserId ? "registered" : "guest"),
+    linkedUserId: candidate.linkedUserId || candidate.id || "",
+    nombre: candidate.nombre || candidate.name || "Jugador",
+    apellido: candidate.apellido || candidate.lastName || "",
+    categoria: candidate.categoria || "",
+    sexo: candidate.sexo || "",
+  };
+}
+
+function buildFixtureWithAcceptedCandidate(fixture = {}, request = {}, candidate = {}) {
+  return {
+    ...fixture,
+    rounds: (fixture.rounds || []).map((round) => {
+      if (round.id !== request.round.id) {
+        return round;
+      }
+
+      return {
+        ...round,
+        matches: (round.matches || []).map((match) => {
+          if (match.id !== request.match.id) {
+            return match;
+          }
+
+          const currentReplacement = match.replacements?.[request.replacementKey] || {};
+          const currentCandidates = Array.isArray(currentReplacement.candidates)
+            ? currentReplacement.candidates
+            : [];
+
+          return {
+            ...match,
+            replacements: {
+              ...(match.replacements || {}),
+              [request.replacementKey]: {
+                ...currentReplacement,
+                requested: true,
+                replacement: normalizeCandidateForReplacement(candidate),
+                acceptedAtMillis: Date.now(),
+                acceptedCandidateId: candidate.linkedUserId || candidate.id || "",
+                candidates: currentCandidates.filter((item) => !isSameCandidate(item, candidate)),
+              },
+            },
+          };
+        }),
+      };
+    }),
+  };
+}
+
+function buildFixtureWithRejectedCandidate(fixture = {}, request = {}, candidate = {}) {
+  return {
+    ...fixture,
+    rounds: (fixture.rounds || []).map((round) => {
+      if (round.id !== request.round.id) {
+        return round;
+      }
+
+      return {
+        ...round,
+        matches: (round.matches || []).map((match) => {
+          if (match.id !== request.match.id) {
+            return match;
+          }
+
+          const currentReplacement = match.replacements?.[request.replacementKey] || {};
+          const currentCandidates = Array.isArray(currentReplacement.candidates)
+            ? currentReplacement.candidates
+            : [];
+          const currentRejectedCandidates = Array.isArray(currentReplacement.rejectedCandidates)
+            ? currentReplacement.rejectedCandidates
+            : [];
+          const nextRejectedCandidates = currentRejectedCandidates.some((item) =>
+            isSameCandidate(item, candidate)
+          )
+            ? currentRejectedCandidates
+            : [...currentRejectedCandidates, candidate];
+
+          return {
+            ...match,
+            replacements: {
+              ...(match.replacements || {}),
+              [request.replacementKey]: {
+                ...currentReplacement,
+                requested: true,
+                candidates: currentCandidates.filter((item) => !isSameCandidate(item, candidate)),
+                rejectedCandidates: nextRejectedCandidates,
+              },
+            },
+          };
+        }),
+      };
+    }),
+  };
+}
+
+function buildReplacementMessage(request = {}) {
+  const timeLabel =
+    request.match?.timeSlot || request.round?.scheduleLabel || "Horario a definir";
+  const complexLabel =
+    request.league?.complejoNombre ||
+    request.league?.complejo?.nombre ||
+    "Complejo a definir";
+
+  return [
+    `Tu postulacion para reemplazar en ${request.league?.nombre || "la liga"} fue aceptada.`,
+    `${request.round?.title || "Fecha"} - ${timeLabel}.`,
+    `Complejo: ${complexLabel}.`,
+  ].join("\n");
 }
 
 function collectReplacementRequests(leagues = [], userData = {}) {
@@ -52,6 +184,7 @@ export default function OrganizerReplacementsScreen({ navigation }) {
   const { userData } = useAuth();
   const [loading, setLoading] = useState(true);
   const [leaguesSource, setLeaguesSource] = useState([]);
+  const [candidateActionId, setCandidateActionId] = useState("");
 
   useFocusEffect(
     useCallback(() => {
@@ -102,6 +235,81 @@ export default function OrganizerReplacementsScreen({ navigation }) {
     });
   };
 
+  const updateLeagueSourceFixture = (leagueId, fixture) => {
+    setLeaguesSource((current) =>
+      current.map((league) => (league.id === leagueId ? { ...league, fixture } : league))
+    );
+  };
+
+  const handleAcceptCandidate = async (request, candidate) => {
+    const candidateKey = getCandidateKey(candidate);
+
+    if (
+      !request?.league?.id ||
+      !candidateKey ||
+      candidateActionId ||
+      candidatePlaysLeague(request.league, candidate)
+    ) {
+      return;
+    }
+
+    const actionId = `${request.id}-${candidateKey}-accept`;
+
+    try {
+      setCandidateActionId(actionId);
+      const nextFixture = buildFixtureWithAcceptedCandidate(
+        request.league.fixture || { generatedAtMillis: 0, rounds: [] },
+        request,
+        candidate
+      );
+
+      await updateLeagueFixture(request.league.id, nextFixture);
+      updateLeagueSourceFixture(request.league.id, nextFixture);
+
+      try {
+        await sendChatMessage({
+          currentUserId: userData?.uid || userData?.id || "",
+          currentUserName: userData?.name || "Organizador",
+          otherUserId: candidate.linkedUserId || candidate.id || "",
+          otherUserName: formatPlayerShortName(candidate),
+          text: buildReplacementMessage(request),
+        });
+      } catch (messageError) {
+        // El remplazo queda asignado aunque el aviso por mensaje no se pueda enviar.
+      }
+    } catch (error) {
+      // La tarjeta se mantiene sin cambios si Firestore falla.
+    } finally {
+      setCandidateActionId("");
+    }
+  };
+
+  const handleRejectCandidate = async (request, candidate) => {
+    const candidateKey = getCandidateKey(candidate);
+
+    if (!request?.league?.id || !candidateKey || candidateActionId) {
+      return;
+    }
+
+    const actionId = `${request.id}-${candidateKey}-reject`;
+
+    try {
+      setCandidateActionId(actionId);
+      const nextFixture = buildFixtureWithRejectedCandidate(
+        request.league.fixture || { generatedAtMillis: 0, rounds: [] },
+        request,
+        candidate
+      );
+
+      await updateLeagueFixture(request.league.id, nextFixture);
+      updateLeagueSourceFixture(request.league.id, nextFixture);
+    } catch (error) {
+      // Si falla, dejamos visible la postulacion para que el organizador pueda reintentar.
+    } finally {
+      setCandidateActionId("");
+    }
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <SectionHeader onBack={() => navigation.goBack()} subtitle="Remplazos" />
@@ -146,6 +354,11 @@ export default function OrganizerReplacementsScreen({ navigation }) {
               const replacementName = item.replacement?.replacement
                 ? formatPlayerShortName(item.replacement.replacement)
                 : "";
+              const candidates = Array.isArray(item.replacement?.candidates)
+                ? item.replacement.candidates.filter(
+                    (candidate) => !candidatePlaysLeague(item.league, candidate)
+                  )
+                : [];
 
               return (
                 <Pressable
@@ -195,9 +408,84 @@ export default function OrganizerReplacementsScreen({ navigation }) {
                         Remplazo: <Text style={styles.replacementName}>{replacementName}</Text>
                       </Text>
                     </View>
+                  ) : candidates.length ? (
+                    <View style={styles.candidatesBox}>
+                      <View style={styles.candidatesHeader}>
+                        <Text style={styles.candidatesTitle}>
+                          Postulaciones: {candidates.length}
+                        </Text>
+                        <Text style={styles.candidatesHint}>Resolver aca</Text>
+                      </View>
+                      <View style={styles.candidatesList}>
+                        {candidates.slice(0, 4).map((candidate, candidateIndex) => {
+                          const candidateKey =
+                            getCandidateKey(candidate) || `candidate-${candidateIndex}`;
+                          const acceptActionId = `${item.id}-${candidateKey}-accept`;
+                          const rejectActionId = `${item.id}-${candidateKey}-reject`;
+                          const isAccepting = candidateActionId === acceptActionId;
+                          const isRejecting = candidateActionId === rejectActionId;
+                          const isCandidateBusy = isAccepting || isRejecting;
+
+                          return (
+                          <View
+                            key={`${candidate.id || candidate.linkedUserId || "candidate"}-${candidateIndex}`}
+                            style={styles.candidateChip}
+                          >
+                            <View style={styles.candidateInfoRow}>
+                              <Ionicons color={colors.primaryDark} name="person-add-outline" size={14} />
+                              <View style={styles.candidateCopy}>
+                              <Text numberOfLines={1} style={styles.candidateName}>
+                                {formatPlayerShortName(candidate)}
+                              </Text>
+                              {candidate.categoria || candidate.sexo ? (
+                                <Text numberOfLines={1} style={styles.candidateMeta}>
+                                  {[candidate.categoria, candidate.sexo].filter(Boolean).join(" · ")}
+                                </Text>
+                              ) : null}
+                              </View>
+                            </View>
+                            <View style={styles.candidateActionsRow}>
+                              <Pressable
+                                disabled={Boolean(candidateActionId)}
+                                onPress={(event) => {
+                                  event.stopPropagation?.();
+                                  handleRejectCandidate(item, candidate);
+                                }}
+                                style={({ pressed }) => [
+                                  styles.candidateRejectButton,
+                                  pressed && !isCandidateBusy ? styles.candidateActionPressed : null,
+                                  Boolean(candidateActionId) ? styles.candidateActionDisabled : null,
+                                ]}
+                              >
+                                <Text style={styles.candidateRejectText}>
+                                  {isRejecting ? "..." : "Rechazar"}
+                                </Text>
+                              </Pressable>
+                              <Pressable
+                                disabled={Boolean(candidateActionId)}
+                                onPress={(event) => {
+                                  event.stopPropagation?.();
+                                  handleAcceptCandidate(item, candidate);
+                                }}
+                                style={({ pressed }) => [
+                                  styles.candidateAcceptButton,
+                                  pressed && !isCandidateBusy ? styles.candidateActionPressed : null,
+                                  Boolean(candidateActionId) ? styles.candidateActionDisabled : null,
+                                ]}
+                              >
+                                <Text style={styles.candidateAcceptText}>
+                                  {isAccepting ? "..." : "Aceptar"}
+                                </Text>
+                              </Pressable>
+                            </View>
+                          </View>
+                          );
+                        })}
+                      </View>
+                    </View>
                   ) : (
                     <Text style={styles.helperText}>
-                      Toca para ir al fixture y designar el remplazo.
+                      Sin postulaciones. Toca para ir al fixture y designar manualmente.
                     </Text>
                   )}
                 </Pressable>
@@ -365,6 +653,107 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "700",
     marginTop: spacing.sm,
+  },
+  candidatesBox: {
+    backgroundColor: colors.secondary,
+    borderColor: colors.border,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginTop: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 8,
+  },
+  candidatesHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.xs,
+    justifyContent: "space-between",
+  },
+  candidatesTitle: {
+    color: colors.primaryDark,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  candidatesHint: {
+    color: colors.muted,
+    fontSize: 10,
+    fontWeight: "900",
+    textTransform: "uppercase",
+  },
+  candidatesList: {
+    gap: 6,
+    marginTop: 8,
+  },
+  candidateChip: {
+    backgroundColor: colors.surface,
+    borderColor: "#B7E4D0",
+    borderRadius: 12,
+    borderWidth: 1,
+    gap: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 7,
+  },
+  candidateInfoRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.xs,
+  },
+  candidateCopy: {
+    flex: 1,
+  },
+  candidateName: {
+    color: colors.text,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  candidateMeta: {
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: "700",
+    marginTop: 1,
+  },
+  candidateActionsRow: {
+    flexDirection: "row",
+    gap: 7,
+    justifyContent: "flex-end",
+    marginTop: 7,
+  },
+  candidateAcceptButton: {
+    backgroundColor: colors.primaryDark,
+    borderRadius: 999,
+    paddingHorizontal: 11,
+    paddingVertical: 6,
+  },
+  candidateRejectButton: {
+    backgroundColor: "#F4F5F7",
+    borderColor: colors.border,
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 11,
+    paddingVertical: 6,
+  },
+  candidateActionPressed: {
+    opacity: 0.88,
+  },
+  candidateActionDisabled: {
+    opacity: 0.6,
+  },
+  candidateAcceptText: {
+    color: colors.surface,
+    fontSize: 11,
+    fontWeight: "900",
+  },
+  candidateRejectText: {
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: "900",
+  },
+  candidatesActionText: {
+    color: colors.primaryDark,
+    fontSize: 11,
+    fontWeight: "800",
+    lineHeight: 15,
+    marginTop: 7,
   },
   emptyCard: {
     backgroundColor: colors.surface,

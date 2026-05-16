@@ -26,6 +26,8 @@ import { useAuth } from "../context/AuthContext";
 import {
   canManageLeague,
   getLeagueById,
+  listLeagueRegistrationRequests,
+  updateLeagueRegistrationRequestStatus,
   updateLeaguePlayers,
 } from "../services/leaguesService";
 import { listPlayers } from "../services/playersService";
@@ -137,6 +139,7 @@ export default function LeaguePlayersScreen({ navigation, route }) {
   const fallbackLeagueName = route?.params?.leagueName || "Liga";
   const [league, setLeague] = useState(null);
   const [registeredPlayers, setRegisteredPlayers] = useState([]);
+  const [registrationRequests, setRegistrationRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [query, setQuery] = useState("");
@@ -167,6 +170,7 @@ export default function LeaguePlayersScreen({ navigation, route }) {
             getLeagueById(leagueId),
             listPlayers(),
           ]);
+          const requests = await listLeagueRegistrationRequests(leagueId);
 
           if (!isMounted) {
             return;
@@ -174,6 +178,7 @@ export default function LeaguePlayersScreen({ navigation, route }) {
 
           setLeague(leagueData);
           setRegisteredPlayers(appPlayers);
+          setRegistrationRequests(requests);
         } catch (error) {
           if (isMounted) {
             setFeedback({
@@ -256,6 +261,9 @@ export default function LeaguePlayersScreen({ navigation, route }) {
   const sideTargetCount = Math.ceil(minimumPlayersCount / 2);
   const driveCount = leaguePlayers.filter((player) => player.ladoJuego === "drive").length;
   const revesCount = leaguePlayers.filter((player) => player.ladoJuego === "reves").length;
+  const pendingRegistrationRequests = registrationRequests.filter(
+    (request) => request.status === "pending"
+  );
 
   const filteredRegisteredPlayers = useMemo(() => {
     const normalizedQuery = normalizeText(query);
@@ -872,6 +880,67 @@ export default function LeaguePlayersScreen({ navigation, route }) {
     );
   };
 
+  const buildLeaguePlayerFromRequestPlayer = (player = {}, pairNumber = null) => ({
+    id: `registered-${player.linkedUserId || player.id}`,
+    type: "registered",
+    linkedUserId: player.linkedUserId || player.id || "",
+    nombre: player.nombre || "Jugador",
+    apellido: player.apellido || "",
+    categoria: player.categoria || "",
+    sexo: player.sexo || "",
+    ciudad: player.ciudad || "",
+    provincia: player.provincia || "",
+    foto: player.foto || "",
+    ladoJuego: player.ladoJuego || "ambos",
+    ladoPreferido: player.ladoPreferido || "Ambos lados",
+    pairNumber: normalizePairNumber(pairNumber),
+  });
+
+  const handleConfirmRegistrationRequest = async (request) => {
+    if (!league || saving) {
+      return;
+    }
+
+    const nextPairNumber =
+      isPairLeague
+        ? Math.max(0, ...leaguePlayers.map((player) => normalizePairNumber(player.pairNumber) || 0)) + 1
+        : null;
+    const playersToAdd =
+      isPairLeague && request.partner
+        ? [
+            buildLeaguePlayerFromRequestPlayer(request.requester, nextPairNumber),
+            buildLeaguePlayerFromRequestPlayer(request.partner, nextPairNumber),
+          ]
+        : [buildLeaguePlayerFromRequestPlayer(request.requester)];
+
+    try {
+      setSaving(true);
+      const nextPlayers = [...leaguePlayers, ...playersToAdd];
+      await updateLeaguePlayers(league.id, nextPlayers);
+      await updateLeagueRegistrationRequestStatus(request.id, "confirmed");
+      setLeague((current) => ({ ...current, players: nextPlayers }));
+      setRegistrationRequests((current) =>
+        current.map((item) => (item.id === request.id ? { ...item, status: "confirmed" } : item))
+      );
+      showFeedback("Inscripcion confirmada", "El jugador ya quedo cargado en la liga.", "success");
+    } catch (error) {
+      showFeedback("No pudimos confirmar", "Intenta nuevamente en unos instantes.", "danger");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleRejectRegistrationRequest = async (request) => {
+    try {
+      await updateLeagueRegistrationRequestStatus(request.id, "rejected");
+      setRegistrationRequests((current) =>
+        current.map((item) => (item.id === request.id ? { ...item, status: "rejected" } : item))
+      );
+    } catch (error) {
+      showFeedback("No pudimos rechazar", "Intenta nuevamente en unos instantes.", "danger");
+    }
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <SectionHeader onBack={() => navigation.goBack()} subtitle="Jugadores liga" />
@@ -917,6 +986,47 @@ export default function LeaguePlayersScreen({ navigation, route }) {
             <Text style={styles.warningText}>
               Solo el organizador creador o un administrador puede modificar los jugadores de esta liga.
             </Text>
+          </View>
+        ) : null}
+
+        {canManage && pendingRegistrationRequests.length ? (
+          <View style={styles.requestsCard}>
+            <Text style={styles.requestsTitle}>Solicitudes de inscripcion</Text>
+            {pendingRegistrationRequests.map((request) => (
+              <View key={request.id} style={styles.requestRow}>
+                <View style={styles.requestCopy}>
+                  <Text numberOfLines={1} style={styles.requestName}>
+                    {formatPlayerShortName(request.requester)}
+                    {request.partner ? ` / ${formatPlayerShortName(request.partner)}` : ""}
+                  </Text>
+                  <Text style={styles.requestMeta}>
+                    {request.teamType === "pair" ? "Pareja fija" : "Individual"}
+                  </Text>
+                </View>
+                <View style={styles.requestActions}>
+                  <Pressable
+                    disabled={saving}
+                    onPress={() => handleRejectRegistrationRequest(request)}
+                    style={({ pressed }) => [
+                      styles.requestRejectButton,
+                      pressed && !saving ? styles.smallActionButtonPressed : null,
+                    ]}
+                  >
+                    <Text style={styles.requestRejectText}>Rechazar</Text>
+                  </Pressable>
+                  <Pressable
+                    disabled={saving}
+                    onPress={() => handleConfirmRegistrationRequest(request)}
+                    style={({ pressed }) => [
+                      styles.requestAcceptButton,
+                      pressed && !saving ? styles.smallActionButtonPressed : null,
+                    ]}
+                  >
+                    <Text style={styles.requestAcceptText}>Aceptar</Text>
+                  </Pressable>
+                </View>
+              </View>
+            ))}
           </View>
         ) : null}
 
@@ -1224,6 +1334,75 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "700",
     lineHeight: 18,
+  },
+  requestsCard: {
+    backgroundColor: "#F2FBF4",
+    borderColor: "#BFE6C8",
+    borderRadius: 16,
+    borderWidth: 1,
+    marginTop: spacing.sm,
+    padding: spacing.sm,
+  },
+  requestsTitle: {
+    color: colors.primaryDark,
+    fontSize: 13,
+    fontWeight: "900",
+    marginBottom: 8,
+    textAlign: "center",
+    textTransform: "uppercase",
+  },
+  requestRow: {
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 12,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: spacing.sm,
+    marginBottom: 7,
+    padding: 8,
+  },
+  requestCopy: {
+    flex: 1,
+  },
+  requestName: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  requestMeta: {
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: "700",
+    marginTop: 2,
+  },
+  requestActions: {
+    flexDirection: "row",
+    gap: 6,
+  },
+  requestAcceptButton: {
+    backgroundColor: colors.primaryDark,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  requestRejectButton: {
+    backgroundColor: "#F4F5F7",
+    borderColor: colors.border,
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  requestAcceptText: {
+    color: colors.surface,
+    fontSize: 11,
+    fontWeight: "900",
+  },
+  requestRejectText: {
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: "900",
   },
   sectionHeaderRow: {
     alignItems: "center",

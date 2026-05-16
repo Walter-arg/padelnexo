@@ -4,10 +4,9 @@ import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import AvailabilityEditor from "./AvailabilityEditor";
 import { colors, spacing } from "../config/theme";
 import { useAuth } from "../context/AuthContext";
-import { subscribeToUnreadMessageCount } from "../services/chatService";
+import { subscribeToUnreadMessageSummary } from "../services/chatService";
 import { subscribeToUnreadInvitationsCount } from "../services/invitationsService";
 import { isApprovedOrganizer } from "../services/roleService";
 
@@ -28,7 +27,7 @@ function InvitationsActionIcon() {
   );
 }
 
-function QuickActionButton({ label, onPress, renderIcon, showBadge = false }) {
+function QuickActionButton({ label, onPress, renderIcon, showBadge = false, badgeTone = "default" }) {
   return (
     <Pressable
       onPress={onPress}
@@ -36,7 +35,14 @@ function QuickActionButton({ label, onPress, renderIcon, showBadge = false }) {
     >
       <View style={styles.iconFrame}>
         {renderIcon()}
-        {showBadge ? <View style={styles.notificationDot} /> : null}
+        {showBadge ? (
+          <View
+            style={[
+              styles.notificationDot,
+              badgeTone === "important" ? styles.notificationDotImportant : null,
+            ]}
+          />
+        ) : null}
       </View>
       <Text numberOfLines={1} style={styles.actionLabel}>
         {label}
@@ -48,18 +54,16 @@ function QuickActionButton({ label, onPress, renderIcon, showBadge = false }) {
 export default function BottomQuickActionsBar() {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
-  const { updateProfile, userData } = useAuth();
-  const [unreadCount, setUnreadCount] = useState(0);
+  const { userData } = useAuth();
+  const [unreadSummary, setUnreadSummary] = useState({ count: 0, hasImportant: false });
   const [unreadInvitationsCount, setUnreadInvitationsCount] = useState(0);
-  const [isAvailabilityVisible, setIsAvailabilityVisible] = useState(false);
-  const [availabilitySaving, setAvailabilitySaving] = useState(false);
   const isOrganizer = isApprovedOrganizer(userData);
 
   useEffect(() => {
-    const unsubscribe = subscribeToUnreadMessageCount({
+    const unsubscribe = subscribeToUnreadMessageSummary({
       currentUserId: userData?.uid,
-      onData: setUnreadCount,
-      onError: () => setUnreadCount(0),
+      onData: setUnreadSummary,
+      onError: () => setUnreadSummary({ count: 0, hasImportant: false }),
     });
 
     return unsubscribe;
@@ -79,76 +83,52 @@ export default function BottomQuickActionsBar() {
     return null;
   }
 
-  const handleSaveAvailability = async (availability) => {
-    setAvailabilitySaving(true);
-
-    try {
-      await updateProfile({ availability });
-    } finally {
-      setAvailabilitySaving(false);
-    }
-  };
-
   return (
-    <>
-      <View
-        pointerEvents="box-none"
-        style={[
-          styles.wrapper,
-          {
-            paddingBottom: Math.max(insets.bottom, 6),
-          },
-        ]}
-      >
-        <View style={styles.bar}>
-          <QuickActionButton
-            label="Mensajes"
-            onPress={() => navigation.navigate("Mensajes")}
-            renderIcon={() => (
-              <Ionicons color="#67439C" name="chatbubble-ellipses-outline" size={20} />
-            )}
-            showBadge={unreadCount > 0}
-          />
+    <View
+      pointerEvents="box-none"
+      style={[
+        styles.wrapper,
+        {
+          paddingBottom: Math.max(insets.bottom, 6),
+        },
+      ]}
+    >
+      <View style={styles.bar}>
+        <QuickActionButton
+          label="Mensajes"
+          onPress={() => navigation.navigate("Mensajes")}
+          renderIcon={() => (
+            <Ionicons
+              color={unreadSummary.hasImportant ? "#FF7A00" : "#67439C"}
+              name="chatbubble-ellipses-outline"
+              size={20}
+            />
+          )}
+          showBadge={unreadSummary.count > 0}
+          badgeTone={unreadSummary.hasImportant ? "important" : "default"}
+        />
+        {!isOrganizer ? (
           <QuickActionButton
             label="Invitaciones"
             onPress={() => navigation.navigate("Invitaciones")}
             renderIcon={() => <InvitationsActionIcon />}
             showBadge={unreadInvitationsCount > 0}
           />
-          {isOrganizer ? (
-            <QuickActionButton
-              label="Remplazos"
-              onPress={() => navigation.navigate("OrganizerReplacements")}
-              renderIcon={() => (
-                <View style={styles.composedIconWrap}>
-                  <Ionicons color="#1E7A43" name="swap-horizontal-outline" size={21} />
-                  <Ionicons color="#FF8A00" name="alert-circle" size={12} style={styles.timeIcon} />
-                </View>
-              )}
-            />
-          ) : (
-            <QuickActionButton
-              label="Disponibilidad"
-              onPress={() => setIsAvailabilityVisible(true)}
-              renderIcon={() => (
-                <View style={styles.composedIconWrap}>
-                  <Ionicons color="#2F7F96" name="calendar-outline" size={20} />
-                  <Ionicons color="#2F7F96" name="time-outline" size={12} style={styles.timeIcon} />
-                </View>
-              )}
-            />
-          )}
-        </View>
+        ) : null}
+        {isOrganizer ? (
+          <QuickActionButton
+            label="Remplazos"
+            onPress={() => navigation.navigate("OrganizerReplacements")}
+            renderIcon={() => (
+              <View style={styles.composedIconWrap}>
+                <Ionicons color="#1E7A43" name="swap-horizontal-outline" size={21} />
+                <Ionicons color="#FF8A00" name="alert-circle" size={12} style={styles.timeIcon} />
+              </View>
+            )}
+          />
+        ) : null}
       </View>
-
-      <AvailabilityEditor
-        initialAvailability={userData?.availability}
-        loading={availabilitySaving}
-        onClose={() => setIsAvailabilityVisible(false)}
-        onSave={handleSaveAvailability}
-        visible={isAvailabilityVisible}
-      />
-    </>
+    </View>
   );
 }
 
@@ -216,6 +196,9 @@ const styles = StyleSheet.create({
     right: -6,
     top: -4,
     width: 12,
+  },
+  notificationDotImportant: {
+    backgroundColor: "#FF7A00",
   },
   composedIconWrap: {
     alignItems: "center",

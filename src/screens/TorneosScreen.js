@@ -117,14 +117,54 @@ function formatTournamentDays(tournament = {}) {
   const endDateMillis = Number(tournament.endDateMillis || 0);
 
   if (startDateMillis || endDateMillis) {
-    const formatDate = (value) =>
-      new Date(value).toLocaleDateString("es-AR", {
-        day: "2-digit",
-        month: "2-digit",
-      });
+    const monthNames = [
+      "enero",
+      "febrero",
+      "marzo",
+      "abril",
+      "mayo",
+      "junio",
+      "julio",
+      "agosto",
+      "septiembre",
+      "octubre",
+      "noviembre",
+      "diciembre",
+    ];
+    const formatDate = (value) => {
+      const date = new Date(value);
+      return `${date.getDate()} de ${monthNames[date.getMonth()]}`;
+    };
+    const buildConsecutiveDaysLabel = (startDate, endDate) => {
+      const days = [];
+      const current = new Date(startDate);
+
+      while (current <= endDate && days.length < 7) {
+        days.push(current.getDate());
+        current.setDate(current.getDate() + 1);
+      }
+
+      if (days.length === 1) {
+        return `${days[0]} de ${monthNames[startDate.getMonth()]}`;
+      }
+
+      return `${days.slice(0, -1).join(", ")} y ${days[days.length - 1]} de ${
+        monthNames[startDate.getMonth()]
+      }`;
+    };
 
     if (startDateMillis && endDateMillis) {
-      return `${formatDate(startDateMillis)} - ${formatDate(endDateMillis)}`;
+      const startDate = new Date(startDateMillis);
+      const endDate = new Date(endDateMillis);
+      const sameMonth =
+        startDate.getMonth() === endDate.getMonth() &&
+        startDate.getFullYear() === endDate.getFullYear();
+
+      if (sameMonth && endDate >= startDate) {
+        return buildConsecutiveDaysLabel(startDate, endDate);
+      }
+
+      return `${formatDate(startDateMillis)} al ${formatDate(endDateMillis)}`;
     }
 
     if (startDateMillis) {
@@ -566,7 +606,7 @@ function TournamentCard({
           {item.coverImage ? (
             <View style={styles.cardHeaderPosterWrap}>
               <Pressable
-                onPress={() => onViewPoster?.(item.coverImage, item.name || "Torneo")}
+                onPress={() => onViewPoster?.(item)}
                 style={({ pressed }) => [
                   styles.playerPosterThumbButton,
                   pressed ? styles.playerPosterThumbButtonPressed : null,
@@ -1179,15 +1219,18 @@ export default function TorneosScreen({ navigation, route }) {
     });
   };
 
-  const handleViewPoster = async (posterUrl, tournamentName = "Torneo") => {
-    if (!posterUrl) {
+  const handleViewPoster = async (tournament = {}) => {
+    if (!tournament?.coverImage) {
       return;
     }
 
     try {
       navigation.navigate("TournamentPosterViewer", {
-        posterUrl,
-        tournamentName,
+        posterUrl: tournament.coverImage,
+        tournamentId: tournament.id || "",
+        tournamentName: tournament.name || "Torneo",
+        organizerId: tournament.organizerId || tournament.createdBy || "",
+        organizerName: tournament.organizerName || tournament.createdByName || "",
       });
     } catch (error) {
       setFeedback({

@@ -4,12 +4,14 @@ import {
   doc,
   getDoc,
   getDocs,
+  query,
   serverTimestamp,
   updateDoc,
+  where,
 } from "../../services/firebaseFirestore";
 
 import { db } from "../../services/firebaseConfig";
-import { isAdminEmail } from "../config/admin";
+import { canAccessAdminPanel } from "../config/admin";
 import { formatPlayerShortName, formatTeamShortLabel } from "../utils/playerDisplayName";
 
 export const LEAGUE_BRANCH_OPTIONS = [
@@ -529,6 +531,20 @@ function normalizeReplacementPerson(player = {}) {
   };
 }
 
+function normalizeReplacementCandidate(candidate = {}) {
+  return {
+    id: candidate.id || "",
+    linkedUserId: candidate.linkedUserId || candidate.id || "",
+    nombre: candidate.nombre || candidate.name || "Jugador",
+    apellido: candidate.apellido || candidate.lastName || "",
+    categoria: candidate.categoria || "",
+    sexo: candidate.sexo || "",
+    phone: candidate.phone || candidate.telefono || "",
+    avatarUrl: candidate.avatarUrl || candidate.foto || "",
+    requestedAtMillis: normalizeCount(candidate.requestedAtMillis, 0),
+  };
+}
+
 function normalizeMatchReplacements(replacements = {}) {
   if (!replacements || typeof replacements !== "object" || Array.isArray(replacements)) {
     return {};
@@ -542,13 +558,31 @@ function normalizeMatchReplacements(replacements = {}) {
     normalizedReplacements[key] = {
       requested: true,
       titular: normalizeReplacementPerson(replacement.titular || {}),
-      replacement: replacement.replacement
-        ? normalizeReplacementPerson(replacement.replacement)
-        : null,
+      replacement:
+        replacement.replacement &&
+        [
+          replacement.replacement.id,
+          replacement.replacement.linkedUserId,
+          replacement.replacement.nombre,
+          replacement.replacement.name,
+        ].some((value) => String(value || "").trim().length > 0)
+          ? normalizeReplacementPerson(replacement.replacement)
+          : null,
+      requestedBy: replacement.requestedBy || "",
+      requestedByName: replacement.requestedByName || "",
+      requestedAtMillis: normalizeCount(replacement.requestedAtMillis, 0),
       penaltySnapshot:
         replacement.penaltySnapshot === undefined ? null : replacement.penaltySnapshot,
       penaltyModeSnapshot: replacement.penaltyModeSnapshot || "",
       quotaSnapshot: replacement.quotaSnapshot === undefined ? null : replacement.quotaSnapshot,
+      candidates: Array.isArray(replacement.candidates)
+        ? replacement.candidates.map(normalizeReplacementCandidate).filter((candidate) => candidate.id)
+        : [],
+      rejectedCandidates: Array.isArray(replacement.rejectedCandidates)
+        ? replacement.rejectedCandidates
+            .map(normalizeReplacementCandidate)
+            .filter((candidate) => candidate.id)
+        : [],
     };
 
     return normalizedReplacements;
@@ -1012,7 +1046,7 @@ export function canManageLeague(league = {}, userData = {}) {
     currentUserId &&
       (league?.organizerId === currentUserId ||
         league?.createdBy === currentUserId ||
-        isAdminEmail(currentEmail))
+        canAccessAdminPanel(userData))
   );
 }
 
@@ -1453,6 +1487,100 @@ function getPaymentParticipantLabel(teamType, participant) {
   }
 
   return participant.nombre || "Jugador";
+}
+
+function buildLeagueRegistrationPlayer(user = {}) {
+  return {
+    id: user?.uid || user?.id || "",
+    linkedUserId: user?.uid || user?.id || "",
+    nombre: user?.nombre || user?.name || "Jugador",
+    apellido: user?.apellido || user?.lastName || "",
+    categoria: user?.categoria || user?.category || "",
+    sexo: user?.sexo || user?.sex || "",
+    ciudad: user?.ciudad || user?.city || user?.localidad?.nombre || "",
+    provincia: user?.provincia || user?.province || user?.localidad?.provincia || "",
+    foto: user?.foto || user?.fotoURL || user?.avatarUrl || "",
+    ladoJuego: user?.ladoJuego || "ambos",
+    ladoPreferido: user?.ladoPreferido || "Ambos lados",
+  };
+}
+
+function mapLeagueRegistrationRequest(docSnapshot) {
+  const data = docSnapshot.data() || {};
+
+  return {
+    id: docSnapshot.id,
+    leagueId: data.leagueId || "",
+    leagueName: data.leagueName || "Liga",
+    organizerId: data.organizerId || "",
+    organizerName: data.organizerName || "Organizador",
+    requester: data.requester || {},
+    partner: data.partner || null,
+    status: data.status || "pending",
+    teamType: data.teamType || "pair",
+    createdAtMillis: data.createdAtMillis || 0,
+  };
+}
+
+export async function createLeagueRegistrationRequest({ league = {}, requester = {}, partner = null } = {}) {
+  if (!league?.id || !requester?.uid && !requester?.id) {
+    throw new Error("No encontramos los datos para solicitar la inscripcion.");
+  }
+
+  const requesterPlayer = buildLeagueRegistrationPlayer(requester);
+  const partnerPlayer = partner ? buildLeagueRegistrationPlayer(partner) : null;
+  const status = league.teamType === "pair" && partnerPlayer ? "awaiting_partner" : "pending";
+
+  const createdRef = await addDoc(collection(db, "leagueRegistrationRequests"), {
+    leagueId: league.id,
+    leagueName: league.nombre || "Liga",
+    organizerId: league.organizerId || league.createdBy || "",
+    organizerName: league.organizerName || league.createdByName || "Organizador",
+    requester: requesterPlayer,
+    partner: partnerPlayer,
+    status,
+    teamType: league.teamType || "pair",
+    createdAt: serverTimestamp(),
+    createdAtMillis: Date.now(),
+    updatedAt: serverTimestamp(),
+  });
+
+  return {
+    id: createdRef.id,
+    leagueId: league.id,
+    leagueName: league.nombre || "Liga",
+    organizerId: league.organizerId || league.createdBy || "",
+    organizerName: league.organizerName || league.createdByName || "Organizador",
+    requester: requesterPlayer,
+    partner: partnerPlayer,
+    status,
+    teamType: league.teamType || "pair",
+  };
+}
+
+export async function listLeagueRegistrationRequests(leagueId) {
+  if (!leagueId) {
+    return [];
+  }
+
+  const snapshot = await getDocs(
+    query(collection(db, "leagueRegistrationRequests"), where("leagueId", "==", leagueId))
+  );
+
+  return snapshot.docs.map(mapLeagueRegistrationRequest).sort(
+    (first, second) => second.createdAtMillis - first.createdAtMillis
+  );
+}
+
+export async function updateLeagueRegistrationRequestStatus(requestId, status) {
+  if (!requestId) {
+    return;
+  }
+
+  await updateDoc(doc(db, "leagueRegistrationRequests", requestId), {
+    status,
+    updatedAt: serverTimestamp(),
+  });
 }
 
 function getMatchCompletedAtMillis(match = {}, fallbackMillis = 0) {

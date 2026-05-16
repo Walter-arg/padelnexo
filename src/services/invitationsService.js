@@ -1,6 +1,7 @@
 import {
   addDoc,
   collection,
+  doc,
   getDocs,
   onSnapshot,
   query,
@@ -28,6 +29,10 @@ export async function createInvitation({
   senderName,
   recipientId,
   recipientName,
+  title = "Invitacion a partido",
+  subtitle = "",
+  type = "match",
+  metadata = {},
 }) {
   if (!senderId || !recipientId || senderId === recipientId) {
     return;
@@ -38,8 +43,11 @@ export async function createInvitation({
     senderName: senderName || "Jugador",
     recipientId,
     recipientName: recipientName || "Jugador",
-    title: "Invitacion a partido",
-    subtitle: `${senderName || "Jugador"} te invito a coordinar un partido.`,
+    title,
+    subtitle: subtitle || `${senderName || "Jugador"} te invito a coordinar un partido.`,
+    type,
+    metadata,
+    responseStatus: "pending",
     viewed: false,
     createdAt: serverTimestamp(),
   });
@@ -64,6 +72,11 @@ export async function listUserInvitations(currentUserId) {
         id: docSnapshot.id,
         title: data.title || "Invitacion",
         subtitle: data.subtitle || "Tienes una nueva invitacion.",
+        metadata: data.metadata || {},
+        responseStatus: data.responseStatus || "pending",
+        senderId: data.senderId || "",
+        senderName: data.senderName || "Jugador",
+        type: data.type || "match",
         viewed: Boolean(data.viewed),
         createdAt: normalizeDate(data.createdAt),
       };
@@ -93,6 +106,11 @@ export function subscribeToUserInvitations({ currentUserId, onData, onError }) {
             id: docSnapshot.id,
             title: data.title || "Invitacion",
             subtitle: data.subtitle || "Tienes una nueva invitacion.",
+            metadata: data.metadata || {},
+            responseStatus: data.responseStatus || "pending",
+            senderId: data.senderId || "",
+            senderName: data.senderName || "Jugador",
+            type: data.type || "match",
             viewed: Boolean(data.viewed),
             createdAt: normalizeDate(data.createdAt),
           };
@@ -103,6 +121,27 @@ export function subscribeToUserInvitations({ currentUserId, onData, onError }) {
     },
     onError
   );
+}
+
+export async function respondToInvitation(invitation = {}, accepted = false) {
+  if (!invitation?.id) {
+    return;
+  }
+
+  const responseStatus = accepted ? "accepted" : "rejected";
+
+  await updateDoc(doc(db, "invitations", invitation.id), {
+    responseStatus,
+    viewed: true,
+    respondedAt: serverTimestamp(),
+  });
+
+  if (invitation.type === "league_pair_invitation" && invitation.metadata?.requestId) {
+    await updateDoc(doc(db, "leagueRegistrationRequests", invitation.metadata.requestId), {
+      status: accepted ? "pending" : "partner_rejected",
+      updatedAt: serverTimestamp(),
+    });
+  }
 }
 
 export async function markInvitationsAsViewed(currentUserId) {

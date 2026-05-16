@@ -94,14 +94,18 @@ function formatMoney(value = 0) {
   });
 }
 
-async function handleOpenTournamentPoster(navigation, posterUrl = "", tournamentName = "Torneo") {
+async function handleOpenTournamentPoster(navigation, tournament = {}) {
+  const posterUrl = tournament?.coverImage || "";
   if (!posterUrl) {
     return;
   }
 
   navigation.navigate("TournamentPosterViewer", {
     posterUrl,
-    tournamentName,
+    tournamentId: tournament?.id || "",
+    tournamentName: tournament?.name || "Torneo",
+    organizerId: tournament?.organizerId || tournament?.createdBy || "",
+    organizerName: tournament?.organizerName || tournament?.createdByName || "",
   });
 }
 
@@ -1702,6 +1706,7 @@ export default function TournamentDetailScreen({ navigation, route }) {
   const [groups, setGroups] = useState([]);
   const [matches, setMatches] = useState([]);
   const [activeTab, setActiveTab] = useState("");
+  const [pendingOrganizerArea, setPendingOrganizerArea] = useState("");
   const [loading, setLoading] = useState(true);
   const [feedback, setFeedback] = useState({
     visible: false,
@@ -1770,6 +1775,7 @@ export default function TournamentDetailScreen({ navigation, route }) {
   useFocusEffect(
     useCallback(() => {
       let isMounted = true;
+      setPendingOrganizerArea("");
 
       const syncTournamentDetail = async () => {
         try {
@@ -1928,6 +1934,10 @@ export default function TournamentDetailScreen({ navigation, route }) {
     return null;
   };
 
+  const isOrganizerAreaSelected = (areaKey) =>
+    pendingOrganizerArea === areaKey ||
+    (!pendingOrganizerArea && areaKey === "management" && activeTab === "management");
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <SectionHeader onBack={() => navigation.goBack()} subtitle="Detalle torneo" />
@@ -1966,6 +1976,7 @@ export default function TournamentDetailScreen({ navigation, route }) {
               {accessMeta.role === "organizer" ? (
                 <Pressable
                   onPress={async () => {
+                    setPendingOrganizerArea("registration");
                     setActiveTab("");
                     await persistOrganizerLastArea("registration");
                     navigation.navigate("TournamentRegistrations", {
@@ -1973,18 +1984,42 @@ export default function TournamentDetailScreen({ navigation, route }) {
                       tournamentName: tournament.name || "Torneo",
                     });
                   }}
-                  style={styles.tabButton}
+                  style={[
+                    styles.tabButton,
+                    isOrganizerAreaSelected("registration") && styles.tabButtonActive,
+                  ]}
                 >
-                  <View style={styles.tabIconWrap}>
-                    <Ionicons color={colors.primaryDark} name="people-outline" size={20} />
+                  <View
+                    style={[
+                      styles.tabIconWrap,
+                      isOrganizerAreaSelected("registration") && styles.tabIconWrapActive,
+                    ]}
+                  >
+                    <Ionicons
+                      color={
+                        isOrganizerAreaSelected("registration")
+                          ? colors.surface
+                          : colors.primaryDark
+                      }
+                      name="people-outline"
+                      size={20}
+                    />
                   </View>
-                  <Text style={styles.tabButtonText}>Inscripciones</Text>
+                  <Text
+                    style={[
+                      styles.tabButtonText,
+                      isOrganizerAreaSelected("registration") && styles.tabButtonTextActive,
+                    ]}
+                  >
+                    Inscripciones
+                  </Text>
                 </Pressable>
               ) : null}
 
               {accessMeta.role === "organizer" ? (
                 <Pressable
                   onPress={async () => {
+                    setPendingOrganizerArea("fixture");
                     setActiveTab("");
                     await persistOrganizerLastArea("fixture");
                     navigation.navigate("TournamentFixture", {
@@ -1992,22 +2027,42 @@ export default function TournamentDetailScreen({ navigation, route }) {
                       tournamentName: tournament.name || "Torneo",
                     });
                   }}
-                  style={styles.tabButton}
+                  style={[
+                    styles.tabButton,
+                    isOrganizerAreaSelected("fixture") && styles.tabButtonActive,
+                  ]}
                 >
-                  <View style={styles.tabIconWrap}>
+                  <View
+                    style={[
+                      styles.tabIconWrap,
+                      isOrganizerAreaSelected("fixture") && styles.tabIconWrapActive,
+                    ]}
+                  >
                     <Ionicons
-                      color={colors.primaryDark}
+                      color={
+                        isOrganizerAreaSelected("fixture")
+                          ? colors.surface
+                          : colors.primaryDark
+                      }
                       name={TAB_ICONS.fixture}
                       size={20}
                     />
                   </View>
-                  <Text style={styles.tabButtonText}>{TAB_LABELS.fixture}</Text>
+                  <Text
+                    style={[
+                      styles.tabButtonText,
+                      isOrganizerAreaSelected("fixture") && styles.tabButtonTextActive,
+                    ]}
+                  >
+                    {TAB_LABELS.fixture}
+                  </Text>
                 </Pressable>
               ) : null}
 
               {accessMeta.role === "organizer" ? (
                 <Pressable
                   onPress={async () => {
+                    setPendingOrganizerArea("payments");
                     setActiveTab("");
                     await persistOrganizerLastArea("payments");
                     navigation.navigate("TournamentPayments", {
@@ -2015,16 +2070,35 @@ export default function TournamentDetailScreen({ navigation, route }) {
                       tournamentName: tournament.name || "Torneo",
                     });
                   }}
-                  style={styles.tabButton}
+                  style={[
+                    styles.tabButton,
+                    isOrganizerAreaSelected("payments") && styles.tabButtonActive,
+                  ]}
                 >
-                  <View style={styles.tabIconWrap}>
+                  <View
+                    style={[
+                      styles.tabIconWrap,
+                      isOrganizerAreaSelected("payments") && styles.tabIconWrapActive,
+                    ]}
+                  >
                     <Ionicons
-                      color={colors.primaryDark}
+                      color={
+                        isOrganizerAreaSelected("payments")
+                          ? colors.surface
+                          : colors.primaryDark
+                      }
                       name={TAB_ICONS.payments}
                       size={20}
                     />
                   </View>
-                  <Text style={styles.tabButtonText}>{TAB_LABELS.payments}</Text>
+                  <Text
+                    style={[
+                      styles.tabButtonText,
+                      isOrganizerAreaSelected("payments") && styles.tabButtonTextActive,
+                    ]}
+                  >
+                    {TAB_LABELS.payments}
+                  </Text>
                 </Pressable>
               ) : null}
 
@@ -2074,13 +2148,14 @@ export default function TournamentDetailScreen({ navigation, route }) {
               ) : null}
 
               {accessMeta.role === "organizer" ? visibleTabs.map((tabKey) => {
-                const isActive = tabKey === activeTab;
+                const isActive = isOrganizerAreaSelected(tabKey);
 
                 return (
                   <Pressable
                     key={tabKey}
                     onPress={async () => {
                       if (tabKey === "fixture" && accessMeta.role === "organizer") {
+                        setPendingOrganizerArea("fixture");
                         await persistOrganizerLastArea("fixture");
                         navigation.navigate("TournamentFixture", {
                           tournamentId: tournament.id,
@@ -2089,6 +2164,7 @@ export default function TournamentDetailScreen({ navigation, route }) {
                         return;
                       }
 
+                      setPendingOrganizerArea("");
                       setActiveTab(tabKey);
                       if (accessMeta.role === "organizer" && tabKey === "management") {
                         await persistOrganizerLastArea("management");
@@ -2121,8 +2197,7 @@ export default function TournamentDetailScreen({ navigation, route }) {
                         try {
                           await handleOpenTournamentPoster(
                             navigation,
-                            tournament.coverImage,
-                            tournament?.name || "Torneo"
+                            tournament
                           );
                         } catch (error) {
                           setFeedback({

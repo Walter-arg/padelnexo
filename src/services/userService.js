@@ -165,6 +165,10 @@ function mapDocToUserData(uid, profileDoc = {}, fallbackEmail = "") {
     phoneCountry: profileDoc.phoneCountry || "Argentina",
     isPhonePublic: Boolean(profileDoc.mostrarTelefono),
     accountDeleted: Boolean(profileDoc.accountDeleted),
+    blockStatus: profileDoc.blockStatus || "none",
+    blockedAt: profileDoc.blockedAt || null,
+    blockedUntilMillis: Number(profileDoc.blockedUntilMillis || 0),
+    blockReason: profileDoc.blockReason || "",
     category: profileDoc.categoria || "Iniciante",
     sex: profileDoc.sexo || "Masculino",
     ladoJuego: profileDoc.ladoJuego || "ambos",
@@ -178,6 +182,7 @@ function mapDocToUserData(uid, profileDoc = {}, fallbackEmail = "") {
     localidad,
     location,
     role: profileDoc.role || roleData.role,
+    adminStatus: profileDoc.adminStatus || "none",
     organizerStatus: profileDoc.organizerStatus || roleData.organizerStatus,
     leagueDefaults: profileDoc.leagueDefaults || null,
     leaguePaymentDefaults: profileDoc.leaguePaymentDefaults || null,
@@ -504,6 +509,18 @@ export async function getUserProfile(uid, fallbackEmail = "") {
   const normalizedProfile = await syncOrganizerApproval(uid, profileWithImage);
 
   return mapDocToUserData(uid, normalizedProfile, fallbackEmail);
+}
+
+export async function recordUserLogin(uid) {
+  const activeDb = await ensureDb();
+
+  if (!activeDb || !uid) {
+    return;
+  }
+
+  await updateDoc(doc(activeDb, "users", uid), {
+    lastLoginAt: serverTimestamp(),
+  });
 }
 
 export async function updateUserProfile(uid, updates) {
