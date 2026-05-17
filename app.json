@@ -3,10 +3,12 @@
     "name": "PadelNexo",
     "slug": "padelnexo",
     "version": "1.0.0",
-    "scheme": "padelnexo",
+    "scheme": "com.padelnexo.app",
     "orientation": "portrait",
+    "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "splash": {
+      "image": "./assets/padelnexo-logo-full.png",
       "resizeMode": "contain",
       "backgroundColor": "#F4F6F8"
     },
@@ -14,7 +16,11 @@
       "**/*"
     ],
     "android": {
-      "package": "com.padelnexo.app"
+      "package": "com.padelnexo.app",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#F4F6F8"
+      }
     },
     "ios": {
       "supportsTablet": true

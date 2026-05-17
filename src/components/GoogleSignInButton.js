@@ -23,11 +23,12 @@ export default function GoogleSignInButton({
     {
       androidClientId: googleAuthConfig.androidClientId || fallbackClientId,
       iosClientId: googleAuthConfig.iosClientId || fallbackClientId,
+      redirectUri: googleAuthConfig.redirectUri,
       webClientId: googleAuthConfig.webClientId || fallbackClientId,
       selectAccount: true,
     },
     {
-      scheme: "padelnexo",
+      scheme: "com.padelnexo.app",
     }
   );
 
