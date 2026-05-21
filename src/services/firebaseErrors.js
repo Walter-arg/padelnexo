@@ -7,6 +7,7 @@ const FIREBASE_ERROR_MESSAGES = {
   "auth/missing-password": "Ingresa una contraseña para continuar.",
   "auth/weak-password": "La contraseña debe tener al menos 6 caracteres.",
   "auth/too-many-requests": "Demasiados intentos. Intenta nuevamente en unos minutos.",
+  "auth/requires-recent-login": "Para eliminar tu cuenta necesitamos que vuelvas a iniciar sesion.",
   "auth/network-request-failed": "No se pudo conectar con Firebase. Revisa tu conexion.",
   "storage/unauthorized": "No tienes permisos para subir esta imagen.",
   "storage/canceled": "La subida de la imagen fue cancelada.",

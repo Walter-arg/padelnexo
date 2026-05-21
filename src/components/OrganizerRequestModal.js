@@ -19,6 +19,18 @@ import CountryCodeSelector from "./CountryCodeSelector";
 import FeedbackModal from "./FeedbackModal";
 
 const NAME_REGEX = /^[A-Za-z\u00c0-\u00ff\s]+$/;
+const COURT_STRUCTURE_OPTIONS = [
+  { key: "blindex", label: "Blindex" },
+  { key: "cemento", label: "Cemento" },
+];
+const COURT_FLOOR_OPTIONS = [
+  { key: "sintetico", label: "Sintetico" },
+  { key: "cemento", label: "Piso cemento" },
+];
+const COURT_ENVIRONMENT_OPTIONS = [
+  { key: "cubierta", label: "Cubierta" },
+  { key: "aire_libre", label: "Aire libre" },
+];
 
 function sanitizeDigits(value) {
   return value.replace(/[^0-9]/g, "");
@@ -35,19 +47,56 @@ function sanitizeComplexText(value) {
 function createEmptyComplexForm() {
   return {
     nombre: "",
-    blindex: "",
-    cesped: "",
-    cemento: "",
+    canchaAmbiente: "descubierta",
+    canchas: [createEmptyCourtForm()],
     direccion: "",
   };
+}
+
+function createEmptyCourtForm(index = 0) {
+  return {
+    id: `court-${Date.now()}-${index}`,
+    nombre: "",
+    estructura: "blindex",
+    piso: "sintetico",
+    ambiente: "aire_libre",
+  };
+}
+
+function mapLegacyCourts(complex = {}) {
+  const courts = [];
+  const ambiente = complex.canchaAmbiente === "cubierta" ? "cubierta" : "aire_libre";
+  const addCourts = (count, template) => {
+    Array.from({ length: Number.parseInt(String(count || "0"), 10) || 0 }).forEach(() => {
+      courts.push({
+        ...createEmptyCourtForm(courts.length),
+        ...template,
+        ambiente,
+        id: `court-${courts.length + 1}`,
+      });
+    });
+  };
+
+  addCourts(complex.blindex, { estructura: "blindex", piso: "sintetico" });
+  addCourts(complex.cesped, { estructura: "cemento", piso: "sintetico" });
+  addCourts(complex.cemento, { estructura: "cemento", piso: "cemento" });
+
+  return courts.length ? courts : [createEmptyCourtForm()];
 }
 
 function mapComplexToForm(complex = createEmptyComplexForm()) {
   return {
     nombre: complex.nombre || "",
-    blindex: String(complex.blindex ?? ""),
-    cesped: String(complex.cesped ?? ""),
-    cemento: String(complex.cemento ?? ""),
+    canchaAmbiente: complex.canchaAmbiente || "descubierta",
+    canchas: Array.isArray(complex.canchas) && complex.canchas.length
+      ? complex.canchas.map((court, index) => ({
+          id: court.id || `court-${index + 1}`,
+          nombre: court.nombre || "",
+          estructura: court.estructura === "cemento" ? "cemento" : "blindex",
+          piso: court.piso === "cemento" ? "cemento" : "sintetico",
+          ambiente: court.ambiente === "cubierta" ? "cubierta" : "aire_libre",
+        }))
+      : mapLegacyCourts(complex),
     direccion: complex.direccion || "",
   };
 }
@@ -81,6 +130,7 @@ export default function OrganizerRequestModal({
     updateOrganizerComplexes,
   } = useAuth();
   const [form, setForm] = useState(buildInitialState(user, mode));
+  const [expandedComplexes, setExpandedComplexes] = useState({ 0: true });
   const [pendingSavedProfile, setPendingSavedProfile] = useState(null);
   const [feedback, setFeedback] = useState({
     visible: false,
@@ -92,6 +142,7 @@ export default function OrganizerRequestModal({
   useEffect(() => {
     if (visible) {
       setForm(buildInitialState(user, mode));
+      setExpandedComplexes({ 0: true });
       setPendingSavedProfile(null);
       setFeedback({
         visible: false,
@@ -119,13 +170,26 @@ export default function OrganizerRequestModal({
   const complexesWithTotals = useMemo(
     () =>
       form.complejos.map((complex) => {
-        const blindex = Number.parseInt(complex.blindex || "0", 10) || 0;
-        const cesped = Number.parseInt(complex.cesped || "0", 10) || 0;
-        const cemento = Number.parseInt(complex.cemento || "0", 10) || 0;
+        const canchas = Array.isArray(complex.canchas) ? complex.canchas : [];
+        const totals = canchas.reduce(
+          (counts, court) => {
+            if (court.estructura === "blindex") {
+              counts.blindex += 1;
+            } else if (court.piso === "sintetico") {
+              counts.cesped += 1;
+            } else {
+              counts.cemento += 1;
+            }
+
+            return counts;
+          },
+          { blindex: 0, cemento: 0, cesped: 0 }
+        );
 
         return {
           ...complex,
-          totalCanchas: blindex + cesped + cemento,
+          ...totals,
+          totalCanchas: canchas.length,
         };
       }),
     [form.complejos]
@@ -161,10 +225,7 @@ export default function OrganizerRequestModal({
       const nuevosComplejos = [...current.complejos];
       nuevosComplejos[index] = {
         ...nuevosComplejos[index],
-        [field]:
-          field === "blindex" || field === "cesped" || field === "cemento"
-            ? sanitizeDigits(value)
-            : value,
+        [field]: value,
       };
 
       return {
@@ -174,11 +235,67 @@ export default function OrganizerRequestModal({
     });
   };
 
+  const handleCourtChange = (complexIndex, courtIndex, field, value) => {
+    setForm((current) => {
+      const complejos = [...current.complejos];
+      const canchas = [...(complejos[complexIndex].canchas || [])];
+      canchas[courtIndex] = {
+        ...canchas[courtIndex],
+        [field]: field === "nombre" ? sanitizeComplexText(value) : value,
+      };
+      complejos[complexIndex] = {
+        ...complejos[complexIndex],
+        canchas,
+      };
+
+      return {
+        ...current,
+        complejos,
+      };
+    });
+  };
+
+  const addCourt = (complexIndex) => {
+    setForm((current) => {
+      const complejos = [...current.complejos];
+      const canchas = [...(complejos[complexIndex].canchas || [])];
+      canchas.push(createEmptyCourtForm(canchas.length));
+      complejos[complexIndex] = {
+        ...complejos[complexIndex],
+        canchas,
+      };
+
+      return {
+        ...current,
+        complejos,
+      };
+    });
+  };
+
+  const removeCourt = (complexIndex, courtIndex) => {
+    setForm((current) => {
+      const complejos = [...current.complejos];
+      const canchas = (complejos[complexIndex].canchas || []).filter(
+        (_, index) => index !== courtIndex
+      );
+      complejos[complexIndex] = {
+        ...complejos[complexIndex],
+        canchas: canchas.length ? canchas : [createEmptyCourtForm()],
+      };
+
+      return {
+        ...current,
+        complejos,
+      };
+    });
+  };
+
   const agregarComplejo = () => {
     setForm((current) => ({
       ...current,
       complejos: [...current.complejos, createEmptyComplexForm()],
     }));
+    setExpandedComplexes((current) => ({ ...current, [form.complejos.length]: true }));
   };
 
   const removeComplex = (index) => {
@@ -240,6 +357,19 @@ export default function OrganizerRequestModal({
         );
         return false;
       }
+
+      const invalidCourtIndex = (complex.canchas || []).findIndex(
+        (court) => !court.estructura || !court.piso || !court.ambiente
+      );
+
+      if (invalidCourtIndex >= 0) {
+        showFeedback(
+          "Faltan datos de cancha",
+          `Revisa la cancha ${invalidCourtIndex + 1} del complejo ${index + 1}.`,
+          "danger"
+        );
+        return false;
+      }
     }
 
     return true;
@@ -252,9 +382,17 @@ export default function OrganizerRequestModal({
 
     const complejos = complexesWithTotals.map((complex) => ({
       nombre: complex.nombre.trim(),
-      blindex: Number.parseInt(complex.blindex || "0", 10) || 0,
-      cesped: Number.parseInt(complex.cesped || "0", 10) || 0,
-      cemento: Number.parseInt(complex.cemento || "0", 10) || 0,
+      canchaAmbiente: complex.canchaAmbiente || "descubierta",
+      canchas: (complex.canchas || []).map((court, courtIndex) => ({
+        id: court.id || `court-${courtIndex + 1}`,
+        nombre: court.nombre?.trim() || "",
+        estructura: court.estructura,
+        piso: court.piso,
+        ambiente: court.ambiente,
+      })),
+      blindex: complex.blindex,
+      cesped: complex.cesped,
+      cemento: complex.cemento,
       totalCanchas: complex.totalCanchas,
       direccion: complex.direccion.trim(),
     }));
@@ -356,65 +494,176 @@ export default function OrganizerRequestModal({
 
               {complexesWithTotals.map((complex, index) => (
                 <View key={`complex-${index}`} style={styles.complexCard}>
-                  <View style={styles.complexHeader}>
-                    <Text style={styles.complexTitle}>Complejo {index + 1}</Text>
+                  <Pressable
+                    onPress={() =>
+                      setExpandedComplexes((current) => ({
+                        ...current,
+                        [index]: !current[index],
+                      }))
+                    }
+                    style={styles.complexHeader}
+                  >
+                    <View>
+                      <Text style={styles.complexTitle}>Complejo {index + 1}</Text>
+                      <Text style={styles.complexSummary}>
+                        {complex.nombre || "Sin nombre"} - {complex.totalCanchas} cancha(s)
+                      </Text>
+                    </View>
                     {form.complejos.length > 1 ? (
                       <Pressable onPress={() => removeComplex(index)}>
                         <Text style={styles.removeText}>Eliminar</Text>
                       </Pressable>
                     ) : null}
-                  </View>
+                  </Pressable>
 
-                  <AppInput
-                    autoCapitalize="words"
-                    label="Nombre del complejo"
-                    labelStyle={styles.centeredLabel}
-                    onChangeText={(value) =>
-                      handleComplejoChange(index, "nombre", sanitizeComplexText(value))
-                    }
-                    placeholder="Nombre del complejo"
-                    value={complex.nombre}
-                  />
-                  <AppInput
-                    keyboardType="number-pad"
-                    label="Canchas Blindex"
-                    labelStyle={styles.centeredLabel}
-                    onChangeText={(value) => handleComplejoChange(index, "blindex", value)}
-                    placeholder="0"
-                    value={complex.blindex}
-                  />
-                  <AppInput
-                    keyboardType="number-pad"
-                    label="Cemento con cesped sintetico"
-                    labelStyle={styles.centeredLabel}
-                    onChangeText={(value) => handleComplejoChange(index, "cesped", value)}
-                    placeholder="0"
-                    value={complex.cesped}
-                  />
-                  <AppInput
-                    keyboardType="number-pad"
-                    label="Cemento piso de cemento"
-                    labelStyle={styles.centeredLabel}
-                    onChangeText={(value) => handleComplejoChange(index, "cemento", value)}
-                    placeholder="0"
-                    value={complex.cemento}
-                  />
+                  {expandedComplexes[index] ? (
+                    <>
+                      <AppInput
+                        autoCapitalize="words"
+                        label="Nombre del complejo"
+                        labelStyle={styles.centeredLabel}
+                        onChangeText={(value) =>
+                          handleComplejoChange(index, "nombre", sanitizeComplexText(value))
+                        }
+                        placeholder="Nombre del complejo"
+                        value={complex.nombre}
+                      />
 
-                  <View style={styles.totalCard}>
-                    <Text style={styles.totalLabel}>Total de canchas</Text>
-                    <Text style={styles.totalValue}>{complex.totalCanchas}</Text>
-                  </View>
+                      <AppInput
+                        autoCapitalize="words"
+                        label="Direccion del complejo"
+                        labelStyle={styles.centeredLabel}
+                        onChangeText={(value) =>
+                          handleComplejoChange(index, "direccion", sanitizeComplexText(value))
+                        }
+                        placeholder="Direccion"
+                        value={complex.direccion}
+                      />
 
-                  <AppInput
-                    autoCapitalize="words"
-                    label="Direccion del complejo"
-                    labelStyle={styles.centeredLabel}
-                    onChangeText={(value) =>
-                      handleComplejoChange(index, "direccion", sanitizeComplexText(value))
-                    }
-                    placeholder="Direccion"
-                    value={complex.direccion}
-                  />
+                      <View style={styles.totalCard}>
+                        <Text style={styles.totalLabel}>Total de canchas</Text>
+                        <Text style={styles.totalValue}>{complex.totalCanchas}</Text>
+                      </View>
+
+                      {(complex.canchas || []).map((court, courtIndex) => (
+                        <View key={court.id || `court-${courtIndex}`} style={styles.courtFormCard}>
+                          <View style={styles.courtFormHeader}>
+                            <Text style={styles.courtFormTitle}>Cancha {courtIndex + 1}</Text>
+                            {(complex.canchas || []).length > 1 ? (
+                              <Pressable onPress={() => removeCourt(index, courtIndex)}>
+                                <Text style={styles.removeText}>Quitar</Text>
+                              </Pressable>
+                            ) : null}
+                          </View>
+
+                          <AppInput
+                            autoCapitalize="characters"
+                            label="Nombre de cancha (opcional)"
+                            labelStyle={styles.centeredLabel}
+                            onChangeText={(value) =>
+                              handleCourtChange(index, courtIndex, "nombre", value)
+                            }
+                            placeholder={`Cancha ${courtIndex + 1}`}
+                            value={court.nombre}
+                          />
+
+                          <Text style={styles.centeredLabelText}>Tipo de cancha</Text>
+                          <View style={styles.optionRow}>
+                            {COURT_STRUCTURE_OPTIONS.map((option) => {
+                              const isSelected = court.estructura === option.key;
+
+                              return (
+                                <Pressable
+                                  key={option.key}
+                                  onPress={() =>
+                                    handleCourtChange(index, courtIndex, "estructura", option.key)
+                                  }
+                                  style={[
+                                    styles.environmentOption,
+                                    isSelected ? styles.environmentOptionActive : null,
+                                  ]}
+                                >
+                                  <Text
+                                    style={[
+                                      styles.environmentOptionText,
+                                      isSelected ? styles.environmentOptionTextActive : null,
+                                    ]}
+                                  >
+                                    {option.label}
+                                  </Text>
+                                </Pressable>
+                              );
+                            })}
+                          </View>
+
+                          <Text style={styles.centeredLabelText}>Tipo de piso</Text>
+                          <View style={styles.optionRow}>
+                            {COURT_FLOOR_OPTIONS.map((option) => {
+                              const isSelected = court.piso === option.key;
+
+                              return (
+                                <Pressable
+                                  key={option.key}
+                                  onPress={() =>
+                                    handleCourtChange(index, courtIndex, "piso", option.key)
+                                  }
+                                  style={[
+                                    styles.environmentOption,
+                                    isSelected ? styles.environmentOptionActive : null,
+                                  ]}
+                                >
+                                  <Text
+                                    style={[
+                                      styles.environmentOptionText,
+                                      isSelected ? styles.environmentOptionTextActive : null,
+                                    ]}
+                                  >
+                                    {option.label}
+                                  </Text>
+                                </Pressable>
+                              );
+                            })}
+                          </View>
+
+                          <Text style={styles.centeredLabelText}>Ambiente</Text>
+                          <View style={styles.optionRow}>
+                            {COURT_ENVIRONMENT_OPTIONS.map((option) => {
+                              const isSelected = court.ambiente === option.key;
+
+                              return (
+                                <Pressable
+                                  key={option.key}
+                                  onPress={() =>
+                                    handleCourtChange(index, courtIndex, "ambiente", option.key)
+                                  }
+                                  style={[
+                                    styles.environmentOption,
+                                    isSelected ? styles.environmentOptionActive : null,
+                                  ]}
+                                >
+                                  <Text
+                                    style={[
+                                      styles.environmentOptionText,
+                                      isSelected ? styles.environmentOptionTextActive : null,
+                                    ]}
+                                  >
+                                    {option.label}
+                                  </Text>
+                                </Pressable>
+                              );
+                            })}
+                          </View>
+                        </View>
+                      ))}
+
+                      <AppButton
+                        title="Agregar cancha"
+                        onPress={() => addCourt(index)}
+                        style={styles.addCourtButton}
+                        variant="secondary"
+                      />
+                    </>
+                  ) : null}
                 </View>
               ))}
 
@@ -542,10 +791,35 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "800",
   },
+  complexSummary: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "700",
+    marginTop: 2,
+  },
   removeText: {
     color: colors.primary,
     fontSize: 14,
     fontWeight: "700",
+  },
+  courtFormCard: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 16,
+    borderWidth: 1,
+    marginBottom: spacing.sm,
+    padding: spacing.sm,
+  },
+  courtFormHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: spacing.xs,
+  },
+  courtFormTitle: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: "800",
   },
   totalCard: {
     alignItems: "center",
@@ -569,6 +843,11 @@ const styles = StyleSheet.create({
   },
   addComplexButton: {
     paddingVertical: 12,
+  },
+  addCourtButton: {
+    marginBottom: spacing.sm,
+    minHeight: 42,
+    paddingVertical: 10,
   },
   globalTotalCard: {
     alignItems: "center",
@@ -594,6 +873,41 @@ const styles = StyleSheet.create({
   },
   centeredLabel: {
     textAlign: "center",
+  },
+  centeredLabelText: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: "700",
+    marginBottom: spacing.xs,
+    marginTop: spacing.xs,
+    textAlign: "center",
+  },
+  optionRow: {
+    flexDirection: "row",
+    gap: spacing.xs,
+  },
+  environmentOption: {
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 999,
+    borderWidth: 1,
+    flex: 1,
+    minHeight: 40,
+    justifyContent: "center",
+    paddingHorizontal: spacing.sm,
+  },
+  environmentOptionActive: {
+    backgroundColor: "#E5F7EE",
+    borderColor: "#91D7B2",
+  },
+  environmentOptionText: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  environmentOptionTextActive: {
+    color: "#1E6B45",
   },
 });
 

@@ -12,6 +12,7 @@ import SectionHeader from "../components/SectionHeader";
 import TournamentHeaderCard from "../components/TournamentHeaderCard";
 import { colors, spacing } from "../config/theme";
 import { useAuth } from "../context/AuthContext";
+import { sendChatMessage } from "../services/chatService";
 import { listPlayers } from "../services/playersService";
 import { buildTournamentDayOptions, getTournamentAvailabilitySummaryItems } from "../services/tournamentAvailabilityService";
 import {
@@ -80,6 +81,7 @@ function getOrganizerRegistrationStatusMeta(registration = {}) {
 export default function TournamentRegistrationsScreen({ navigation, route }) {
   const { user, userData } = useAuth();
   const tournamentId = route?.params?.tournamentId || "";
+  const fallbackTournamentName = route?.params?.tournamentName || "Torneo";
   const [tournament, setTournament] = useState(null);
   const [registrations, setRegistrations] = useState([]);
   const [playersDirectory, setPlayersDirectory] = useState([]);
@@ -166,6 +168,24 @@ export default function TournamentRegistrationsScreen({ navigation, route }) {
         registrationId: registration.id,
         tournamentId,
       });
+      await Promise.all(
+        [
+          { id: registration.player1Id, name: registration.player1Name },
+          { id: registration.player2Id, name: registration.player2Name },
+        ]
+          .filter((player) => player.id)
+          .map((player) =>
+            sendChatMessage({
+              currentUserId: currentOrganizer.uid,
+              currentUserName: currentOrganizer.name,
+              otherUserId: player.id,
+              otherUserName: player.name || "Jugador",
+              text: `Tu inscripcion al torneo ${
+                tournament?.name || fallbackTournamentName
+              } fue confirmada por el organizador.`,
+            }).catch(() => null)
+          )
+      );
       await loadScreen();
       setFeedback({
         visible: true,

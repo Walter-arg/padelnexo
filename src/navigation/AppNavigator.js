@@ -1,6 +1,10 @@
+import { useEffect, useRef } from "react";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
+import { Animated, Easing, Image, StyleSheet, Text, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
-import { colors } from "../config/theme";
+import { colors, spacing } from "../config/theme";
+import { useAuth } from "../context/AuthContext";
 import AdminScreen from "../screens/AdminScreen";
 import CreateLeagueScreen from "../screens/CreateLeagueScreen";
 import CreateTournamentScreen from "../screens/CreateTournamentScreen";
@@ -18,6 +22,7 @@ import LigasHubScreen from "../screens/LigasHubScreen";
 import LoginScreen from "../screens/LoginScreen";
 import MensajesScreen from "../screens/MensajesScreen";
 import MyLeaguesScreen from "../screens/MyLeaguesScreen";
+import OrganizerRegistrationsScreen from "../screens/OrganizerRegistrationsScreen";
 import OrganizerReplacementsScreen from "../screens/OrganizerReplacementsScreen";
 import PlayerDetailScreen from "../screens/PlayerDetailScreen";
 import PlayerLeaguesScreen from "../screens/PlayerLeaguesScreen";
@@ -33,8 +38,91 @@ import TorneosScreen from "../screens/TorneosScreen";
 import TurnosScreen from "../screens/TurnosScreen";
 
 const Stack = createNativeStackNavigator();
+const LOADING_SEGMENTS = Array.from({ length: 36 }, (_, index) => index);
+
+function AuthLoadingScreen() {
+  const progress = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const animation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(progress, {
+          duration: 1500,
+          easing: Easing.out(Easing.cubic),
+          toValue: 1,
+          useNativeDriver: true,
+        }),
+        Animated.timing(progress, {
+          duration: 180,
+          easing: Easing.in(Easing.cubic),
+          toValue: 0,
+          useNativeDriver: true,
+        }),
+      ])
+    );
+
+    animation.start();
+
+    return () => animation.stop();
+  }, [progress]);
+
+  return (
+    <SafeAreaView style={styles.loadingSafeArea}>
+      <View style={styles.loadingCard}>
+        <View style={styles.loadingLogoStage}>
+          {LOADING_SEGMENTS.map((segment) => {
+            const start = Math.max(segment / LOADING_SEGMENTS.length, 0.001);
+            const end = Math.min(start + 0.045, 1);
+            const opacity = progress.interpolate({
+              inputRange: [0, start, end],
+              outputRange: [0.18, 0.18, 1],
+              extrapolate: "clamp",
+            });
+            const scaleX = progress.interpolate({
+              inputRange: [0, start, end],
+              outputRange: [0.4, 0.4, 1],
+              extrapolate: "clamp",
+            });
+
+            return (
+              <Animated.View
+                key={segment}
+                style={[
+                  styles.loadingSegment,
+                  {
+                    opacity,
+                    transform: [
+                      { rotate: `${segment * (360 / LOADING_SEGMENTS.length)}deg` },
+                      { translateY: -72 },
+                      { scaleX },
+                    ],
+                  },
+                ]}
+              />
+            );
+          })}
+          <View style={styles.loadingLogoFrame}>
+            <Image
+              resizeMode="contain"
+              source={require("../../assets/loading-icon-rounded.png")}
+              style={styles.loadingLogo}
+            />
+          </View>
+        </View>
+        <Text style={styles.loadingBrand}>PadelNexo</Text>
+        <Text style={styles.loadingText}>Cargando tu cuenta...</Text>
+      </View>
+    </SafeAreaView>
+  );
+}
 
 export default function AppNavigator() {
+  const { initializing } = useAuth();
+
+  if (initializing) {
+    return <AuthLoadingScreen />;
+  }
+
   return (
     <Stack.Navigator
       initialRouteName="Home"
@@ -84,6 +172,11 @@ export default function AppNavigator() {
       <Stack.Screen
         component={OrganizerReplacementsScreen}
         name="OrganizerReplacements"
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        component={OrganizerRegistrationsScreen}
+        name="OrganizerRegistrations"
         options={{ headerShown: false }}
       />
       <Stack.Screen
@@ -159,7 +252,7 @@ export default function AppNavigator() {
       <Stack.Screen
         component={TurnosScreen}
         name="Turnos"
-        options={{ title: "Turnos" }}
+        options={{ headerShown: false }}
       />
       <Stack.Screen
         component={JugadoresScreen}
@@ -216,4 +309,56 @@ export default function AppNavigator() {
     </Stack.Navigator>
   );
 }
+
+const styles = StyleSheet.create({
+  loadingSafeArea: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
+  loadingCard: {
+    alignItems: "center",
+    flex: 1,
+    gap: spacing.sm,
+    justifyContent: "center",
+    padding: spacing.lg,
+  },
+  loadingLogoStage: {
+    alignItems: "center",
+    height: 168,
+    justifyContent: "center",
+    marginBottom: spacing.sm,
+    width: 168,
+  },
+  loadingSegment: {
+    backgroundColor: colors.primaryLight,
+    borderRadius: 999,
+    height: 5,
+    left: 75,
+    position: "absolute",
+    top: 81,
+    width: 18,
+  },
+  loadingLogoFrame: {
+    alignItems: "center",
+    borderRadius: 999,
+    height: 142,
+    justifyContent: "center",
+    width: 142,
+  },
+  loadingLogo: {
+    borderRadius: 999,
+    height: 138,
+    width: 138,
+  },
+  loadingBrand: {
+    color: colors.primaryDark,
+    fontSize: 28,
+    fontWeight: "900",
+  },
+  loadingText: {
+    color: colors.muted,
+    fontSize: 14,
+    fontWeight: "700",
+  },
+});
 

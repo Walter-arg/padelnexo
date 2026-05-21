@@ -149,6 +149,13 @@ function buildReplacementMessage(request = {}) {
   ].join("\n");
 }
 
+function buildReplacementRejectedMessage(request = {}) {
+  return [
+    `Tu postulacion para reemplazar en ${request.league?.nombre || "la liga"} fue rechazada.`,
+    "El organizador puede elegir otro jugador o resolver el reemplazo manualmente.",
+  ].join("\n");
+}
+
 function collectReplacementRequests(leagues = [], userData = {}) {
   const currentUserId = normalizeText(userData?.uid || userData?.id || "");
 
@@ -158,7 +165,7 @@ function collectReplacementRequests(leagues = [], userData = {}) {
       (league.fixture?.rounds || []).flatMap((round) =>
         (round.matches || []).flatMap((match) =>
           Object.entries(match.replacements || {})
-            .filter(([, replacement]) => replacement?.requested)
+            .filter(([, replacement]) => replacement?.requested && !replacement?.replacement)
             .map(([replacementKey, replacement]) => ({
               id: `${league.id}-${round.id}-${match.id}-${replacementKey}`,
               league,
@@ -166,18 +173,14 @@ function collectReplacementRequests(leagues = [], userData = {}) {
               replacement,
               replacementKey,
               round,
-              status: replacement.replacement ? "designated" : "pending",
+              status: "pending",
             }))
         )
       )
     )
-    .sort((first, second) => {
-      if (first.status !== second.status) {
-        return first.status === "pending" ? -1 : 1;
-      }
-
-      return String(first.league.nombre).localeCompare(String(second.league.nombre), "es");
-    });
+    .sort((first, second) =>
+      String(first.league.nombre).localeCompare(String(second.league.nombre), "es")
+    );
 }
 
 export default function OrganizerReplacementsScreen({ navigation }) {
@@ -303,6 +306,18 @@ export default function OrganizerReplacementsScreen({ navigation }) {
 
       await updateLeagueFixture(request.league.id, nextFixture);
       updateLeagueSourceFixture(request.league.id, nextFixture);
+
+      try {
+        await sendChatMessage({
+          currentUserId: userData?.uid || userData?.id || "",
+          currentUserName: userData?.name || "Organizador",
+          otherUserId: candidate.linkedUserId || candidate.id || "",
+          otherUserName: formatPlayerShortName(candidate),
+          text: buildReplacementRejectedMessage(request),
+        });
+      } catch (messageError) {
+        // La postulacion queda rechazada aunque el aviso por mensaje no se pueda enviar.
+      }
     } catch (error) {
       // Si falla, dejamos visible la postulacion para que el organizador pueda reintentar.
     } finally {

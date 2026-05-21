@@ -56,7 +56,7 @@ const DEFAULT_USER = {
   email: "",
   phone: "",
   countryCode: "+54",
-  city: "Buenos Aires",
+  city: "",
   category: "Iniciante",
   sex: "Masculino",
   description: "",
@@ -184,8 +184,14 @@ function collectHomeReplacementRequests(leagues = [], userData = {}, canManage =
           (ownerId) => normalizeText(ownerId) === currentUserId
         );
       const currentUserPlaysLeague = isLeagueParticipant(league, userData);
+      const canSeePublishedReplacement =
+        isOwnLeague || league?.scoringSettings?.publishReplacementRequests === true;
 
       if (currentUserPlaysLeague && !isOwnLeague) {
+        return [];
+      }
+
+      if (!canSeePublishedReplacement) {
         return [];
       }
 
@@ -807,6 +813,35 @@ export default function HomeScreen({ navigation, route }) {
           </Pressable>
         ) : null}
 
+        {currentUser ? (
+          <View style={styles.infoRow}>
+            <Pressable
+              onPress={() => setIsProfileVisible(true)}
+              style={({ pressed }) => [
+                styles.infoCard,
+                pressed ? styles.infoCardPressed : null,
+              ]}
+            >
+              <View style={styles.profileProgressHeader}>
+                <Text style={styles.infoLabel}>Perfil</Text>
+                <Text style={styles.profileProgressValue}>{profileCompletion}%</Text>
+              </View>
+              <View style={styles.profileProgressTrack}>
+                <View
+                  style={[
+                    styles.profileProgressFill,
+                    { width: `${profileCompletion}%` },
+                    profileCompletion === 0 ? styles.profileProgressFillEmpty : null,
+                  ]}
+                />
+              </View>
+              <Text style={styles.infoText}>
+                Completa tu perfil y obtene beneficios
+              </Text>
+            </Pressable>
+          </View>
+        ) : null}
+
         <Pressable
           disabled={selectedMenuItem.key !== "Jugadores"}
           onPress={() => {
@@ -1193,34 +1228,6 @@ export default function HomeScreen({ navigation, route }) {
             onItemPress={handleItemPress}
             onSelectionChange={(item) => setSelectedMenuItem(item)}
           />
-        </View>
-
-        <View style={styles.infoRow}>
-          <Pressable
-            disabled={!currentUser}
-            onPress={() => setIsProfileVisible(true)}
-            style={({ pressed }) => [
-              styles.infoCard,
-              pressed && currentUser ? styles.infoCardPressed : null,
-            ]}
-          >
-            <View style={styles.profileProgressHeader}>
-              <Text style={styles.infoLabel}>Perfil</Text>
-              <Text style={styles.profileProgressValue}>{profileCompletion}%</Text>
-            </View>
-            <View style={styles.profileProgressTrack}>
-              <View
-                style={[
-                  styles.profileProgressFill,
-                  { width: `${profileCompletion}%` },
-                  profileCompletion === 0 ? styles.profileProgressFillEmpty : null,
-                ]}
-              />
-            </View>
-            <Text style={styles.infoText}>
-              Completa tu perfil y obtene beneficios
-            </Text>
-          </Pressable>
         </View>
       </ScrollView>
 
@@ -1851,16 +1858,18 @@ const styles = StyleSheet.create({
   },
   infoRow: {
     gap: spacing.md,
+    marginBottom: spacing.sm,
   },
   infoCard: {
     backgroundColor: colors.surface,
-    borderRadius: 22,
-    padding: spacing.lg,
+    borderRadius: 16,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
     shadowColor: colors.shadow,
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.08,
-    shadowRadius: 18,
-    elevation: 4,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    elevation: 2,
   },
   infoCardPressed: {
     opacity: 0.92,
@@ -1870,25 +1879,25 @@ const styles = StyleSheet.create({
     alignItems: "center",
     flexDirection: "row",
     justifyContent: "space-between",
-    marginBottom: spacing.sm,
+    marginBottom: 5,
   },
   infoLabel: {
     color: colors.primary,
-    fontSize: 13,
+    fontSize: 11,
     fontWeight: "800",
-    letterSpacing: 0.8,
+    letterSpacing: 0.4,
     textTransform: "uppercase",
   },
   profileProgressValue: {
     color: colors.primaryDark,
-    fontSize: 18,
+    fontSize: 15,
     fontWeight: "900",
   },
   profileProgressTrack: {
     backgroundColor: colors.secondary,
     borderRadius: 999,
-    height: 12,
-    marginBottom: spacing.sm,
+    height: 7,
+    marginBottom: 5,
     overflow: "hidden",
   },
   profileProgressFill: {
@@ -1902,8 +1911,8 @@ const styles = StyleSheet.create({
   },
   infoText: {
     color: colors.text,
-    fontSize: 15,
-    lineHeight: 22,
+    fontSize: 12,
+    lineHeight: 16,
   },
 });
 

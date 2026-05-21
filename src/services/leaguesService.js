@@ -352,6 +352,7 @@ export function normalizeLeagueDefaults(defaults = {}) {
     replacementPenaltyMode:
       defaults.replacementPenaltyMode === "pair" ? "pair" : "individual",
     replacementQuota: normalizeCount(defaults.replacementQuota, 0),
+    publishReplacementRequests: defaults.publishReplacementRequests === true,
   };
 }
 
@@ -381,6 +382,7 @@ function normalizeScoringSettings(scoringSettings, teamType) {
       replacementPenalty: 1,
       replacementPenaltyMode: "individual",
       replacementQuota: 0,
+      publishReplacementRequests: false,
       standings: buildStandingsConfig(teamType),
     };
   }
@@ -405,6 +407,7 @@ function normalizeScoringSettings(scoringSettings, teamType) {
     replacementPenaltyMode:
       scoringSettings.replacementPenaltyMode === "pair" ? "pair" : "individual",
     replacementQuota: normalizeCount(scoringSettings.replacementQuota, 0),
+    publishReplacementRequests: scoringSettings.publishReplacementRequests === true,
     standings: scoringSettings.standings || buildStandingsConfig(teamType),
   };
 }
@@ -720,6 +723,7 @@ export function buildLeaguePayload({
   replacementPenalty,
   replacementPenaltyMode,
   replacementQuota,
+  publishReplacementRequests,
 }) {
   const normalizedDefaults = normalizeLeagueDefaults({
     branch,
@@ -741,6 +745,7 @@ export function buildLeaguePayload({
     replacementPenalty,
     replacementPenaltyMode,
     replacementQuota,
+    publishReplacementRequests,
   });
   const localidad = baseLocation || organizer?.localidad || {
     nombre: organizer?.city || "",
@@ -813,6 +818,7 @@ export function buildLeaguePayload({
       replacementPenalty: normalizedDefaults.replacementPenalty,
       replacementPenaltyMode: normalizedDefaults.replacementPenaltyMode,
       replacementQuota: normalizedDefaults.replacementQuota,
+      publishReplacementRequests: normalizedDefaults.publishReplacementRequests,
       standings: buildStandingsConfig(normalizedDefaults.teamType),
     },
     complejo: {

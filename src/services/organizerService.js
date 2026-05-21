@@ -20,12 +20,74 @@ import { ORGANIZER_ROLE, ORGANIZER_STATUS, USER_ROLE } from "./roleService";
 export function createEmptyComplex() {
   return {
     nombre: "",
+    canchaAmbiente: "",
+    canchas: [],
     blindex: 0,
     cesped: 0,
     cemento: 0,
     totalCanchas: 0,
     direccion: "",
   };
+}
+
+function normalizeCourt(court = {}, index = 0) {
+  const estructura = court.estructura === "cemento" ? "cemento" : "blindex";
+  const piso = court.piso === "cemento" ? "cemento" : "sintetico";
+  const ambiente = court.ambiente === "cubierta" ? "cubierta" : "aire_libre";
+
+  return {
+    id: court.id || `court-${index + 1}`,
+    nombre: String(court.nombre || "").trim(),
+    estructura,
+    piso,
+    ambiente,
+  };
+}
+
+function buildCourtsFromLegacyCounts(complex = {}) {
+  const courts = [];
+  const addCourts = (count, template) => {
+    Array.from({ length: count }).forEach(() => {
+      courts.push(normalizeCourt({ ...template, id: `court-${courts.length + 1}` }, courts.length));
+    });
+  };
+  const legacyAmbiente =
+    complex.canchaAmbiente === "cubierta" ? "cubierta" : "aire_libre";
+
+  addCourts(normalizeCount(complex.blindex), {
+    estructura: "blindex",
+    piso: "sintetico",
+    ambiente: legacyAmbiente,
+  });
+  addCourts(normalizeCount(complex.cesped), {
+    estructura: "cemento",
+    piso: "sintetico",
+    ambiente: legacyAmbiente,
+  });
+  addCourts(normalizeCount(complex.cemento), {
+    estructura: "cemento",
+    piso: "cemento",
+    ambiente: legacyAmbiente,
+  });
+
+  return courts;
+}
+
+function countCourtsByType(canchas = []) {
+  return canchas.reduce(
+    (counts, court) => {
+      if (court.estructura === "blindex") {
+        counts.blindex += 1;
+      } else if (court.piso === "sintetico") {
+        counts.cesped += 1;
+      } else {
+        counts.cemento += 1;
+      }
+
+      return counts;
+    },
+    { blindex: 0, cemento: 0, cesped: 0 }
+  );
 }
 
 function normalizeCount(value) {
@@ -39,16 +101,19 @@ function normalizeCount(value) {
 }
 
 export function normalizeComplex(complex = {}) {
-  const blindex = normalizeCount(complex.blindex);
-  const cesped = normalizeCount(complex.cesped);
-  const cemento = normalizeCount(complex.cemento);
+  const canchas = Array.isArray(complex.canchas) && complex.canchas.length
+    ? complex.canchas.map(normalizeCourt)
+    : buildCourtsFromLegacyCounts(complex);
+  const counts = countCourtsByType(canchas);
 
   return {
     nombre: complex.nombre?.trim() || "",
-    blindex,
-    cesped,
-    cemento,
-    totalCanchas: blindex + cesped + cemento,
+    canchaAmbiente: complex.canchaAmbiente === "cubierta" ? "cubierta" : "descubierta",
+    canchas,
+    blindex: counts.blindex,
+    cesped: counts.cesped,
+    cemento: counts.cemento,
+    totalCanchas: canchas.length,
     direccion: complex.direccion?.trim() || "",
   };
 }

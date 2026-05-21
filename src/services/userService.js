@@ -24,15 +24,15 @@ import {
 import { getDefaultRoleData } from "./roleService";
 
 const DEFAULT_LOCATION = {
-  ciudad: "Buenos Aires",
-  provincia: "Buenos Aires",
+  ciudad: "",
+  provincia: "",
   pais: "Argentina",
   lat: null,
   lng: null,
 };
 const DEFAULT_LOCALIDAD = {
-  nombre: "Buenos Aires",
-  provincia: "Buenos Aires",
+  nombre: "",
+  provincia: "",
   pais: "Argentina",
 };
 function findCityOption(city) {
@@ -113,9 +113,7 @@ function resolveLocalidadFromDoc(profileDoc = {}) {
     "";
 
   if (!legacyName) {
-    return {
-      ...DEFAULT_LOCALIDAD,
-    };
+    return null;
   }
 
   return normalizeLocalidadPayload(

@@ -35,10 +35,12 @@ import {
   isLeagueParticipant,
   listLeagues,
   listLeagueRegistrationRequests,
+  updateLeagueFixture,
 } from "../services/leaguesService";
 import { createInvitation } from "../services/invitationsService";
 import { listPlayers } from "../services/playersService";
 import { isApprovedOrganizer } from "../services/roleService";
+import { formatPlayerShortName } from "../utils/playerDisplayName";
 
 const SEX_FILTER_OPTIONS = ["Todos", "Masculino", "Femenino", "Mixto"];
 const DAY_FILTER_OPTIONS = [
@@ -54,6 +56,116 @@ const DAY_FILTER_OPTIONS = [
 
 function normalizeText(value = "") {
   return String(value).trim().toLowerCase();
+}
+
+function hasAssignedReplacementPlayer(replacement = {}) {
+  const replacementPlayer = replacement?.replacement || null;
+
+  return Boolean(
+    replacementPlayer &&
+      typeof replacementPlayer === "object" &&
+      [replacementPlayer.id, replacementPlayer.linkedUserId, replacementPlayer.nombre, replacementPlayer.name]
+        .some((value) => String(value || "").trim())
+  );
+}
+
+function hasUserPostulated(replacement = {}, currentUserId = "") {
+  const userKey = normalizeText(currentUserId);
+
+  if (!userKey) {
+    return false;
+  }
+
+  return (replacement.candidates || []).some((candidate) =>
+    [candidate.id, candidate.linkedUserId].some((value) => normalizeText(value) === userKey)
+  );
+}
+
+function buildReplacementCandidate(userData = {}) {
+  return {
+    id: userData?.uid || userData?.id || "",
+    linkedUserId: userData?.uid || userData?.id || "",
+    nombre: userData?.nombre || userData?.name || "Jugador",
+    apellido: userData?.apellido || userData?.lastName || "",
+    categoria: userData?.category || userData?.categoria || "",
+    sexo: userData?.sex || userData?.sexo || "",
+    phone: userData?.phone || "",
+    avatarUrl: userData?.avatarUrl || userData?.foto || "",
+    requestedAtMillis: Date.now(),
+  };
+}
+
+function addReplacementCandidateToFixture(fixture = {}, request = {}, candidate = {}) {
+  return {
+    ...fixture,
+    rounds: (fixture.rounds || []).map((round) => {
+      if (round.id !== request.round.id) {
+        return round;
+      }
+
+      return {
+        ...round,
+        matches: (round.matches || []).map((match) => {
+          if (match.id !== request.match.id) {
+            return match;
+          }
+
+          const currentReplacement = match.replacements?.[request.replacementKey] || {};
+          const currentCandidates = Array.isArray(currentReplacement.candidates)
+            ? currentReplacement.candidates
+            : [];
+          const nextCandidates = hasUserPostulated(currentReplacement, candidate.id)
+            ? currentCandidates
+            : [...currentCandidates, candidate];
+
+          return {
+            ...match,
+            replacements: {
+              ...(match.replacements || {}),
+              [request.replacementKey]: {
+                ...currentReplacement,
+                requested: true,
+                candidates: nextCandidates,
+              },
+            },
+          };
+        }),
+      };
+    }),
+  };
+}
+
+function collectActiveReplacementRequestsForLeague(league = {}) {
+  return (league.fixture?.rounds || []).flatMap((round) =>
+    (round.matches || []).flatMap((match) =>
+      Object.entries(match.replacements || {})
+        .filter(([, replacement]) => replacement?.requested && !hasAssignedReplacementPlayer(replacement))
+        .map(([replacementKey, replacement]) => ({
+          id: `${league.id}-${round.id}-${match.id}-${replacementKey}`,
+          league,
+          match,
+          replacement,
+          replacementKey,
+          round,
+        }))
+    )
+  );
+}
+
+function canPublishReplacementRequests(league = {}) {
+  return (
+    league?.scoringSettings?.publishReplacementRequests === true ||
+    league?.publishReplacementRequests === true
+  );
+}
+
+function getReplacementPublishState(league = {}) {
+  const requests = collectActiveReplacementRequestsForLeague(league);
+
+  return {
+    enabled: canPublishReplacementRequests(league),
+    request: requests[0] || null,
+  };
 }
 
 export default function LigasHubScreen({ navigation }) {
@@ -80,6 +192,8 @@ export default function LigasHubScreen({ navigation }) {
   const [partnerPickerLoading, setPartnerPickerLoading] = useState(false);
   const [registrationSaving, setRegistrationSaving] = useState(false);
   const [deletingLeague, setDeletingLeague] = useState(false);
+  const [selectedReplacementRequest, setSelectedReplacementRequest] = useState(null);
+  const [submittingReplacementId, setSubmittingReplacementId] = useState("");
 
   const userLocalidad = useMemo(() => {
     const name = userData?.localidad?.nombre || userData?.city || "";
@@ -230,6 +344,22 @@ export default function LigasHubScreen({ navigation }) {
 
     return filtered;
   }, [activeTab, appliedFilters, leaguesSource, query]);
+  const publishedReplacementRequests = useMemo(() => {
+    const currentUserKey = normalizeText(userData?.uid || userData?.id || "");
+
+    if (!currentUserKey || canCreateLeague) {
+      return [];
+    }
+
+    return leaguesSource
+      .filter(canPublishReplacementRequests)
+      .flatMap(collectActiveReplacementRequestsForLeague)
+      .sort(
+        (first, second) =>
+          Number(second.replacement?.requestedAtMillis || 0) -
+          Number(first.replacement?.requestedAtMillis || 0)
+      );
+  }, [canCreateLeague, leaguesSource, userData]);
   const partnerPickerFilteredPlayers = useMemo(() => {
     const normalizedQuery = normalizeText(partnerPickerQuery);
 
@@ -269,6 +399,9 @@ export default function LigasHubScreen({ navigation }) {
       return requesterKey === userKey || partnerKey === userKey;
     });
   };
+
+  const getPublishedReplacementRequestForLeague = (league = {}) =>
+    getReplacementPublishState(league).request;
 
   const isLeagueClosedForRegistration = (league = {}) => {
     const rounds = Array.isArray(league?.fixture?.rounds) ? league.fixture.rounds : [];
@@ -483,6 +616,64 @@ export default function LigasHubScreen({ navigation }) {
       showFeedback("No pudimos enviar la invitacion", "Intenta nuevamente en unos instantes.", "danger");
     } finally {
       setRegistrationSaving(false);
+    }
+  };
+
+  const handlePostulateReplacement = async (request) => {
+    if (!request?.league?.id || submittingReplacementId) {
+      return;
+    }
+
+    if (isLeagueParticipant(request.league, userData)) {
+      showFeedback(
+        "No podes postularte",
+        "Ya formas parte de esta liga y no podes cubrir este reemplazo.",
+        "danger"
+      );
+      return;
+    }
+
+    if (hasUserPostulated(request.replacement, userData?.uid || userData?.id || "")) {
+      showFeedback("Postulacion enviada", "Ya te postulaste para este reemplazo.", "success");
+      return;
+    }
+
+    try {
+      setSubmittingReplacementId(request.id);
+      const nextFixture = addReplacementCandidateToFixture(
+        request.league.fixture || { rounds: [] },
+        request,
+        buildReplacementCandidate(userData)
+      );
+
+      await updateLeagueFixture(request.league.id, nextFixture);
+      setLeaguesSource((current) =>
+        current.map((league) =>
+          league.id === request.league.id ? { ...league, fixture: nextFixture } : league
+        )
+      );
+      setSelectedReplacementRequest((current) =>
+        current?.id === request.id
+          ? {
+              ...current,
+              league: { ...current.league, fixture: nextFixture },
+              replacement:
+                nextFixture.rounds
+                  ?.find((round) => round.id === request.round.id)
+                  ?.matches?.find((match) => match.id === request.match.id)
+                  ?.replacements?.[request.replacementKey] || current.replacement,
+            }
+          : current
+      );
+      showFeedback(
+        "Postulacion enviada",
+        "El organizador va a revisar tu postulacion desde Remplazos.",
+        "success"
+      );
+    } catch (error) {
+      showFeedback("No pudimos postularte", "Intenta nuevamente en unos instantes.", "danger");
+    } finally {
+      setSubmittingReplacementId("");
     }
   };
 
@@ -723,6 +914,44 @@ export default function LigasHubScreen({ navigation }) {
           </Pressable>
         )}
 
+        {publishedReplacementRequests.length ? (
+          <View style={styles.replacementAlertBlock}>
+            <Text style={styles.replacementAlertTitle}>REMPLAZO DISPONIBLE</Text>
+            {publishedReplacementRequests.slice(0, 3).map((request) => {
+              const alreadyPostulated = hasUserPostulated(
+                request.replacement,
+                userData?.uid || userData?.id || ""
+              );
+
+              return (
+                <Pressable
+                  key={request.id}
+                  onPress={() => setSelectedReplacementRequest(request)}
+                  style={({ pressed }) => [
+                    styles.replacementAlertRow,
+                    pressed ? styles.replacementAlertRowPressed : null,
+                  ]}
+                >
+                  <View style={styles.replacementAlertIcon}>
+                    <Ionicons color="#C65D00" name="alert-circle-outline" size={18} />
+                  </View>
+                  <View style={styles.replacementAlertCopy}>
+                    <Text numberOfLines={1} style={styles.replacementAlertLeague}>
+                      {request.league.nombre}
+                    </Text>
+                    <Text numberOfLines={1} style={styles.replacementAlertMeta}>
+                      {[request.league.categoria, request.league.sexo].filter(Boolean).join(" - ")}
+                    </Text>
+                  </View>
+                  <Text style={styles.replacementAlertAction}>
+                    {alreadyPostulated ? "EN REVISION" : "VER"}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        ) : null}
+
         <FlatList
           contentContainerStyle={styles.listContent}
           data={leaguesFiltered}
@@ -736,6 +965,12 @@ export default function LigasHubScreen({ navigation }) {
           renderItem={({ item }) => {
             const isParticipant = isLeagueParticipant(item, userData);
             const currentRegistration = getUserLeagueRegistration(item);
+            const replacementPublishState = getReplacementPublishState(item);
+            const replacementRequest = getPublishedReplacementRequestForLeague(item);
+            const replacementPublicEnabled = replacementPublishState.enabled;
+            const alreadyPostulatedReplacement = replacementRequest
+              ? hasUserPostulated(replacementRequest.replacement, userData?.uid || userData?.id || "")
+              : false;
             const isRegistrationConfirmed = currentRegistration?.status === "confirmed";
             const isRegistrationRejected = ["rejected", "partner_rejected"].includes(
               currentRegistration?.status
@@ -750,8 +985,39 @@ export default function LigasHubScreen({ navigation }) {
               <LeagueCard
                 league={item}
                 managementActions={
-                  isParticipant || isRegistrationConfirmed
-                    ? [
+                  [
+                    ...(replacementRequest
+                      ? [
+                          {
+                            disabled:
+                              alreadyPostulatedReplacement ||
+                              isParticipant ||
+                              !replacementPublicEnabled,
+                            icon: !replacementPublicEnabled
+                              ? "eye-off-outline"
+                              : alreadyPostulatedReplacement
+                              ? "time-outline"
+                              : isParticipant
+                              ? "lock-closed-outline"
+                              : "alert-circle-outline",
+                            key: `replacement-${replacementRequest.id}`,
+                            label: !replacementPublicEnabled
+                              ? "PUBLICACION APAGADA"
+                              : alreadyPostulatedReplacement
+                              ? "EN REVISION"
+                              : isParticipant
+                              ? "YA JUGAS"
+                              : "REMPLAZO DISPONIBLE",
+                            onPress: () => setSelectedReplacementRequest(replacementRequest),
+                            tone:
+                              alreadyPostulatedReplacement || isParticipant || !replacementPublicEnabled
+                                ? "pending"
+                                : "warning",
+                          },
+                        ]
+                      : []),
+                    ...(isParticipant || isRegistrationConfirmed
+                      ? [
                         {
                           disabled: true,
                           icon: "checkmark-circle-outline",
@@ -760,8 +1026,8 @@ export default function LigasHubScreen({ navigation }) {
                           tone: "success",
                         },
                       ]
-                    : hasPendingRegistration
-                    ? [
+                      : hasPendingRegistration
+                      ? [
                         {
                           disabled: true,
                           icon: "time-outline",
@@ -770,8 +1036,8 @@ export default function LigasHubScreen({ navigation }) {
                           tone: "pending",
                         },
                       ]
-                    : canRegister
-                    ? [
+                      : canRegister
+                      ? [
                         {
                           disabled: registrationClosed || registrationSaving,
                           icon: registrationClosed ? "lock-closed-outline" : "person-add-outline",
@@ -781,7 +1047,8 @@ export default function LigasHubScreen({ navigation }) {
                           tone: "primary",
                         },
                       ]
-                    : []
+                      : []),
+                  ]
                 }
                 onDetails={
                   isParticipant
@@ -913,6 +1180,72 @@ export default function LigasHubScreen({ navigation }) {
                 />
               </>
             )}
+          </View>
+        </View>
+      </Modal>
+      <Modal
+        animationType="fade"
+        onRequestClose={() => setSelectedReplacementRequest(null)}
+        transparent
+        visible={Boolean(selectedReplacementRequest)}
+      >
+        <View style={styles.confirmOverlay}>
+          <Pressable
+            onPress={() => setSelectedReplacementRequest(null)}
+            style={styles.confirmBackdrop}
+          />
+          <View style={styles.replacementDetailCard}>
+            <Text style={styles.confirmTitle}>REMPLAZO DISPONIBLE</Text>
+            {selectedReplacementRequest ? (
+              <>
+                <LeagueCard league={selectedReplacementRequest.league} showProgressStatus />
+                <View style={styles.replacementDetailInfo}>
+                  <Text style={styles.replacementDetailText}>
+                    Titular: {formatPlayerShortName(selectedReplacementRequest.replacement?.titular)}
+                  </Text>
+                  <Text style={styles.replacementDetailText}>
+                    {selectedReplacementRequest.round?.title || "Fecha"} -{" "}
+                    {selectedReplacementRequest.match?.timeSlot ||
+                      selectedReplacementRequest.round?.scheduleLabel ||
+                      "Horario a definir"}
+                  </Text>
+                </View>
+                <Pressable
+                  disabled={
+                    submittingReplacementId === selectedReplacementRequest.id ||
+                    isLeagueParticipant(selectedReplacementRequest.league, userData) ||
+                    hasUserPostulated(
+                      selectedReplacementRequest.replacement,
+                      userData?.uid || userData?.id || ""
+                    )
+                  }
+                  onPress={() => handlePostulateReplacement(selectedReplacementRequest)}
+                  style={({ pressed }) => [
+                    styles.replacementPostulateButton,
+                    hasUserPostulated(
+                      selectedReplacementRequest.replacement,
+                      userData?.uid || userData?.id || ""
+                    )
+                      ? styles.replacementPostulateButtonDone
+                      : null,
+                    pressed ? styles.confirmButtonPressed : null,
+                  ]}
+                >
+                  <Text style={styles.replacementPostulateButtonText}>
+                    {isLeagueParticipant(selectedReplacementRequest.league, userData)
+                      ? "NO DISPONIBLE"
+                      : hasUserPostulated(
+                      selectedReplacementRequest.replacement,
+                      userData?.uid || userData?.id || ""
+                    )
+                      ? "EN REVISION"
+                      : submittingReplacementId === selectedReplacementRequest.id
+                      ? "ENVIANDO..."
+                      : "POSTULARME"}
+                  </Text>
+                </Pressable>
+              </>
+            ) : null}
           </View>
         </View>
       </Modal>
@@ -1130,6 +1463,63 @@ const styles = StyleSheet.create({
     paddingBottom: BOTTOM_QUICK_ACTIONS_SPACE,
     paddingTop: spacing.sm,
   },
+  replacementAlertBlock: {
+    backgroundColor: "#FFF8EB",
+    borderColor: "#FFD08A",
+    borderRadius: 18,
+    borderWidth: 1,
+    marginTop: spacing.sm,
+    padding: spacing.sm,
+  },
+  replacementAlertTitle: {
+    color: "#C65D00",
+    fontSize: 12,
+    fontWeight: "900",
+    marginBottom: 6,
+    textAlign: "center",
+  },
+  replacementAlertRow: {
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderColor: "#FFE0AD",
+    borderRadius: 14,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: spacing.sm,
+    marginTop: 5,
+    padding: spacing.sm,
+  },
+  replacementAlertRowPressed: {
+    opacity: 0.92,
+    transform: [{ scale: 0.99 }],
+  },
+  replacementAlertIcon: {
+    alignItems: "center",
+    backgroundColor: "#FFF1D6",
+    borderRadius: 999,
+    height: 32,
+    justifyContent: "center",
+    width: 32,
+  },
+  replacementAlertCopy: {
+    flex: 1,
+  },
+  replacementAlertLeague: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  replacementAlertMeta: {
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: "700",
+    marginTop: 2,
+  },
+  replacementAlertAction: {
+    color: "#C65D00",
+    fontSize: 11,
+    fontWeight: "900",
+  },
   emptyCard: {
     alignItems: "center",
     backgroundColor: colors.surface,
@@ -1221,6 +1611,46 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     padding: spacing.lg,
     width: "100%",
+  },
+  replacementDetailCard: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 24,
+    borderWidth: 1,
+    maxHeight: "86%",
+    padding: spacing.md,
+    width: "100%",
+  },
+  replacementDetailInfo: {
+    backgroundColor: "#FFF8EB",
+    borderColor: "#FFD08A",
+    borderRadius: 16,
+    borderWidth: 1,
+    marginTop: spacing.sm,
+    padding: spacing.sm,
+  },
+  replacementDetailText: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: "800",
+    lineHeight: 19,
+    textAlign: "center",
+  },
+  replacementPostulateButton: {
+    alignItems: "center",
+    backgroundColor: colors.primary,
+    borderRadius: 16,
+    justifyContent: "center",
+    marginTop: spacing.md,
+    minHeight: 46,
+  },
+  replacementPostulateButtonDone: {
+    backgroundColor: "#E8A84A",
+  },
+  replacementPostulateButtonText: {
+    color: colors.surface,
+    fontSize: 14,
+    fontWeight: "900",
   },
   confirmTitle: {
     color: colors.text,

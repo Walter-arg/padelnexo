@@ -1030,17 +1030,26 @@ export default function LeagueFixtureScreen({ navigation, route }) {
     const previousRounds = new Map(
       (targetLeague?.fixture?.rounds || []).map((round) => [round.id, round])
     );
-    const newlySuspendedRounds = (nextFixture?.rounds || []).filter((round) => {
+    const newlySuspendedRounds = (nextFixture?.rounds || []).map((round) => {
       const previousRound = previousRounds.get(round.id) || {};
-      const hadSuspension = (previousRound.matches || []).some(
-        (match) => match?.suspensionMode && !match?.result?.winner
+      const previousMatches = new Map(
+        (previousRound.matches || []).map((match) => [match.id, match])
       );
-      const hasSuspension = (round.matches || []).some(
-        (match) => match?.suspensionMode && !match?.result?.winner
-      );
+      const newlySuspendedMatches = (round.matches || []).filter((match) => {
+        const previousMatch = previousMatches.get(match.id) || {};
+        const wasSuspended = previousMatch?.suspensionMode && !previousMatch?.result?.winner;
+        const isSuspended = match?.suspensionMode && !match?.result?.winner;
 
-      return hasSuspension && !hadSuspension;
-    });
+        return isSuspended && !wasSuspended;
+      });
+
+      return newlySuspendedMatches.length
+        ? {
+            ...round,
+            matches: newlySuspendedMatches,
+          }
+        : null;
+    }).filter(Boolean);
 
     for (const round of newlySuspendedRounds) {
       const targets = getLeagueSuspensionNotificationTargets(round);
@@ -2001,6 +2010,11 @@ export default function LeagueFixtureScreen({ navigation, route }) {
       return;
     }
 
+    if (!canEditFixture) {
+      handlePlayerReplacementRequest();
+      return;
+    }
+
     updateMatchReplacement(roundId, match.id, replacementKey, (currentReplacement) => {
       if (currentReplacement?.requested) {
         return canEditFixture ? null : currentReplacement;
@@ -2409,6 +2423,9 @@ export default function LeagueFixtureScreen({ navigation, route }) {
     try {
       setSavingMatchId("saving");
       await updateLeagueFixture(league.id, fixtureToSave);
+      if (canEditFixture) {
+        await notifyLeagueSuspensionAsync(league, fixtureToSave);
+      }
       if (replacementConfirmationNotices.length) {
         await Promise.allSettled(
           replacementConfirmationNotices.map((notice) =>

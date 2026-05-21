@@ -13,7 +13,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect } from "@react-navigation/native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
 import BottomQuickActionsBar, {
   BOTTOM_QUICK_ACTIONS_SPACE,
@@ -23,6 +23,7 @@ import LeagueHeaderCard from "../components/LeagueHeaderCard";
 import SectionHeader from "../components/SectionHeader";
 import { colors, spacing } from "../config/theme";
 import { useAuth } from "../context/AuthContext";
+import { sendChatMessage } from "../services/chatService";
 import {
   canManageLeague,
   getLeagueById,
@@ -135,6 +136,7 @@ function buildGuestLeaguePlayer(name, sideOverride = "", pairNumber = null, last
 
 export default function LeaguePlayersScreen({ navigation, route }) {
   const { userData } = useAuth();
+  const insets = useSafeAreaInsets();
   const leagueId = route?.params?.leagueId || "";
   const fallbackLeagueName = route?.params?.leagueName || "Liga";
   const [league, setLeague] = useState(null);
@@ -263,6 +265,45 @@ export default function LeaguePlayersScreen({ navigation, route }) {
   const revesCount = leaguePlayers.filter((player) => player.ladoJuego === "reves").length;
   const pendingRegistrationRequests = registrationRequests.filter(
     (request) => request.status === "pending"
+  );
+  const registeredPlayersById = useMemo(
+    () =>
+      registeredPlayers.reduce((accumulator, player) => {
+        if (player?.id) {
+          accumulator[normalizeText(player.id)] = player;
+        }
+        return accumulator;
+      }, {}),
+    [registeredPlayers]
+  );
+
+  const getRegisteredProfileForPlayer = useCallback(
+    (player = {}) => {
+      const playerKey = normalizeText(player.linkedUserId || player.id || "");
+
+      if (!playerKey) {
+        return null;
+      }
+
+      return registeredPlayersById[playerKey] || null;
+    },
+    [registeredPlayersById]
+  );
+
+  const handleOpenPlayerProfile = useCallback(
+    (player = {}) => {
+      const registeredProfile = getRegisteredProfileForPlayer(player);
+
+      if (!registeredProfile) {
+        return;
+      }
+
+      navigation.navigate("PlayerDetail", {
+        player: registeredProfile,
+        playerId: registeredProfile.id,
+      });
+    },
+    [getRegisteredProfileForPlayer, navigation]
   );
 
   const filteredRegisteredPlayers = useMemo(() => {
@@ -569,8 +610,11 @@ export default function LeaguePlayersScreen({ navigation, route }) {
   };
 
   const renderPlayerAvatar = (player, style) => {
-    if (player?.foto) {
-      return <Image source={{ uri: player.foto }} style={[styles.playerAvatar, style]} />;
+    const registeredProfile = getRegisteredProfileForPlayer(player);
+    const photoUri = registeredProfile?.foto || player?.foto || "";
+
+    if (photoUri) {
+      return <Image source={{ uri: photoUri }} style={[styles.playerAvatar, style]} />;
     }
 
     return (
@@ -580,15 +624,27 @@ export default function LeaguePlayersScreen({ navigation, route }) {
     );
   };
 
-  const renderLeaguePlayer = ({ item, index }) => (
-    <View style={styles.leaguePlayerCard}>
+  const renderLeaguePlayer = ({ item, index }) => {
+    const hasProfile = Boolean(getRegisteredProfileForPlayer(item));
+
+    return (
+    <Pressable
+      disabled={!hasProfile}
+      onPress={() => handleOpenPlayerProfile(item)}
+      style={({ pressed }) => [
+        styles.leaguePlayerCard,
+        pressed && hasProfile ? styles.profilePressablePressed : null,
+      ]}
+    >
       <View style={styles.leaguePlayerHeader}>
         <View style={styles.playerIdentity}>
-          <View style={[styles.playerTypeDot, item.type === "guest" ? styles.playerTypeDotGuest : null]} />
+          {renderPlayerAvatar(item, styles.leaguePlayerAvatar)}
           <View style={styles.playerCopy}>
             <Text style={styles.playerName}>{formatPlayerShortName(item)}</Text>
             <Text style={styles.playerMeta}>
-              {item.type === "registered" ? "Jugador registrado" : "Solo visible en esta liga"}
+              {item.type === "registered"
+                ? "Toca para ver perfil"
+                : "Solo visible en esta liga"}
             </Text>
           </View>
         </View>
@@ -597,9 +653,10 @@ export default function LeaguePlayersScreen({ navigation, route }) {
           {item.type === "guest" ? (
             <Pressable
               disabled={saving}
-              onPress={() =>
+              onPress={(event) => {
+                event.stopPropagation?.();
                 setReplacementTargetId((current) => (current === item.id ? "" : item.id))
-              }
+              }}
               style={({ pressed }) => [
                 styles.smallActionButton,
                 replacementTargetId === item.id ? styles.smallActionButtonPrimary : null,
@@ -615,7 +672,10 @@ export default function LeaguePlayersScreen({ navigation, route }) {
           ) : null}
           <Pressable
             disabled={saving}
-            onPress={() => handleRemovePlayer(item.id)}
+            onPress={(event) => {
+              event.stopPropagation?.();
+              handleRemovePlayer(item.id);
+            }}
             style={({ pressed }) => [
               styles.smallActionButton,
               styles.smallActionButtonDanger,
@@ -662,8 +722,9 @@ export default function LeaguePlayersScreen({ navigation, route }) {
           Selecciona abajo un jugador registrado para reemplazar este nombre manual.
         </Text>
       ) : null}
-    </View>
-  );
+    </Pressable>
+    );
+  };
 
   const renderRegisteredPlayer = ({ item }) => {
     const alreadyAdded = leaguePlayers.some(
@@ -672,13 +733,21 @@ export default function LeaguePlayersScreen({ navigation, route }) {
 
     return (
       <View style={styles.searchPlayerCard}>
-        {renderPlayerAvatar(item, styles.searchPlayerAvatar)}
-        <View style={styles.searchPlayerCopy}>
+        <Pressable
+          onPress={() => handleOpenPlayerProfile(item)}
+          style={({ pressed }) => [
+            styles.searchPlayerProfileArea,
+            pressed ? styles.profilePressablePressed : null,
+          ]}
+        >
+          {renderPlayerAvatar(item, styles.searchPlayerAvatar)}
+          <View style={styles.searchPlayerCopy}>
           <Text style={styles.searchPlayerName}>{formatPlayerFullName(item)}</Text>
           <Text style={styles.searchPlayerMeta}>
             {item.categoria} - {item.ciudad}
           </Text>
-        </View>
+          </View>
+        </Pressable>
         <Pressable
           disabled={saving || (alreadyAdded && !replacementTargetId)}
           onPress={() => handleAddRegisteredPlayer(item)}
@@ -723,21 +792,35 @@ export default function LeaguePlayersScreen({ navigation, route }) {
 
         {isExpanded ? (
           <>
-            {pairPlayers.map((player, index) => (
-              <View key={player.id} style={styles.pairSlotRow}>
+            {pairPlayers.map((player, index) => {
+              const hasProfile = Boolean(getRegisteredProfileForPlayer(player));
+
+              return (
+              <Pressable
+                disabled={!hasProfile}
+                key={player.id}
+                onPress={() => handleOpenPlayerProfile(player)}
+                style={({ pressed }) => [
+                  styles.pairSlotRow,
+                  pressed && hasProfile ? styles.profilePressablePressed : null,
+                ]}
+              >
                 {renderPlayerAvatar(player, styles.pairPlayerAvatar)}
                 <View style={styles.pairSlotCopy}>
                   <Text style={styles.playerName}>{formatPlayerShortName(player)}</Text>
                   <Text style={styles.playerMeta}>
-                    {player.type === "registered" ? "Jugador registrado" : "Solo visible en esta liga"}
+                    {player.type === "registered"
+                      ? "Toca para ver perfil"
+                      : "Solo visible en esta liga"}
                   </Text>
                 </View>
                 {player.type === "guest" ? (
                   <Pressable
                     disabled={saving}
-                    onPress={() =>
+                    onPress={(event) => {
+                      event.stopPropagation?.();
                       setReplacementTargetId((current) => (current === player.id ? "" : player.id))
-                    }
+                    }}
                     style={({ pressed }) => [
                       styles.smallActionButton,
                       replacementTargetId === player.id ? styles.smallActionButtonPrimary : null,
@@ -753,7 +836,10 @@ export default function LeaguePlayersScreen({ navigation, route }) {
                 ) : null}
                 <Pressable
                   disabled={saving}
-                  onPress={() => handleRemovePlayer(player.id)}
+                  onPress={(event) => {
+                    event.stopPropagation?.();
+                    handleRemovePlayer(player.id);
+                  }}
                   style={({ pressed }) => [
                     styles.smallActionButton,
                     styles.smallActionButtonDanger,
@@ -762,8 +848,9 @@ export default function LeaguePlayersScreen({ navigation, route }) {
                 >
                   <Ionicons color={colors.danger} name="trash-outline" size={15} />
                 </Pressable>
-              </View>
-            ))}
+              </Pressable>
+              );
+            })}
 
             {Array.from({ length: freeSlots }, (_, index) => (
               <View key={`free-${item.pairNumber}-${index}`} style={styles.pairSlotRow}>
@@ -780,14 +867,26 @@ export default function LeaguePlayersScreen({ navigation, route }) {
         ) : (
           <View style={styles.collapsedPairPlayers}>
             {pairPlayers.length > 0 ? (
-              pairPlayers.map((player) => (
-                <View key={player.id} style={styles.collapsedPairPlayer}>
+              pairPlayers.map((player) => {
+                const hasProfile = Boolean(getRegisteredProfileForPlayer(player));
+
+                return (
+                <Pressable
+                  disabled={!hasProfile}
+                  key={player.id}
+                  onPress={() => handleOpenPlayerProfile(player)}
+                  style={({ pressed }) => [
+                    styles.collapsedPairPlayer,
+                    pressed && hasProfile ? styles.profilePressablePressed : null,
+                  ]}
+                >
                   {renderPlayerAvatar(player, styles.collapsedPlayerAvatar)}
                   <Text numberOfLines={1} style={styles.collapsedPairPlayerName}>
                     {formatPlayerShortName(player)}
                   </Text>
-                </View>
-              ))
+                </Pressable>
+                );
+              })
             ) : (
               <Text style={styles.collapsedPairEmpty}>Sin jugadores asignados</Text>
             )}
@@ -839,17 +938,29 @@ export default function LeaguePlayersScreen({ navigation, route }) {
           </Pressable>
         </View>
 
-        {pairPlayers.map((player) => (
-          <View key={player.id} style={styles.pairSlotRow}>
+        {pairPlayers.map((player) => {
+          const hasProfile = Boolean(getRegisteredProfileForPlayer(player));
+
+          return (
+          <Pressable
+            disabled={!hasProfile}
+            key={player.id}
+            onPress={() => handleOpenPlayerProfile(player)}
+            style={({ pressed }) => [
+              styles.pairSlotRow,
+              pressed && hasProfile ? styles.profilePressablePressed : null,
+            ]}
+          >
             {renderPlayerAvatar(player, styles.pairPlayerAvatar)}
             <View style={styles.pairSlotCopy}>
               <Text style={styles.playerName}>{formatPlayerShortName(player)}</Text>
               <Text style={styles.playerMeta}>
-                {player.type === "registered" ? "Jugador registrado" : "Solo visible en esta liga"}
+                {player.type === "registered" ? "Toca para ver perfil" : "Solo visible en esta liga"}
               </Text>
             </View>
-          </View>
-        ))}
+          </Pressable>
+          );
+        })}
 
         {Array.from({ length: freeSlots }, (_, index) => (
           <Pressable
@@ -896,6 +1007,27 @@ export default function LeaguePlayersScreen({ navigation, route }) {
     pairNumber: normalizePairNumber(pairNumber),
   });
 
+  const notifyLeagueRegistrationConfirmed = async (request) => {
+    const organizerId = userData?.uid || "";
+    const organizerName = userData?.name || "Organizador";
+    const leagueName = league?.nombre || fallbackLeagueName || "la liga";
+    const contacts = [request.requester, request.partner].filter(
+      (player) => player?.linkedUserId || player?.id
+    );
+
+    await Promise.all(
+      contacts.map((player) =>
+        sendChatMessage({
+          currentUserId: organizerId,
+          currentUserName: organizerName,
+          otherUserId: player.linkedUserId || player.id,
+          otherUserName: formatPlayerShortName(player),
+          text: `Tu inscripcion a ${leagueName} fue confirmada por el organizador.`,
+        }).catch(() => null)
+      )
+    );
+  };
+
   const handleConfirmRegistrationRequest = async (request) => {
     if (!league || saving) {
       return;
@@ -918,6 +1050,7 @@ export default function LeaguePlayersScreen({ navigation, route }) {
       const nextPlayers = [...leaguePlayers, ...playersToAdd];
       await updateLeaguePlayers(league.id, nextPlayers);
       await updateLeagueRegistrationRequestStatus(request.id, "confirmed");
+      await notifyLeagueRegistrationConfirmed(request);
       setLeague((current) => ({ ...current, players: nextPlayers }));
       setRegistrationRequests((current) =>
         current.map((item) => (item.id === request.id ? { ...item, status: "confirmed" } : item))
@@ -992,8 +1125,20 @@ export default function LeaguePlayersScreen({ navigation, route }) {
         {canManage && pendingRegistrationRequests.length ? (
           <View style={styles.requestsCard}>
             <Text style={styles.requestsTitle}>Solicitudes de inscripcion</Text>
-            {pendingRegistrationRequests.map((request) => (
-              <View key={request.id} style={styles.requestRow}>
+            {pendingRegistrationRequests.map((request) => {
+              const requesterHasProfile = Boolean(getRegisteredProfileForPlayer(request.requester));
+
+              return (
+              <Pressable
+                disabled={!requesterHasProfile}
+                key={request.id}
+                onPress={() => handleOpenPlayerProfile(request.requester)}
+                style={({ pressed }) => [
+                  styles.requestRow,
+                  pressed && requesterHasProfile ? styles.profilePressablePressed : null,
+                ]}
+              >
+                {renderPlayerAvatar(request.requester, styles.requestPlayerAvatar)}
                 <View style={styles.requestCopy}>
                   <Text numberOfLines={1} style={styles.requestName}>
                     {formatPlayerShortName(request.requester)}
@@ -1001,12 +1146,16 @@ export default function LeaguePlayersScreen({ navigation, route }) {
                   </Text>
                   <Text style={styles.requestMeta}>
                     {request.teamType === "pair" ? "Pareja fija" : "Individual"}
+                    {requesterHasProfile ? " - Toca para ver perfil" : ""}
                   </Text>
                 </View>
                 <View style={styles.requestActions}>
                   <Pressable
                     disabled={saving}
-                    onPress={() => handleRejectRegistrationRequest(request)}
+                    onPress={(event) => {
+                      event.stopPropagation?.();
+                      handleRejectRegistrationRequest(request);
+                    }}
                     style={({ pressed }) => [
                       styles.requestRejectButton,
                       pressed && !saving ? styles.smallActionButtonPressed : null,
@@ -1016,7 +1165,10 @@ export default function LeaguePlayersScreen({ navigation, route }) {
                   </Pressable>
                   <Pressable
                     disabled={saving}
-                    onPress={() => handleConfirmRegistrationRequest(request)}
+                    onPress={(event) => {
+                      event.stopPropagation?.();
+                      handleConfirmRegistrationRequest(request);
+                    }}
                     style={({ pressed }) => [
                       styles.requestAcceptButton,
                       pressed && !saving ? styles.smallActionButtonPressed : null,
@@ -1025,8 +1177,9 @@ export default function LeaguePlayersScreen({ navigation, route }) {
                     <Text style={styles.requestAcceptText}>Aceptar</Text>
                   </Pressable>
                 </View>
-              </View>
-            ))}
+              </Pressable>
+              );
+            })}
           </View>
         ) : null}
 
@@ -1176,7 +1329,7 @@ export default function LeaguePlayersScreen({ navigation, route }) {
         transparent
         visible={sidePickerVisible}
       >
-        <View style={styles.modalOverlay}>
+        <View style={styles.sidePickerOverlay}>
           <Pressable
             onPress={() => {
               setSidePickerVisible(false);
@@ -1185,7 +1338,12 @@ export default function LeaguePlayersScreen({ navigation, route }) {
             }}
             style={styles.modalBackdrop}
           />
-          <View style={styles.modalCard}>
+          <View
+            style={[
+              styles.sidePickerCard,
+              { marginBottom: Math.max(insets.bottom, 0) },
+            ]}
+          >
             <Text style={styles.modalTitle}>Tipo de jugador en esta liga</Text>
             <Text style={styles.modalText}>
               Selecciona si entra como Drive o Reves. En esta liga va a valer esta asignacion.
@@ -1365,6 +1523,9 @@ const styles = StyleSheet.create({
   requestCopy: {
     flex: 1,
   },
+  requestPlayerAvatar: {
+    marginRight: 2,
+  },
   requestName: {
     color: colors.text,
     fontSize: 13,
@@ -1482,6 +1643,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: 7,
   },
+  searchPlayerProfileArea: {
+    alignItems: "center",
+    flex: 1,
+    flexDirection: "row",
+    minWidth: 0,
+  },
   searchPlayerAvatar: {
     marginRight: spacing.sm,
   },
@@ -1545,6 +1712,12 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: "row",
     paddingRight: spacing.sm,
+  },
+  leaguePlayerAvatar: {
+    marginRight: spacing.sm,
+  },
+  profilePressablePressed: {
+    opacity: 0.9,
   },
   playerTypeDot: {
     backgroundColor: colors.primaryDark,
@@ -1792,6 +1965,12 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     justifyContent: "flex-end",
   },
+  sidePickerOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: spacing.lg,
+  },
   modalBackdrop: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: colors.overlay,
@@ -1804,6 +1983,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.md,
     paddingBottom: spacing.xl,
+  },
+  sidePickerCard: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 24,
+    borderWidth: 1,
+    padding: spacing.lg,
+    width: "100%",
   },
   modalTitle: {
     color: colors.text,

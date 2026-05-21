@@ -31,6 +31,11 @@ import {
   isPendingOrganizer,
 } from "../services/roleService";
 import { registerForPushNotificationsAsync } from "../services/pushNotificationsService";
+import {
+  clearGoogleSignInSession,
+  requestGoogleIdToken,
+  requestGoogleIdTokenSilently,
+} from "../services/googleSignInService";
 
 const AuthContext = createContext(null);
 const LAST_LOGIN_EMAIL_KEY = "@padelnexo:last-login-email";
@@ -49,21 +54,17 @@ const FALLBACK_PROFILE = {
   avatarUrl: "",
   organizerLogoUrl: "",
   avatarColor: undefined,
-  city: "Buenos Aires",
-  province: "Buenos Aires",
-  localidad: {
-    nombre: "Buenos Aires",
-    provincia: "Buenos Aires",
-    pais: "Argentina",
-  },
+  city: "",
+  province: "",
+  localidad: null,
   role: "user",
   organizerStatus: "none",
   availability: {},
   availabilityDays: [],
   complejos: [],
   location: {
-    ciudad: "Buenos Aires",
-    provincia: "Buenos Aires",
+    ciudad: "",
+    provincia: "",
     pais: "Argentina",
     lat: null,
     lng: null,
@@ -155,6 +156,7 @@ export function AuthProvider({ children }) {
   const [userData, setUserData] = useState(null);
   const [lastLoginEmail, setLastLoginEmail] = useState("");
   const [loading, setLoading] = useState(true);
+  const [initializing, setInitializing] = useState(true);
   const lastRegisteredPushUidRef = useRef("");
 
   const persistLastLoginEmail = async (email) => {
@@ -185,12 +187,15 @@ export function AuthProvider({ children }) {
   }, []);
 
   useEffect(() => {
+    let isMounted = true;
+
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       setUser(firebaseUser);
 
       if (!firebaseUser) {
         setUserData(null);
         setLoading(false);
+        setInitializing(false);
         return;
       }
 
@@ -230,10 +235,16 @@ export function AuthProvider({ children }) {
         );
       } finally {
         setLoading(false);
+        if (isMounted) {
+          setInitializing(false);
+        }
       }
     });
 
-    return unsubscribe;
+    return () => {
+      isMounted = false;
+      unsubscribe();
+    };
   }, []);
 
   useEffect(() => {
@@ -255,6 +266,7 @@ export function AuthProvider({ children }) {
       userData,
       lastLoginEmail,
       loading,
+      initializing,
       register: async (payload) => {
         setLoading(true);
 
@@ -410,8 +422,17 @@ export function AuthProvider({ children }) {
         try {
           const uid = auth.currentUser.uid;
           await hideUserProfile(uid);
-          await deleteCurrentUserAccount();
+          await deleteCurrentUserAccount(async () => {
+            const silentToken = await requestGoogleIdTokenSilently();
+
+            if (silentToken) {
+              return silentToken;
+            }
+
+            return requestGoogleIdToken({ forceAccountSelection: false });
+          });
           await deleteUserProfileData(uid);
+          await clearGoogleSignInSession();
           setUser(null);
           setUserData(null);
         } catch (error) {
@@ -494,7 +515,7 @@ export function AuthProvider({ children }) {
       canAccessOrganizerFeatures: () => isApprovedOrganizer(userData),
       getOrganizerAccessMessage: () => getOrganizerRestrictionMessage(userData),
     }),
-    [lastLoginEmail, loading, user, userData]
+    [initializing, lastLoginEmail, loading, user, userData]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

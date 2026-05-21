@@ -14,6 +14,7 @@ function MiniBall({ style }) {
 
 export default function SectionHeader({ children, onBack, subtitle }) {
   const sectionTitle = String(subtitle || "").toUpperCase();
+  const isLongTitle = sectionTitle.length > 12;
 
   return (
     <View style={styles.wrap}>
@@ -37,7 +38,12 @@ export default function SectionHeader({ children, onBack, subtitle }) {
           <View style={styles.backButtonPlaceholder} />
         )}
 
-        <Text numberOfLines={1} style={styles.sectionTitle}>
+        <Text
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.72}
+          style={[styles.sectionTitle, isLongTitle ? styles.sectionTitleCompact : null]}
+        >
           {sectionTitle}
         </Text>
 
@@ -140,6 +146,10 @@ const styles = StyleSheet.create({
     textShadowColor: "rgba(29,139,69,0.16)",
     textShadowOffset: { width: 0, height: 0 },
     textShadowRadius: 5,
+  },
+  sectionTitleCompact: {
+    fontSize: 19,
+    letterSpacing: 0.4,
   },
   backButton: {
     alignItems: "center",

@@ -65,12 +65,12 @@ function buildOwnPlayerFromUser(userData) {
     nombre: userData.name || "Jugador",
     categoria: userData.category || "Iniciante",
     sexo: userData.sex || "Masculino",
-    ciudad: userData.localidad?.nombre || userData.city || "Buenos Aires",
+    ciudad: userData.localidad?.nombre || userData.city || "",
     provincia:
       userData.localidad?.provincia ||
       userData.province ||
       userData.location?.provincia ||
-      "Buenos Aires",
+      "",
     disponibilidad: "Tu perfil",
     disponibleHoy: isAvailableToday(availability),
     manoHabil: userData.manoHabil || "Derecha",

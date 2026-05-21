@@ -14,5 +14,5 @@ export function hasGoogleAuthConfig(platform = "android") {
     return Boolean(googleAuthConfig.webClientId);
   }
 
-  return Boolean(googleAuthConfig.androidClientId);
+  return Boolean(googleAuthConfig.webClientId);
 }

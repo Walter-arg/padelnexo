@@ -56,9 +56,6 @@ const TOURNAMENT_FINANCE_AREAS = [
   { key: "cash", label: "Caja de Torneos", icon: "cash-outline" },
 ];
 
-const FOUR_HOURS_MS = 4 * 60 * 60 * 1000;
-const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
-
 const REGISTRATION_FEE_OPTIONS = [
   { label: "Sin inscripcion", value: "no" },
   { label: "Con inscripcion", value: "yes" },
@@ -321,33 +318,17 @@ function getReminderStage(entry = {}, completedAtMillis = 0, now = Date.now()) {
     return null;
   }
 
-  const elapsed = now - completedAtMillis;
-
-  if (elapsed >= TWENTY_FOUR_HOURS_MS && !entry.reminder24hSentAtMillis) {
-    return {
-      key: "24h",
-      label: "24 hs",
-      field: "reminder24hSentAtMillis",
-      byField: "reminder24hSentBy",
-      byNameField: "reminder24hSentByName",
-    };
-  }
-
-  if (elapsed >= FOUR_HOURS_MS && !entry.reminder4hSentAtMillis) {
-    return {
-      key: "4h",
-      label: "4 hs",
-      field: "reminder4hSentAtMillis",
-      byField: "reminder4hSentBy",
-      byNameField: "reminder4hSentByName",
-    };
-  }
-
-  return null;
+  return {
+    key: "manual",
+    label: "Manual",
+    field: "reminder4hSentAtMillis",
+    byField: "reminder4hSentBy",
+    byNameField: "reminder4hSentByName",
+  };
 }
 
-function buildReminderMessage({ leagueName, roundTitle, playerName, stageLabel }) {
-  return `Hola ${playerName}. Te recordamos que sigue pendiente el pago de ${roundTitle} en ${leagueName}. Recordatorio ${stageLabel}.`;
+function buildReminderMessage({ leagueName, roundTitle, playerName }) {
+  return `Hola ${playerName}. Te recordamos que sigue pendiente el pago de ${roundTitle} en ${leagueName}.`;
 }
 
 function getTournamentFinanceStatusLabel(status = "") {
@@ -1352,7 +1333,6 @@ export default function FinanzasScreen({ navigation }) {
           leagueName: item.league?.nombre || "Liga",
           roundTitle: item.round?.title || "Fecha",
           playerName: item.playerName,
-          stageLabel: item.stage.label,
         }),
       });
 
@@ -1363,7 +1343,7 @@ export default function FinanzasScreen({ navigation }) {
           playerUserId: item.playerUserId,
           roundId: item.round?.roundId || "",
           roundTitle: item.round?.title || "Fecha",
-          stageLabel: item.stage.label,
+          stageLabel: "Manual",
         });
       } catch (pushError) {
         console.log("[FinanzasScreen] No se pudo enviar push:", pushError?.message || pushError);
@@ -1403,7 +1383,7 @@ export default function FinanzasScreen({ navigation }) {
       );
       showFeedback(
         "Recordatorio enviado",
-        `Se envio el recordatorio de ${item.stage.label} a ${item.playerName}.`,
+        `Se envio el recordatorio a ${item.playerName}.`,
         "success"
       );
     } catch (error) {
@@ -1975,8 +1955,8 @@ export default function FinanzasScreen({ navigation }) {
                   </View>
 
                   <Text style={styles.helperText}>
-                    Se calculan sobre partidos jugados. Si pasaron 4 hs o 24 hs desde que se cargo
-                    el ganador y el jugador sigue impago, podes enviar el recordatorio manualmente.
+                    Aca aparecen los jugadores con pagos pendientes de fechas ya jugadas. El envio
+                    del recordatorio es siempre manual.
                   </Text>
 
                   {loadingLeagues ? (
@@ -1990,7 +1970,7 @@ export default function FinanzasScreen({ navigation }) {
                     <View style={styles.emptyBox}>
                       <Text style={styles.emptyTitle}>Sin recordatorios pendientes</Text>
                       <Text style={styles.emptyText}>
-                        Cuando una fecha finalizada tenga pagos pendientes vencidos, apareceran aca.
+                        Cuando una fecha jugada tenga pagos pendientes, apareceran aca.
                       </Text>
                     </View>
                   ) : null}

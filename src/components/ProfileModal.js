@@ -46,7 +46,7 @@ const defaultProfile = {
   countryCode: "+54",
   phoneCountry: "Argentina",
   isPhonePublic: false,
-  city: "Buenos Aires",
+  city: "",
   category: "Iniciante",
   sex: "Masculino",
   ladoJuego: "ambos",
@@ -386,7 +386,10 @@ export default function ProfileModal({
             <View style={styles.handle} />
             <Text style={styles.title}>Tu perfil</Text>
 
-            <ScrollView showsVerticalScrollIndicator={false}>
+            <ScrollView
+              contentContainerStyle={styles.scrollContent}
+              showsVerticalScrollIndicator={false}
+            >
               <View style={styles.avatarSection}>
                 <AvatarBadge
                   color={profile.avatarColor}
@@ -853,6 +856,9 @@ const styles = StyleSheet.create({
     paddingTop: spacing.md,
     paddingBottom: spacing.lg,
   },
+  scrollContent: {
+    paddingBottom: spacing.xl + 36,
+  },
   handle: {
     alignSelf: "center",
     backgroundColor: colors.border,
@@ -1151,7 +1157,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     alignSelf: "stretch",
     justifyContent: "center",
-    marginBottom: spacing.xs,
+    marginBottom: spacing.lg,
     marginTop: 6,
     width: "100%",
   },

@@ -38,9 +38,9 @@ import { storage } from "../../services/firebaseConfig";
 const STATUS_META = {
   pendiente: {
     label: "Impago",
-    tint: "#FFF4F4",
-    border: "#E4B8B8",
-    accent: "#B24343",
+    tint: "#F8FBF9",
+    border: "#DDE8E2",
+    accent: "#D26A2C",
   },
   informo_transferencia: {
     label: "Verificar pago",
@@ -58,7 +58,7 @@ const STATUS_META = {
 
 const PAYMENT_METHOD_OPTIONS = [
   { key: "efectivo", label: "Efectivo" },
-  { key: "cuenta_corriente", label: "Cuenta corriente" },
+  { key: "transferencia", label: "Transferencia" },
 ];
 
 function isPdfProof(entryOrAsset = {}) {
@@ -176,12 +176,11 @@ function getPaymentAmountSummary(entries = [], amountPerEntry = 0) {
       if (entry.paymentStatus === "pagado" && entry.paymentMethod === "efectivo") {
         summary.cash += amount;
       } else if (
-        (entry.paymentStatus === "pagado" && entry.paymentMethod === "transferencia") ||
+        (entry.paymentStatus === "pagado" &&
+          (entry.paymentMethod === "transferencia" || entry.paymentMethod === "cuenta_corriente")) ||
         entry.paymentStatus === "informo_transferencia"
       ) {
         summary.transfer += amount;
-      } else if (entry.paymentStatus === "pagado" && entry.paymentMethod === "cuenta_corriente") {
-        summary.account += amount;
       } else if (entry.paymentStatus !== "pagado" && Number(entry.completedAtMillis || 0) > 0) {
         summary.pending += amount;
       }
@@ -196,7 +195,6 @@ function getPaymentAmountSummaryItems(summary = {}) {
   return [
     { key: "cash", label: "Efectivo", value: summary.cash || 0 },
     { key: "transfer", label: "Transferencia", value: summary.transfer || 0 },
-    { key: "account", label: "Cuenta corriente", value: summary.account || 0 },
     { key: "pending", label: "Impagos", value: summary.pending || 0 },
   ];
 }
@@ -922,7 +920,7 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
         ? entry.paymentMethod === "efectivo"
           ? "Efectivo"
           : entry.paymentMethod === "cuenta_corriente"
-          ? "Cuenta corriente"
+          ? "Transferencia"
           : entry.paymentMethod === "transferencia"
           ? "Transferencia"
           : "Sin medio"
@@ -1205,7 +1203,7 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
                         ? entry.paymentMethod === "efectivo"
                           ? "Efectivo"
                           : entry.paymentMethod === "cuenta_corriente"
-                          ? "Cuenta corriente"
+                          ? "Transferencia"
                           : entry.paymentMethod === "transferencia"
                           ? "Transferencia"
                           : "Sin medio"
@@ -2015,8 +2013,8 @@ const styles = StyleSheet.create({
     borderColor: "#E5D07F",
   },
   inlineCounterDanger: {
-    backgroundColor: "#FFF4F4",
-    borderColor: "#E4B8B8",
+    backgroundColor: "#FFF4E8",
+    borderColor: "#F2C997",
   },
   inlineCounterText: {
     color: colors.text,
@@ -2075,8 +2073,8 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.xs,
   },
   amountSummaryItemDanger: {
-    backgroundColor: "#FFF4F4",
-    borderColor: "#E4B8B8",
+    backgroundColor: "#FFF4E8",
+    borderColor: "#F2C997",
   },
   amountSummaryLabel: {
     color: colors.textMuted,
@@ -2091,7 +2089,7 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   amountSummaryValueDanger: {
-    color: "#B24343",
+    color: "#C8581F",
   },
   entryRow: {
     minHeight: 58,
@@ -2192,7 +2190,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   quickPaidButtonPending: {
-    backgroundColor: "#D71920",
+    backgroundColor: "#D26A2C",
   },
   quickPaidButtonTransfer: {
     backgroundColor: "#B77905",

@@ -1,13 +1,17 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { useNavigation } from "@react-navigation/native";
+import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { colors, spacing } from "../config/theme";
 import { useAuth } from "../context/AuthContext";
 import { subscribeToUnreadMessageSummary } from "../services/chatService";
 import { subscribeToUnreadInvitationsCount } from "../services/invitationsService";
+import {
+  getOrganizerRegistrationsSummary,
+  subscribeToOrganizerReplacementCount,
+} from "../services/organizerTasksService";
 import { isApprovedOrganizer } from "../services/roleService";
 
 export const BOTTOM_QUICK_ACTIONS_SPACE = 108;
@@ -57,6 +61,8 @@ export default function BottomQuickActionsBar() {
   const { userData } = useAuth();
   const [unreadSummary, setUnreadSummary] = useState({ count: 0, hasImportant: false });
   const [unreadInvitationsCount, setUnreadInvitationsCount] = useState(0);
+  const [pendingReplacementsCount, setPendingReplacementsCount] = useState(0);
+  const [pendingRegistrationsCount, setPendingRegistrationsCount] = useState(0);
   const isOrganizer = isApprovedOrganizer(userData);
 
   useEffect(() => {
@@ -78,6 +84,52 @@ export default function BottomQuickActionsBar() {
 
     return unsubscribe;
   }, [userData?.uid]);
+
+  useEffect(() => {
+    if (!isOrganizer) {
+      setPendingReplacementsCount(0);
+      return () => {};
+    }
+
+    const unsubscribe = subscribeToOrganizerReplacementCount({
+      organizerId: userData?.uid,
+      onData: setPendingReplacementsCount,
+      onError: () => setPendingReplacementsCount(0),
+    });
+
+    return unsubscribe;
+  }, [isOrganizer, userData?.uid]);
+
+  useFocusEffect(
+    useCallback(() => {
+      let isActive = true;
+
+      const syncRegistrations = async () => {
+        if (!isOrganizer || !userData?.uid) {
+          setPendingRegistrationsCount(0);
+          return;
+        }
+
+        try {
+          const summary = await getOrganizerRegistrationsSummary(userData.uid);
+
+          if (isActive) {
+            setPendingRegistrationsCount(summary.count);
+          }
+        } catch (error) {
+          if (isActive) {
+            setPendingRegistrationsCount(0);
+          }
+        }
+      };
+
+      syncRegistrations();
+
+      return () => {
+        isActive = false;
+      };
+    }, [isOrganizer, userData?.uid])
+  );
 
   if (!userData?.uid) {
     return null;
@@ -122,7 +174,25 @@ export default function BottomQuickActionsBar() {
             renderIcon={() => (
               <View style={styles.composedIconWrap}>
                 <Ionicons color="#1E7A43" name="swap-horizontal-outline" size={21} />
-                <Ionicons color="#FF8A00" name="alert-circle" size={12} style={styles.timeIcon} />
+                {pendingReplacementsCount > 0 ? (
+                  <Ionicons color="#FF8A00" name="alert-circle" size={12} style={styles.timeIcon} />
+                ) : null}
+              </View>
+            )}
+            showBadge={pendingReplacementsCount > 0}
+            badgeTone="important"
+          />
+        ) : null}
+        {isOrganizer ? (
+          <QuickActionButton
+            label="Notificaciones"
+            onPress={() => navigation.navigate("OrganizerRegistrations")}
+            renderIcon={() => (
+              <View style={styles.composedIconWrap}>
+                <Ionicons color="#2D5E97" name="clipboard-outline" size={20} />
+                {pendingRegistrationsCount > 0 ? (
+                  <Ionicons color="#FF8A00" name="alert-circle" size={12} style={styles.timeIcon} />
+                ) : null}
               </View>
             )}
           />

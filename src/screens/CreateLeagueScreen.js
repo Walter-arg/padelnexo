@@ -148,6 +148,7 @@ function buildInitialForm(userData) {
     replacementPenalty: hasLeagueDefaults ? String(defaults.replacementPenalty) : "",
     replacementPenaltyMode: defaults.replacementPenaltyMode || "individual",
     replacementQuota: hasLeagueDefaults ? String(defaults.replacementQuota || 0) : "",
+    publishReplacementRequests: defaults.publishReplacementRequests === true,
   };
 }
 
@@ -171,6 +172,7 @@ function buildFormFromLeague(league, userData) {
     replacementPenalty: league?.scoringSettings?.replacementPenalty,
     replacementPenaltyMode: league?.scoringSettings?.replacementPenaltyMode,
     replacementQuota: league?.scoringSettings?.replacementQuota,
+    publishReplacementRequests: league?.scoringSettings?.publishReplacementRequests,
   });
   const paymentDefaults = normalizePaymentDefaults(userData?.leaguePaymentDefaults || {});
   const leagueRoundPrice = Number.parseFloat(
@@ -217,6 +219,7 @@ function buildFormFromLeague(league, userData) {
     replacementPenalty: String(defaults.replacementPenalty),
     replacementPenaltyMode: defaults.replacementPenaltyMode || "individual",
     replacementQuota: String(defaults.replacementQuota || 0),
+    publishReplacementRequests: defaults.publishReplacementRequests === true,
   };
 }
 
@@ -893,6 +896,7 @@ export default function CreateLeagueScreen({ navigation, route }) {
         replacementPenalty: form.replacementPenalty,
         replacementPenaltyMode: form.replacementPenaltyMode,
         replacementQuota: form.replacementQuota || "0",
+        publishReplacementRequests: form.publishReplacementRequests === true,
       };
 
       if (isEditing) {
@@ -926,6 +930,7 @@ export default function CreateLeagueScreen({ navigation, route }) {
             replacementPenalty: form.replacementPenalty,
             replacementPenaltyMode: form.replacementPenaltyMode,
             replacementQuota: form.replacementQuota || "0",
+            publishReplacementRequests: form.publishReplacementRequests === true,
           }),
           leaguePaymentDefaults: buildPaymentDefaultsFromForm(form),
         });
@@ -1008,6 +1013,7 @@ export default function CreateLeagueScreen({ navigation, route }) {
           replacementPenalty: form.replacementPenalty,
           replacementPenaltyMode: form.replacementPenaltyMode,
           replacementQuota: form.replacementQuota || "0",
+          publishReplacementRequests: form.publishReplacementRequests === true,
         }),
       });
 
@@ -1691,6 +1697,30 @@ export default function CreateLeagueScreen({ navigation, route }) {
                 <Text style={styles.replacementModeHint}>
                   Cantidad de reemplazos permitidos sin aplicar descuento de puntaje.
                 </Text>
+                <View style={styles.publishReplacementRow}>
+                  <View style={styles.publishReplacementCopy}>
+                    <Text style={styles.publishReplacementTitle}>Publicar pedidos de remplazo</Text>
+                    <Text style={styles.publishReplacementText}>
+                      Si esta activo, los jugadores veran "REMPLAZO DISPONIBLE" en ligas y podran postularse.
+                    </Text>
+                  </View>
+                  <Pressable
+                    onPress={() =>
+                      updateField("publishReplacementRequests", !form.publishReplacementRequests)
+                    }
+                    style={[
+                      styles.publishReplacementToggle,
+                      form.publishReplacementRequests ? styles.publishReplacementToggleActive : null,
+                    ]}
+                  >
+                    <View
+                      style={[
+                        styles.publishReplacementKnob,
+                        form.publishReplacementRequests ? styles.publishReplacementKnobActive : null,
+                      ]}
+                    />
+                  </Pressable>
+                </View>
               </View>
 
               <View style={styles.modalActions}>
@@ -2082,6 +2112,54 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     lineHeight: 17,
     marginTop: spacing.xs,
+  },
+  publishReplacementRow: {
+    alignItems: "center",
+    backgroundColor: "#F6FBF8",
+    borderColor: colors.border,
+    borderRadius: 16,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+    padding: spacing.sm,
+  },
+  publishReplacementCopy: {
+    flex: 1,
+  },
+  publishReplacementTitle: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  publishReplacementText: {
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: "700",
+    lineHeight: 16,
+    marginTop: 2,
+  },
+  publishReplacementToggle: {
+    alignItems: "center",
+    backgroundColor: "#DCE5E0",
+    borderRadius: 999,
+    height: 28,
+    justifyContent: "center",
+    paddingHorizontal: 3,
+    width: 50,
+  },
+  publishReplacementToggleActive: {
+    backgroundColor: colors.primary,
+  },
+  publishReplacementKnob: {
+    alignSelf: "flex-start",
+    backgroundColor: colors.surface,
+    borderRadius: 999,
+    height: 22,
+    width: 22,
+  },
+  publishReplacementKnobActive: {
+    alignSelf: "flex-end",
   },
   penaltyModeChip: {
     alignItems: "center",

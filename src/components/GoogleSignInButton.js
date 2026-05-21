@@ -1,13 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import * as Google from "expo-auth-session/providers/google";
-import * as WebBrowser from "expo-web-browser";
 
 import { colors, spacing } from "../config/theme";
-import { googleAuthConfig, hasGoogleAuthConfig } from "../config/googleAuth";
-
-WebBrowser.maybeCompleteAuthSession();
+import { hasGoogleAuthConfig } from "../config/googleAuth";
+import { configureGoogleSignIn, requestGoogleIdToken } from "../services/googleSignInService";
 
 export default function GoogleSignInButton({
   disabled = false,
@@ -16,49 +13,15 @@ export default function GoogleSignInButton({
   onError,
 }) {
   const [waitingForGoogle, setWaitingForGoogle] = useState(false);
-  const handledResponseRef = useRef("");
   const configured = hasGoogleAuthConfig(Platform.OS);
-  const fallbackClientId = "missing-google-client-id.apps.googleusercontent.com";
-  const [request, response, promptAsync] = Google.useIdTokenAuthRequest(
-    {
-      androidClientId: googleAuthConfig.androidClientId || fallbackClientId,
-      iosClientId: googleAuthConfig.iosClientId || fallbackClientId,
-      redirectUri: googleAuthConfig.redirectUri,
-      webClientId: googleAuthConfig.webClientId || fallbackClientId,
-      selectAccount: true,
-    },
-    {
-      scheme: "com.padelnexo.app",
-    }
-  );
 
   useEffect(() => {
-    if (!response) {
+    if (!configured) {
       return;
     }
 
-    const responseKey = `${response.type}-${response.url || ""}-${response.params?.id_token || ""}`;
-
-    if (handledResponseRef.current === responseKey) {
-      return;
-    }
-
-    handledResponseRef.current = responseKey;
-    setWaitingForGoogle(false);
-
-    if (response.type !== "success") {
-      return;
-    }
-
-    const idToken = response.params?.id_token;
-
-    if (!idToken) {
-      onError?.(new Error("Google no devolvio el token de acceso."));
-      return;
-    }
-
-    onSuccess?.(idToken);
-  }, [onError, onSuccess, response]);
+    configureGoogleSignIn();
+  }, [configured]);
 
   const handlePress = async () => {
     if (!configured) {
@@ -68,10 +31,17 @@ export default function GoogleSignInButton({
 
     try {
       setWaitingForGoogle(true);
-      await promptAsync();
+      const idToken = await requestGoogleIdToken({ forceAccountSelection: true });
+
+      if (!idToken) {
+        return;
+      }
+
+      onSuccess?.(idToken);
     } catch (error) {
-      setWaitingForGoogle(false);
       onError?.(error);
+    } finally {
+      setWaitingForGoogle(false);
     }
   };
 
@@ -83,11 +53,11 @@ export default function GoogleSignInButton({
         <View style={styles.dividerLine} />
       </View>
       <Pressable
-        disabled={disabled || waitingForGoogle || !request}
+        disabled={disabled || waitingForGoogle || !configured}
         onPress={handlePress}
         style={({ pressed }) => [
           styles.button,
-          (disabled || waitingForGoogle || !request) && styles.buttonDisabled,
+          (disabled || waitingForGoogle || !configured) && styles.buttonDisabled,
           pressed && styles.buttonPressed,
         ]}
       >

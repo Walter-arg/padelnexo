@@ -318,6 +318,7 @@ export default function LeagueCard({
                 action.disabled ? styles.managementActionButtonDisabled : null,
                 action.tone === "pending" ? styles.managementActionButtonPending : null,
                 action.tone === "success" ? styles.managementActionButtonSuccess : null,
+                action.tone === "warning" ? styles.managementActionButtonWarning : null,
                 pressed && !action.disabled ? styles.favoriteButtonPressed : null,
               ]}
             >
@@ -331,9 +332,11 @@ export default function LeagueCard({
                       ? "#1E5F86"
                       : action.tone === "success"
                         ? "#1E6B45"
-                        : action.disabled
-                          ? colors.muted
-                          : colors.primaryDark
+                        : action.tone === "warning"
+                          ? "#C65D00"
+                          : action.disabled
+                            ? colors.muted
+                            : colors.primaryDark
                 }
                 name={action.icon}
                 size={14}
@@ -345,6 +348,7 @@ export default function LeagueCard({
                   action.disabled ? styles.managementActionTextDisabled : null,
                   action.tone === "pending" ? styles.managementActionTextPending : null,
                   action.tone === "success" ? styles.managementActionTextSuccess : null,
+                  action.tone === "warning" ? styles.managementActionTextWarning : null,
                 ]}
               >
                 {action.label}
@@ -532,6 +536,10 @@ const styles = StyleSheet.create({
     backgroundColor: "#E5F7EE",
     borderColor: "#91D7B2",
   },
+  managementActionButtonWarning: {
+    backgroundColor: "#FFF0D9",
+    borderColor: "#FFC46B",
+  },
   managementActionText: {
     color: colors.primaryDark,
     fontSize: 12,
@@ -549,5 +557,8 @@ const styles = StyleSheet.create({
   },
   managementActionTextSuccess: {
     color: "#1E6B45",
+  },
+  managementActionTextWarning: {
+    color: "#C65D00",
   },
 });
