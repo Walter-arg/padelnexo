@@ -1,10 +1,13 @@
 import { Fragment, useCallback, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Image,
+  KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
   ScrollView,
+  Share as NativeShare,
   StyleSheet,
   Text,
   TextInput,
@@ -14,6 +17,11 @@ import DateTimePicker from "@react-native-community/datetimepicker";
 import { FontAwesome5, Ionicons } from "@expo/vector-icons";
 import { useFocusEffect } from "@react-navigation/native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import * as FileSystem from "expo-file-system/legacy";
+import * as Print from "expo-print";
+import * as Sharing from "expo-sharing";
+import Share from "react-native-share";
+import { captureRef } from "react-native-view-shot";
 
 import BottomQuickActionsBar, {
   BOTTOM_QUICK_ACTIONS_SPACE,
@@ -66,10 +74,66 @@ function sanitizeSetValue(value = "", label = "") {
   return String(value || "").replace(/\D/g, "").slice(0, maxLength);
 }
 
+function parseCompactLeagueSetInput(value = "", label = "") {
+  const digits = String(value || "").replace(/\D/g, "");
+
+  if (label === "STB") {
+    return {
+      own: digits.slice(0, 2),
+      rival: digits.slice(2, 4),
+    };
+  }
+
+  return {
+    own: digits.slice(0, 1),
+    rival: digits.slice(1, 2),
+  };
+}
+
+function formatCompactLeagueSetInput(set = {}) {
+  const own = String(set?.own || "");
+  const rival = String(set?.rival || "");
+
+  if (!own && !rival) {
+    return "";
+  }
+
+  return `${own}/${rival}`;
+}
+
 function sanitizeTimeSlotValue(value = "") {
   return String(value || "")
     .replace(/[^\d:]/g, "")
     .slice(0, 5);
+}
+
+function escapeHtml(value = "") {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function sanitizeSharedFileName(value = "") {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 90);
+}
+
+function chunkItems(items = [], chunkSize = 3) {
+  const size = Math.max(Number(chunkSize || 1), 1);
+  const chunks = [];
+
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+
+  return chunks;
 }
 
 function isValidTimeValue(value = "") {
@@ -159,20 +223,66 @@ function formatRoundDayTimeLabel(round = {}) {
   return [dayLabel, timeLabel].filter(Boolean).join(" · ");
 }
 
+function resolveLeagueOrganizerLabel(league = {}, fallbackName = "la organizacion") {
+  return (
+    league?.complejoNombre ||
+    league?.complejo?.nombre ||
+    league?.complexName ||
+    league?.clubName ||
+    league?.organizerName ||
+    league?.organizadorNombre ||
+    fallbackName
+  );
+}
+
 function buildSuspensionMessage({ leagueName = "Liga", round = {} }) {
   const dateLabel = formatDateLabel(round.scheduledDateMillis);
+  const hasRescheduledDate =
+    Boolean(round.rescheduledDateMillis) ||
+    (round.matches || []).some((match) => Boolean(match?.rescheduledDateMillis));
   const timeSlots = [
     ...new Set((round.matches || []).map((match) => match?.timeSlot).filter(Boolean)),
   ];
   const timeLabel = timeSlots.length ? `${timeSlots.join(" / ")} hs` : round.scheduleLabel || "";
 
   return [
-    `LIGA SUSPENDIDA: ${leagueName}.`,
+    `${hasRescheduledDate ? "LIGA REPROGRAMADA" : "LIGA SUSPENDIDA"}: ${leagueName}.`,
     round.title ? `${round.title}${dateLabel ? ` del ${dateLabel}` : ""}.` : "",
     timeLabel ? `Horario: ${timeLabel}.` : "",
   ]
     .filter(Boolean)
     .join(" ");
+}
+
+function buildSuspensionWhatsAppMessage({
+  leagueName = "Liga",
+  organizerLabel = "la organizacion",
+  round = {},
+}) {
+  const roundTitle = round.title || "Fecha";
+  const dateLabel = formatDateLabel(round.scheduledDateMillis);
+  const timeSlots = [
+    ...new Set((round.matches || []).map((match) => match?.timeSlot).filter(Boolean)),
+  ];
+  const timeLabel = timeSlots.length ? `${timeSlots.join(" / ")} hs` : round.scheduleLabel || "";
+  const hasManualReschedule =
+    Boolean(round.rescheduledDateMillis) ||
+    (round.matches || []).some((match) => Boolean(match?.rescheduledDateMillis));
+  const hasRainReason = (round.matches || []).some((match) => {
+    const reason = String(match?.suspensionReason || round.suspensionReason || "").toLowerCase();
+    const label = getSuspensionReasonLabel(reason).toLowerCase();
+
+    return reason.includes("weather") || reason.includes("lluvia") || label.includes("climatica");
+  });
+  const actionText = hasManualReschedule ? "fue suspendida y sera reprogramada" : "fue suspendida";
+  const reasonText = hasRainReason ? " por lluvia" : "";
+  const roundDetail = [dateLabel, timeLabel ? `a las ${timeLabel}` : ""].filter(Boolean).join(" ");
+
+  const baseMessage = `Hola! Te avisamos desde ${organizerLabel}, que la liga: ${leagueName}, ${roundTitle}${
+    roundDetail ? ` la que se jugaria el ${roundDetail}` : ""
+  }, ${actionText}${reasonText}.`;
+
+  return [baseMessage, "Cualquier consulta comunicate con nosotros. Gracias."].join(" ");
 }
 
 function getLeagueSuspensionNotificationTargets(round = {}) {
@@ -260,6 +370,32 @@ function getMatchStatusMeta(match = {}) {
   };
 }
 
+function getRoundStatusMeta(round = {}) {
+  const matches = Array.isArray(round?.matches) ? round.matches : [];
+  const allPlayed = matches.length > 0 && matches.every((match) => isMatchCompleted(match));
+  const suspensionEntries = [
+    ...(round?.suspensionMode ? [round] : []),
+    ...matches.filter((match) => match?.suspensionMode && !isMatchCompleted(match)),
+  ];
+  const hasActiveSuspension = suspensionEntries.some((entry) =>
+    isSuspensionNoticeActive(entry.suspendedAtMillis)
+  );
+
+  if (allPlayed) {
+    return { label: "JUGADA", styleKey: "played" };
+  }
+
+  if (hasActiveSuspension) {
+    return { label: "SUSPENDIDA", styleKey: "suspended" };
+  }
+
+  if (suspensionEntries.length) {
+    return { label: "REPROGRAMADA", styleKey: "reprogrammed" };
+  }
+
+  return { label: "PENDIENTE", styleKey: "pending" };
+}
+
 function formatTimeValue(date) {
   const hours = String(date.getHours()).padStart(2, "0");
   const minutes = String(date.getMinutes()).padStart(2, "0");
@@ -315,6 +451,26 @@ function sortFixtureRoundsByMatchTime(rounds = []) {
     ...round,
     matches: sortMatchesByTime(round.matches || []),
   }));
+}
+
+function buildLeagueShareTeamLabel(team = {}) {
+  const players = Array.isArray(team?.players) ? team.players : [];
+  const labels = players.map((player) => formatPlayerShortName(player)).filter(Boolean);
+
+  return labels.join(" / ") || "Pareja";
+}
+
+function resolveLeagueShareLogoUrl(league = {}, fallbackLogo = "") {
+  return (
+    league?.organizerLogoUrl ||
+    league?.organizerLogoURL ||
+    league?.complejo?.organizerLogoUrl ||
+    league?.complejo?.organizerLogoURL ||
+    league?.complejo?.logoUrl ||
+    league?.logoUrl ||
+    fallbackLogo ||
+    ""
+  );
 }
 
 function applyFixtureScheduledDates(fixture = {}, startDateMillis = 0) {
@@ -472,6 +628,33 @@ function hasResultDataChanged(currentFixture = {}, nextFixture = {}) {
       .join("|");
 
   return serializeResults(currentFixture) !== serializeResults(nextFixture);
+}
+
+function hasSuspensionDataChanged(currentFixture = {}, nextFixture = {}) {
+  const serializeSuspensions = (fixture) =>
+    (fixture.rounds || [])
+      .flatMap((round) => [
+        JSON.stringify({
+          id: round.id,
+          rescheduledDateMillis: round.rescheduledDateMillis || 0,
+          suspendedAtMillis: round.suspendedAtMillis || 0,
+          suspensionMode: round.suspensionMode || "",
+          suspensionReason: round.suspensionReason || "",
+        }),
+        ...(round.matches || []).map((match) =>
+          JSON.stringify({
+            id: `${round.id}:${match.id}`,
+            rescheduledDateMillis: match.rescheduledDateMillis || 0,
+            scheduledAtMillis: match.scheduledAtMillis || 0,
+            suspendedAtMillis: match.suspendedAtMillis || 0,
+            suspensionMode: match.suspensionMode || "",
+            suspensionReason: match.suspensionReason || "",
+          })
+        ),
+      ])
+      .join("|");
+
+  return serializeSuspensions(currentFixture) !== serializeSuspensions(nextFixture);
 }
 
 function hasNewWinnerAssigned(currentFixture = {}, nextFixture = {}) {
@@ -770,6 +953,9 @@ export default function LeagueFixtureScreen({ navigation, route }) {
   const [savingPairs, setSavingPairs] = useState(false);
   const [pairsOverviewExpanded, setPairsOverviewExpanded] = useState(false);
   const [expandedRoundIds, setExpandedRoundIds] = useState([]);
+  const [leagueResultEditor, setLeagueResultEditor] = useState(null);
+  const [leagueMatchDayPickerTarget, setLeagueMatchDayPickerTarget] = useState(null);
+  const [tableReplacementMenuTarget, setTableReplacementMenuTarget] = useState(null);
   const setInputRefs = useRef({});
   const [confirmRegenerateVisible, setConfirmRegenerateVisible] = useState(false);
   const [confirmDeleteVisible, setConfirmDeleteVisible] = useState(false);
@@ -787,12 +973,20 @@ export default function LeagueFixtureScreen({ navigation, route }) {
   const [playerReplacementMenuVisible, setPlayerReplacementMenuVisible] = useState(false);
   const [roundSuspensionTarget, setRoundSuspensionTarget] = useState(null);
   const [suspensionFlowStarted, setSuspensionFlowStarted] = useState(false);
+  const [retakingSuspension, setRetakingSuspension] = useState(false);
   const [suspensionScope, setSuspensionScope] = useState("");
   const [selectedSuspendedMatchIds, setSelectedSuspendedMatchIds] = useState([]);
   const [selectedSuspensionReason, setSelectedSuspensionReason] = useState("");
   const [rescheduleDatePickerVisible, setRescheduleDatePickerVisible] = useState(false);
   const [applyingSuspension, setApplyingSuspension] = useState(false);
   const [goToPaymentsPromptVisible, setGoToPaymentsPromptVisible] = useState(false);
+  const [leagueShareModalVisible, setLeagueShareModalVisible] = useState(false);
+  const [leagueShareInProgress, setLeagueShareInProgress] = useState(false);
+  const [selectedLeagueShareRoundIds, setSelectedLeagueShareRoundIds] = useState([]);
+  const [whatsAppSharePrompt, setWhatsAppSharePrompt] = useState({
+    visible: false,
+    message: "",
+  });
   const [feedback, setFeedback] = useState({
     visible: false,
     title: "",
@@ -803,6 +997,8 @@ export default function LeagueFixtureScreen({ navigation, route }) {
   const reopenIndividualPreviewOnFocusRef = useRef(false);
   const fixtureScrollRef = useRef(null);
   const roundLayoutOffsetsRef = useRef({});
+  const leagueShareViewRefs = useRef({});
+  const leagueResultSetInputRefs = useRef({});
 
   useFocusEffect(
     useCallback(() => {
@@ -880,6 +1076,68 @@ export default function LeagueFixtureScreen({ navigation, route }) {
   const canEditFixture = canManageLeague(league, userData);
   const fixtureRounds = Array.isArray(fixtureDraft?.rounds) ? fixtureDraft.rounds : [];
   const hasFixture = fixtureRounds.length > 0;
+  const leagueFixtureDayOptions = useMemo(() => {
+    const uniqueDates = new Map();
+
+    fixtureRounds.forEach((round) => {
+      const dateMillis = normalizeDateStartMillis(
+        round.rescheduledDateMillis || round.scheduledDateMillis || 0
+      );
+
+      if (dateMillis && !uniqueDates.has(dateMillis)) {
+        uniqueDates.set(dateMillis, {
+          dateMillis,
+          label: `${formatDayLabel(dateMillis)} ${formatDateLabel(dateMillis)}`,
+        });
+      }
+    });
+
+    return [...uniqueDates.values()].sort((left, right) => left.dateMillis - right.dateMillis);
+  }, [fixtureRounds]);
+  const leagueShareRoundOptions = useMemo(
+    () =>
+      fixtureRounds.map((round, index) => ({
+        id: round.id,
+        label: round.title || `Fecha ${index + 1}`,
+        status: getRoundStatusMeta(round).label,
+      })),
+    [fixtureRounds]
+  );
+  const allLeagueShareRoundIds = useMemo(
+    () => leagueShareRoundOptions.map((round) => round.id),
+    [leagueShareRoundOptions]
+  );
+  const leagueShareSelectedRounds = useMemo(() => {
+    const selectedIds = new Set(
+      (selectedLeagueShareRoundIds.length ? selectedLeagueShareRoundIds : allLeagueShareRoundIds)
+        .filter(Boolean)
+    );
+
+    return fixtureRounds.filter((round) => selectedIds.has(round.id));
+  }, [allLeagueShareRoundIds, fixtureRounds, selectedLeagueShareRoundIds]);
+  const leagueShareChunks = useMemo(
+    () => chunkItems(leagueShareSelectedRounds, 3),
+    [leagueShareSelectedRounds]
+  );
+  const leagueShareLogoUrl = useMemo(
+    () => resolveLeagueShareLogoUrl(league, userData?.organizerLogoUrl),
+    [league, userData?.organizerLogoUrl]
+  );
+  const allLeagueShareRoundsSelected =
+    allLeagueShareRoundIds.length > 0 &&
+    allLeagueShareRoundIds.every((roundId) => selectedLeagueShareRoundIds.includes(roundId));
+  const tableReplacementMenuMatch = useMemo(() => {
+    if (!tableReplacementMenuTarget?.roundId || !tableReplacementMenuTarget?.matchId) {
+      return null;
+    }
+
+    const round = fixtureRounds.find((item) => item.id === tableReplacementMenuTarget.roundId);
+    const match = (round?.matches || []).find(
+      (item) => item.id === tableReplacementMenuTarget.matchId
+    );
+
+    return match ? { match, round } : null;
+  }, [fixtureRounds, tableReplacementMenuTarget]);
   const fixtureValidation = useMemo(() => validateFixtureGeneration(league), [league]);
   const visibleFixtureRounds =
     !canEditFixture && fixtureVisibilityMode === "current"
@@ -1026,6 +1284,401 @@ export default function LeagueFixtureScreen({ navigation, route }) {
     });
   };
 
+  const promptWhatsAppShare = (messages = []) => {
+    const validMessages = messages.filter(Boolean);
+
+    if (!canEditFixture || !validMessages.length) {
+      return;
+    }
+
+    setWhatsAppSharePrompt({
+      visible: true,
+      message: validMessages.join("\n\n"),
+    });
+  };
+
+  const closeWhatsAppSharePrompt = () => {
+    setWhatsAppSharePrompt({
+      visible: false,
+      message: "",
+    });
+  };
+
+  const handleShareSuspensionByWhatsApp = async () => {
+    const message = whatsAppSharePrompt.message;
+
+    closeWhatsAppSharePrompt();
+
+    if (!message) {
+      return;
+    }
+
+    try {
+      await NativeShare.share({ message });
+    } catch (error) {
+      showFeedback(
+        "No pudimos abrir WhatsApp",
+        error?.message || "Intenta compartir el aviso nuevamente.",
+        "danger"
+      );
+    }
+  };
+
+  const openLeagueShareModal = () => {
+    if (!hasFixture) {
+      showFeedback(
+        "No hay fechas para compartir",
+        "Primero genera o guarda el fixture para poder compartirlo.",
+        "warning"
+      );
+      return;
+    }
+
+    setSelectedLeagueShareRoundIds(allLeagueShareRoundIds);
+    setLeagueShareModalVisible(true);
+  };
+
+  const closeLeagueShareModal = () => {
+    if (leagueShareInProgress) {
+      return;
+    }
+
+    setLeagueShareModalVisible(false);
+  };
+
+  const toggleLeagueShareRound = (roundId) => {
+    setSelectedLeagueShareRoundIds((currentIds) =>
+      currentIds.includes(roundId)
+        ? currentIds.filter((currentRoundId) => currentRoundId !== roundId)
+        : [...currentIds, roundId]
+    );
+  };
+
+  const toggleLeagueShareAllRounds = () => {
+    setSelectedLeagueShareRoundIds((currentIds) =>
+      currentIds.length === allLeagueShareRoundIds.length ? [] : allLeagueShareRoundIds
+    );
+  };
+
+  const buildLeagueSharePdfHtml = useCallback(() => {
+    const organizerLabel = resolveLeagueOrganizerLabel(league, userData?.name || "PadelNexo");
+    const logoUrl = resolveLeagueShareLogoUrl(league, userData?.organizerLogoUrl);
+    const title = escapeHtml(leagueName || "Liga");
+    const subtitle = escapeHtml(
+      [league?.categoria || "", organizerLabel || ""].filter(Boolean).join(" · ")
+    );
+    const logoHtml = logoUrl
+      ? `<img class="organizer-logo" src="${escapeHtml(logoUrl)}" />`
+      : "";
+    const chunksHtml = leagueShareChunks
+      .map(
+        (chunk) => `
+          <section class="page">
+            ${chunk
+              .map((round) => {
+                const statusMeta = getRoundStatusMeta(round);
+                const rowsHtml = sortMatchesByTime(round.matches || [])
+                  .map((match) => {
+                    const resultLabel =
+                      buildScoreSummary(getMatchResultSets(match, league?.matchFormat)) || "Pendiente";
+                    const dayLabel = formatDayLabel(
+                      match.rescheduledDateMillis ||
+                        round.rescheduledDateMillis ||
+                        round.scheduledDateMillis
+                    ) || "Sin dia";
+                    const timeLabel = match.timeSlot || "--:--";
+                    const pairLabel = `${buildLeagueShareTeamLabel(match.teamA)}\n${buildLeagueShareTeamLabel(match.teamB)}`;
+
+                    return `
+                      <tr>
+                        <td>${escapeHtml(resultLabel)}</td>
+                        <td class="pairs-cell">${escapeHtml(pairLabel).replace(/\n/g, "<br/>")}</td>
+                        <td>${escapeHtml(dayLabel)}</td>
+                        <td>${escapeHtml(timeLabel)}</td>
+                      </tr>
+                    `;
+                  })
+                  .join("");
+
+                return `
+                  <article class="round-card">
+                    <div class="round-header">
+                      <h2>${escapeHtml(round.title || "Fecha")}</h2>
+                      <span class="round-status ${String(statusMeta.styleKey || "pending").toLowerCase()}">
+                        ${escapeHtml(statusMeta.label)}
+                      </span>
+                    </div>
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>RESULTADOS</th>
+                          <th>PAREJAS</th>
+                          <th>DIA</th>
+                          <th>HORA</th>
+                        </tr>
+                      </thead>
+                      <tbody>${rowsHtml}</tbody>
+                    </table>
+                  </article>
+                `;
+              })
+              .join("")}
+          </section>
+        `
+      )
+      .join("");
+
+    return `
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <style>
+            body {
+              font-family: Arial, sans-serif;
+              background: #f4f7f6;
+              color: #173633;
+              margin: 0;
+              padding: 20px 18px;
+            }
+            .page {
+              page-break-after: always;
+            }
+            .page:last-child {
+              page-break-after: auto;
+            }
+            .round-card {
+              background: #ffffff;
+              border: 1px solid #cfe0dc;
+              border-radius: 16px;
+              overflow: hidden;
+              margin-bottom: 18px;
+            }
+            .round-header {
+              align-items: center;
+              background: #dcefeb;
+              display: flex;
+              justify-content: space-between;
+              gap: 12px;
+              padding: 12px 14px;
+            }
+            .round-header h2 {
+              color: #285e59;
+              font-size: 16px;
+              font-weight: 800;
+              margin: 0;
+            }
+            .round-status {
+              border-radius: 999px;
+              font-size: 11px;
+              font-weight: 800;
+              padding: 5px 10px;
+            }
+            .round-status.pending {
+              background: #eef2f1;
+              color: #596563;
+            }
+            .round-status.played {
+              background: #dff4ee;
+              color: #24725e;
+            }
+            .round-status.suspended {
+              background: #fff0f0;
+              color: #994646;
+            }
+            .round-status.reprogrammed {
+              background: #fff3e3;
+              color: #9a601c;
+            }
+            table {
+              border-collapse: collapse;
+              table-layout: fixed;
+              width: 100%;
+            }
+            th, td {
+              border-top: 1px solid #e3ecea;
+              font-size: 11px;
+              padding: 10px 8px;
+              text-align: center;
+              vertical-align: middle;
+            }
+            th {
+              background: #eff7f5;
+              color: #285e59;
+              font-size: 10px;
+              font-weight: 800;
+            }
+            .pairs-cell {
+              font-weight: 700;
+              line-height: 1.45;
+              width: 42%;
+            }
+            .meta {
+              align-items: center;
+              display: flex;
+              gap: 12px;
+              justify-content: center;
+              margin-bottom: 14px;
+              text-align: left;
+            }
+            .meta-copy {
+              text-align: left;
+            }
+            .meta h1 {
+              color: #173633;
+              font-size: 21px;
+              margin: 0 0 4px;
+            }
+            .meta p {
+              color: #4c6460;
+              font-size: 12px;
+              margin: 0;
+            }
+            .organizer-logo {
+              border-radius: 14px;
+              height: 48px;
+              object-fit: cover;
+              width: 48px;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="meta">
+            ${logoHtml}
+            <div class="meta-copy">
+              <h1>${title}</h1>
+              <p>${subtitle}</p>
+            </div>
+          </div>
+          ${chunksHtml}
+        </body>
+      </html>
+    `;
+  }, [
+    league,
+    league?.categoria,
+    league?.matchFormat,
+    leagueName,
+    leagueShareChunks,
+    userData?.name,
+    userData?.organizerLogoUrl,
+  ]);
+
+  const handleShareLeaguePdf = async () => {
+    if (!leagueShareSelectedRounds.length) {
+      showFeedback(
+        "Selecciona al menos una fecha",
+        "Marca una o mas fechas para generar el PDF.",
+        "warning"
+      );
+      return;
+    }
+
+    try {
+      setLeagueShareInProgress(true);
+      const canShare = await Sharing.isAvailableAsync();
+
+      if (!canShare) {
+        showFeedback(
+          "No se pudo compartir",
+          "Este dispositivo no tiene disponible el panel para compartir PDF.",
+          "danger"
+        );
+        return;
+      }
+
+      setLeagueShareModalVisible(false);
+      const { uri } = await Print.printToFileAsync({
+        base64: false,
+        html: buildLeagueSharePdfHtml(),
+      });
+      const fileBaseName =
+        sanitizeSharedFileName(
+          [leagueName || "Liga", league?.categoria || "Fixture"].filter(Boolean).join("-")
+        ) || "Liga-Fixture";
+      const sharedPdfUri = `${FileSystem.cacheDirectory}${fileBaseName}.pdf`;
+
+      await FileSystem.deleteAsync(sharedPdfUri, { idempotent: true });
+      await FileSystem.copyAsync({ from: uri, to: sharedPdfUri });
+
+      await Sharing.shareAsync(sharedPdfUri, {
+        dialogTitle: "Compartir fixture",
+        mimeType: "application/pdf",
+        UTI: "com.adobe.pdf",
+      });
+    } catch (error) {
+      showFeedback(
+        "No se pudo compartir",
+        error?.message || "No pudimos generar el PDF del fixture.",
+        "danger"
+      );
+    } finally {
+      setLeagueShareInProgress(false);
+    }
+  };
+
+  const handleShareLeagueImages = async () => {
+    if (!leagueShareSelectedRounds.length) {
+      showFeedback(
+        "Selecciona al menos una fecha",
+        "Marca una o mas fechas para generar las imagenes.",
+        "warning"
+      );
+      return;
+    }
+
+    try {
+      setLeagueShareInProgress(true);
+      const canShare = await Sharing.isAvailableAsync();
+
+      if (!canShare) {
+        showFeedback(
+          "No se pudo compartir",
+          "Este dispositivo no tiene disponible el panel para compartir imagenes.",
+          "danger"
+        );
+        return;
+      }
+
+      setLeagueShareModalVisible(false);
+      const imageUris = [];
+
+      for (let index = 0; index < leagueShareChunks.length; index += 1) {
+        const ref = leagueShareViewRefs.current[index];
+
+        if (!ref) {
+          continue;
+        }
+
+        const imageUri = await captureRef(ref, {
+          format: "png",
+          quality: 1,
+          result: "tmpfile",
+        });
+
+        imageUris.push(imageUri);
+      }
+
+      if (!imageUris.length) {
+        throw new Error("No pudimos generar las imagenes del fixture.");
+      }
+
+      await Share.open({
+        failOnCancel: false,
+        title: "Compartir fixture",
+        type: "image/png",
+        urls: imageUris,
+      });
+    } catch (error) {
+      showFeedback(
+        "No se pudo compartir",
+        error?.message || "No pudimos generar las imagenes del fixture.",
+        "danger"
+      );
+    } finally {
+      setLeagueShareInProgress(false);
+    }
+  };
+
   const notifyLeagueSuspensionAsync = async (targetLeague = league, nextFixture = fixtureDraft) => {
     const previousRounds = new Map(
       (targetLeague?.fixture?.rounds || []).map((round) => [round.id, round])
@@ -1039,8 +1692,15 @@ export default function LeagueFixtureScreen({ navigation, route }) {
         const previousMatch = previousMatches.get(match.id) || {};
         const wasSuspended = previousMatch?.suspensionMode && !previousMatch?.result?.winner;
         const isSuspended = match?.suspensionMode && !match?.result?.winner;
+        const suspensionChanged =
+          isSuspended &&
+          wasSuspended &&
+          (previousMatch.suspensionMode !== match.suspensionMode ||
+            previousMatch.suspensionReason !== match.suspensionReason ||
+            previousMatch.rescheduledDateMillis !== match.rescheduledDateMillis ||
+            previousMatch.scheduledAtMillis !== match.scheduledAtMillis);
 
-        return isSuspended && !wasSuspended;
+        return (isSuspended && !wasSuspended) || suspensionChanged;
       });
 
       return newlySuspendedMatches.length
@@ -1050,6 +1710,8 @@ export default function LeagueFixtureScreen({ navigation, route }) {
           }
         : null;
     }).filter(Boolean);
+
+    const shareMessages = [];
 
     for (const round of newlySuspendedRounds) {
       const targets = getLeagueSuspensionNotificationTargets(round);
@@ -1069,7 +1731,19 @@ export default function LeagueFixtureScreen({ navigation, route }) {
           })
         )
       );
+
+      if (targets.length) {
+        shareMessages.push(
+          buildSuspensionWhatsAppMessage({
+            leagueName: targetLeague?.nombre || leagueName,
+            organizerLabel: resolveLeagueOrganizerLabel(targetLeague, userData?.name || "la organizacion"),
+            round,
+          })
+        );
+      }
     }
+
+    return shareMessages.filter(Boolean);
   };
 
   const expandRound = (roundId) => {
@@ -1493,7 +2167,9 @@ export default function LeagueFixtureScreen({ navigation, route }) {
                 ...match,
                 timeSlot: sanitizeTimeSlotValue(value),
                 scheduledAtMillis: combineDateAndTimeMillis(
-                  round.scheduledDateMillis,
+                  match.rescheduledDateMillis ||
+                    round.rescheduledDateMillis ||
+                    round.scheduledDateMillis,
                   sanitizeTimeSlotValue(value)
                 ),
               }
@@ -1522,6 +2198,65 @@ export default function LeagueFixtureScreen({ navigation, route }) {
 
   const closeMatchTimePicker = () => {
     setTimePickerTarget(null);
+  };
+
+  const openLeagueMatchDayPicker = (round, match) => {
+    if (!canEditFixture || !leagueFixtureDayOptions.length) {
+      return;
+    }
+
+    const teamALabel =
+      match.teamA?.label || buildTeamLabelFromPlayers(match.teamA?.players || []) || "Pareja A";
+    const teamBLabel =
+      match.teamB?.label || buildTeamLabelFromPlayers(match.teamB?.players || []) || "Pareja B";
+
+    setLeagueMatchDayPickerTarget({
+      currentDateMillis: normalizeDateStartMillis(
+        match.rescheduledDateMillis ||
+          round.rescheduledDateMillis ||
+          round.scheduledDateMillis ||
+          0
+      ),
+      matchId: match.id,
+      participants: [teamALabel, teamBLabel],
+      roundDateMillis: normalizeDateStartMillis(
+        round.rescheduledDateMillis || round.scheduledDateMillis || 0
+      ),
+      roundId: round.id,
+    });
+  };
+
+  const closeLeagueMatchDayPicker = () => {
+    setLeagueMatchDayPickerTarget(null);
+  };
+
+  const selectLeagueMatchDay = (dateMillis = 0) => {
+    if (
+      !leagueMatchDayPickerTarget?.roundId ||
+      !leagueMatchDayPickerTarget?.matchId ||
+      !dateMillis
+    ) {
+      return;
+    }
+
+    const selectedDateMillis = normalizeDateStartMillis(dateMillis);
+
+    setFixtureDraft((current) =>
+      buildNextFixture(
+        current,
+        leagueMatchDayPickerTarget.roundId,
+        leagueMatchDayPickerTarget.matchId,
+        (match) => ({
+          ...match,
+          rescheduledDateMillis:
+            selectedDateMillis === leagueMatchDayPickerTarget.roundDateMillis
+              ? 0
+              : selectedDateMillis,
+          scheduledAtMillis: combineDateAndTimeMillis(selectedDateMillis, match.timeSlot),
+        })
+      )
+    );
+    closeLeagueMatchDayPicker();
   };
 
   const handleMatchTimePickerChange = (_, selectedDate) => {
@@ -1585,6 +2320,7 @@ export default function LeagueFixtureScreen({ navigation, route }) {
   const closeRoundSuspensionOptions = () => {
     setRoundSuspensionTarget(null);
     setSuspensionFlowStarted(false);
+    setRetakingSuspension(false);
     setSuspensionScope("");
     setSelectedSuspendedMatchIds([]);
     setSelectedSuspensionReason("");
@@ -1768,6 +2504,25 @@ export default function LeagueFixtureScreen({ navigation, route }) {
     );
   };
 
+  const getRoundSuspensionReason = (round = {}) => {
+    const suspendedMatch = (round.matches || []).find((match) => match?.suspensionReason);
+
+    return round.suspensionReason || suspendedMatch?.suspensionReason || "other";
+  };
+
+  const openRetakeSuspendedRound = (round = roundSuspensionTarget) => {
+    if (!canEditFixture || !round?.id) {
+      return;
+    }
+
+    setRoundSuspensionTarget(round);
+    setSuspensionFlowStarted(true);
+    setRetakingSuspension(true);
+    setSuspensionScope(SUSPENSION_SCOPES.LEAGUE_ROUND);
+    setSelectedSuspendedMatchIds(getPendingMatchesForRound(round).map((match) => match.id));
+    setSelectedSuspensionReason(getRoundSuspensionReason(round));
+  };
+
   const applyAllDaySuspension = async ({
     reasonValue,
     rescheduledDateMillis = 0,
@@ -1784,6 +2539,7 @@ export default function LeagueFixtureScreen({ navigation, route }) {
     );
     let affectedLeaguesCount = 0;
     let affectedMatchesCount = 0;
+    const shareMessages = [];
 
     await Promise.all(
       organizerLeagues.map(async (nextLeague) => {
@@ -1834,7 +2590,8 @@ export default function LeagueFixtureScreen({ navigation, route }) {
         };
 
         await updateLeagueFixture(nextLeague.id, nextFixture);
-        await notifyLeagueSuspensionAsync(nextLeague, nextFixture);
+        const nextShareMessages = await notifyLeagueSuspensionAsync(nextLeague, nextFixture);
+        shareMessages.push(...nextShareMessages);
 
         if (nextLeague.id === league?.id) {
           setFixtureDraft(nextFixture);
@@ -1846,7 +2603,7 @@ export default function LeagueFixtureScreen({ navigation, route }) {
       })
     );
 
-    return { affectedLeaguesCount, affectedMatchesCount };
+    return { affectedLeaguesCount, affectedMatchesCount, shareMessages };
   };
 
   const applyRoundSuspension = async ({
@@ -1884,6 +2641,7 @@ export default function LeagueFixtureScreen({ navigation, route }) {
           `Se suspendieron ${result.affectedMatchesCount} partidos pendientes en ${result.affectedLeaguesCount} liga(s).`,
           "warning"
         );
+        promptWhatsAppShare(result.shareMessages);
         return;
       }
 
@@ -1996,22 +2754,60 @@ export default function LeagueFixtureScreen({ navigation, route }) {
     );
   };
 
-  const handleToggleReplacementRequest = ({ roundId, match, teamKey, player, playerIndex }) => {
+  const buildReplacementTargetFromMatchPlayer = ({
+    match,
+    player,
+    playerIndex = 0,
+    roundId = "",
+    roundTitle = "",
+    teamKey = "",
+  }) => {
+    if (!match || !player || !roundId || !teamKey) {
+      return null;
+    }
+
+    const replacementKey = getPlayerReplacementKey(teamKey, player, playerIndex);
+
+    return {
+      match,
+      player,
+      playerIndex,
+      replacementEntry: match.replacements?.[replacementKey] || null,
+      replacementKey,
+      roundId,
+      roundTitle,
+      teamKey,
+    };
+  };
+
+  const handleToggleReplacementRequest = ({
+    roundId,
+    roundTitle = "",
+    match,
+    teamKey,
+    player,
+    playerIndex,
+  }) => {
     const replacementKey = getPlayerReplacementKey(teamKey, player, playerIndex);
     const canRequestThisReplacement =
       canEditFixture ||
-      (canRequestOwnReplacement &&
-        isCurrentUserFixturePlayer(player) &&
-        nextReplacementTarget?.roundId === roundId &&
-        nextReplacementTarget?.match?.id === match.id &&
-        nextReplacementTarget?.replacementKey === replacementKey);
+      (canRequestOwnReplacement && isCurrentUserFixturePlayer(player));
 
     if (!canRequestThisReplacement || hasMatchResultData(match) || match.result?.winner) {
       return;
     }
 
     if (!canEditFixture) {
-      handlePlayerReplacementRequest();
+      handlePlayerReplacementRequest(
+        buildReplacementTargetFromMatchPlayer({
+          match,
+          player,
+          playerIndex,
+          roundId,
+          roundTitle,
+          teamKey,
+        })
+      );
       return;
     }
 
@@ -2120,6 +2916,133 @@ export default function LeagueFixtureScreen({ navigation, route }) {
     );
   };
 
+  const openTableReplacementMenu = (round, match) => {
+    setTableReplacementMenuTarget({
+      matchId: match.id,
+      roundId: round.id,
+    });
+  };
+
+  const closeTableReplacementMenu = () => {
+    setTableReplacementMenuTarget(null);
+  };
+
+  const toggleTableReplacementRequest = (payload) => {
+    handleToggleReplacementRequest(payload);
+    closeTableReplacementMenu();
+  };
+
+  const cancelTablePlayerReplacementRequest = (target = null) => {
+    closeTableReplacementMenu();
+    handleCancelPlayerReplacementRequest(target);
+  };
+
+  const openTableReplacementPicker = ({ matchId, replacementKey, roundId }) => {
+    closeTableReplacementMenu();
+    handleOpenReplacementPicker({ matchId, replacementKey, roundId });
+  };
+
+  const removeTableReplacement = ({ matchId, playerName, replacementKey, roundId }) => {
+    closeTableReplacementMenu();
+    setReplacementPendingRemoval({
+      matchId,
+      playerName,
+      replacementKey,
+      roundId,
+    });
+  };
+
+  const openTableMatchSuspensionFlow = () => {
+    const match = tableReplacementMenuMatch?.match;
+    const round = tableReplacementMenuMatch?.round;
+
+    if (!canEditFixture || !match || !round || isMatchCompleted(match)) {
+      return;
+    }
+
+    closeTableReplacementMenu();
+    setRoundSuspensionTarget(round);
+    setSuspensionFlowStarted(true);
+    setSuspensionScope(SUSPENSION_SCOPES.SELECTED_MATCHES);
+    setSelectedSuspendedMatchIds([match.id]);
+    setSelectedSuspensionReason(match.suspensionReason || "");
+  };
+
+  const openTableRetakeSuspendedRound = () => {
+    const round = tableReplacementMenuMatch?.round;
+
+    if (!round?.id) {
+      return;
+    }
+
+    closeTableReplacementMenu();
+    openRetakeSuspendedRound(round);
+  };
+
+  const shouldClearWholeRoundSuspension = (round = {}) => {
+    const hasRoundLevelData = Boolean(
+      round?.suspensionMode ||
+        round?.suspendedAtMillis ||
+        round?.suspensionReason ||
+        round?.rescheduledDateMillis
+    );
+    const suspendedMatchesCount = (round?.matches || []).filter((currentMatch) =>
+      hasRoundSuspensionData({ matches: [currentMatch] })
+    ).length;
+
+    return hasRoundLevelData || suspendedMatchesCount > 1;
+  };
+
+  const clearTableMatchSuspension = () => {
+    const match = tableReplacementMenuMatch?.match;
+    const round = tableReplacementMenuMatch?.round;
+    const shouldClearWholeRound = shouldClearWholeRoundSuspension(round);
+    const hasMatchSuspensionData = hasRoundSuspensionData({ matches: [match] });
+
+    if (!canEditFixture || !match?.id || !round?.id || (!hasMatchSuspensionData && !shouldClearWholeRound)) {
+      return;
+    }
+
+    setFixtureDraft((current) => ({
+      ...current,
+      rounds: (current.rounds || []).map((currentRound) => {
+        if (currentRound.id !== round.id) {
+          return currentRound;
+        }
+
+        if (shouldClearWholeRound) {
+          return clearRoundSuspensionData(currentRound);
+        }
+
+        const nextMatches = (currentRound.matches || []).map((currentMatch) =>
+          currentMatch.id === match.id ? clearMatchSuspensionData(currentMatch) : currentMatch
+        );
+        const hasOtherSuspensions = nextMatches.some((currentMatch) => currentMatch.suspensionMode);
+
+        return {
+          ...currentRound,
+          ...(!hasOtherSuspensions
+            ? {
+                suspendedAtMillis: 0,
+                suspensionReason: "",
+                suspensionMode: "",
+                rescheduledDateMillis: 0,
+              }
+            : {}),
+          matches: nextMatches,
+        };
+      }),
+    }));
+    closeTableReplacementMenu();
+    showFeedback(
+      "Suspension quitada",
+      shouldClearWholeRound
+        ? "Se quito la suspension de toda la fecha. Presiona GUARDAR CAMBIOS para confirmarlo."
+        : "Se quito la suspension de este partido. Presiona GUARDAR CAMBIOS para confirmarlo.",
+      "success"
+    );
+  };
+
   const handleCreateReplacementPlayer = () => {
     const nombre = replacementGuestNombre.trim();
     const apellido = replacementGuestApellido.trim();
@@ -2179,6 +3102,123 @@ export default function LeagueFixtureScreen({ navigation, route }) {
     );
   };
 
+  const openLeagueResultEditor = (round, match) => {
+    if (!canEditFixture) {
+      return;
+    }
+
+    const teamALabel =
+      match.teamA?.label || buildTeamLabelFromPlayers(match.teamA?.players || []) || "Pareja A";
+    const teamBLabel =
+      match.teamB?.label || buildTeamLabelFromPlayers(match.teamB?.players || []) || "Pareja B";
+
+    setLeagueResultEditor({
+      matchId: match.id,
+      participants: [
+        { id: "teamA", label: teamALabel },
+        { id: "teamB", label: teamBLabel },
+      ],
+      roundId: round.id,
+      sets: getMatchResultSets(match, league?.matchFormat),
+      winner: String(match.result?.winner || ""),
+    });
+  };
+
+  const closeLeagueResultEditor = () => {
+    setLeagueResultEditor(null);
+  };
+
+  const updateLeagueResultEditorSet = (setIndex, value) => {
+    let shouldFocusNext = false;
+    let nextFocusIndex = setIndex + 1;
+
+    setLeagueResultEditor((current) => {
+      if (!current) {
+        return current;
+      }
+
+      const currentSetLabel = current.sets?.[setIndex]?.label || "";
+      const digitsLength = String(value || "").replace(/\D/g, "").length;
+      const expectedDigits = currentSetLabel === "STB" ? 4 : 2;
+      shouldFocusNext = digitsLength >= expectedDigits && setIndex < (current.sets?.length || 0) - 1;
+
+      return {
+        ...current,
+        sets: current.sets.map((set, index) =>
+          index === setIndex
+            ? {
+                ...set,
+                ...parseCompactLeagueSetInput(value, set.label),
+              }
+            : set
+        ),
+      };
+    });
+
+    if (shouldFocusNext) {
+      requestAnimationFrame(() => {
+        leagueResultSetInputRefs.current[`set-${nextFocusIndex}`]?.focus?.();
+      });
+    }
+  };
+
+  const saveLeagueResultEditor = () => {
+    if (!leagueResultEditor?.roundId || !leagueResultEditor?.matchId) {
+      closeLeagueResultEditor();
+      return;
+    }
+
+    const sets = leagueResultEditor.sets || [];
+    const hasScore = sets.some((set) => hasSetData(set));
+    const requiredSetsCount = league?.matchFormat === "single_set" ? 1 : 2;
+    const requiredSetsAreComplete = sets
+      .slice(0, requiredSetsCount)
+      .every((set) => Boolean(set.own && set.rival && set.own !== set.rival));
+    const optionalSetsAreComplete = sets
+      .slice(requiredSetsCount)
+      .every((set) => !hasSetData(set) || Boolean(set.own && set.rival && set.own !== set.rival));
+
+    if ((hasScore || leagueResultEditor.winner) && !leagueResultEditor.winner) {
+      showFeedback(
+        "Falta seleccionar ganador",
+        "Para guardar un resultado cargado, selecciona la pareja ganadora.",
+        "danger"
+      );
+      return;
+    }
+
+    if ((hasScore || leagueResultEditor.winner) && (!requiredSetsAreComplete || !optionalSetsAreComplete)) {
+      showFeedback(
+        "Resultado incompleto",
+        league?.matchFormat === "single_set"
+          ? "Completa el resultado del set antes de guardar."
+          : "SET 1 y SET 2 deben tener ganador. Si cargas el tercer set, tambien debe tener ganador.",
+        "danger"
+      );
+      return;
+    }
+
+    setFixtureDraft((current) =>
+      buildNextFixture(current, leagueResultEditor.roundId, leagueResultEditor.matchId, (match) => {
+        const nextMatch = leagueResultEditor.winner ? clearMatchSuspensionData(match) : match;
+
+        return {
+          ...nextMatch,
+          completedAtMillis: leagueResultEditor.winner
+            ? nextMatch.completedAtMillis || Date.now()
+            : 0,
+          result: {
+            ...nextMatch.result,
+            score: buildScoreSummary(sets),
+            sets,
+            winner: leagueResultEditor.winner,
+          },
+        };
+      })
+    );
+    closeLeagueResultEditor();
+  };
+
   const buildOwnReplacementRequest = (player, currentReplacement = {}) => ({
     ...(currentReplacement || {}),
     requested: true,
@@ -2197,8 +3237,10 @@ export default function LeagueFixtureScreen({ navigation, route }) {
       currentReplacement?.quotaSnapshot ?? league?.scoringSettings?.replacementQuota ?? null,
   });
 
-  const handlePlayerReplacementRequest = async () => {
-    if (!league || !nextReplacementTarget) {
+  const handlePlayerReplacementRequest = async (targetOverride = null) => {
+    const target = targetOverride || nextReplacementTarget;
+
+    if (!league || !target) {
       showFeedback(
         "Sin fecha disponible",
         "No encontramos una proxima fecha pendiente para pedir remplazo.",
@@ -2207,7 +3249,7 @@ export default function LeagueFixtureScreen({ navigation, route }) {
       return;
     }
 
-    if (hasOwnReplacementRequest) {
+    if (!targetOverride && hasOwnReplacementRequest) {
       showFeedback(
         hasOwnReplacementDesignated ? "Remplazo designado" : "Remplazo solicitado",
         hasOwnReplacementDesignated
@@ -2220,17 +3262,17 @@ export default function LeagueFixtureScreen({ navigation, route }) {
 
     const nextFixture = buildNextFixture(
       fixtureDraft,
-      nextReplacementTarget.roundId,
-      nextReplacementTarget.match.id,
+      target.roundId,
+      target.match.id,
       (match) => {
-        const currentReplacement = match.replacements?.[nextReplacementTarget.replacementKey] || {};
+        const currentReplacement = match.replacements?.[target.replacementKey] || {};
 
         return {
           ...match,
           replacements: {
             ...(match.replacements || {}),
-            [nextReplacementTarget.replacementKey]: buildOwnReplacementRequest(
-              nextReplacementTarget.player,
+            [target.replacementKey]: buildOwnReplacementRequest(
+              target.player,
               currentReplacement
             ),
           },
@@ -2247,10 +3289,10 @@ export default function LeagueFixtureScreen({ navigation, route }) {
         fixture: nextFixture,
       }));
       setFixtureDraft(nextFixture);
-      expandRound(nextReplacementTarget.roundId);
+      expandRound(target.roundId);
       showFeedback(
         "Solicitud de remplazo",
-        `Solicitud de remplazo para ${nextReplacementTarget.roundTitle}.`,
+        `Solicitud de remplazo para ${target.roundTitle || "esta fecha"}.`,
         "success"
       );
     } catch (error) {
@@ -2264,21 +3306,26 @@ export default function LeagueFixtureScreen({ navigation, route }) {
     }
   };
 
-  const handleCancelPlayerReplacementRequest = async () => {
-    if (!league || !nextReplacementTarget || !hasOwnReplacementRequest || hasOwnReplacementDesignated) {
+  const handleCancelPlayerReplacementRequest = async (targetOverride = null) => {
+    const target = targetOverride || nextReplacementTarget;
+    const targetReplacementEntry = target?.replacementEntry || null;
+    const targetHasRequest = Boolean(targetReplacementEntry?.requested);
+    const targetHasAssignedReplacement = Boolean(targetReplacementEntry?.replacement);
+
+    if (!league || !target || !targetHasRequest || targetHasAssignedReplacement) {
       return;
     }
 
     const nextFixture = buildNextFixture(
       fixtureDraft,
-      nextReplacementTarget.roundId,
-      nextReplacementTarget.match.id,
+      target.roundId,
+      target.match.id,
       (match) => {
         const nextReplacements = {
           ...(match.replacements || {}),
         };
 
-        delete nextReplacements[nextReplacementTarget.replacementKey];
+        delete nextReplacements[target.replacementKey];
 
         return {
           ...match,
@@ -2295,10 +3342,10 @@ export default function LeagueFixtureScreen({ navigation, route }) {
         fixture: nextFixture,
       }));
       setFixtureDraft(nextFixture);
-      expandRound(nextReplacementTarget.roundId);
+      expandRound(target.roundId);
       showFeedback(
         "Solicitud cancelada",
-        `Cancelaste el pedido de remplazo para ${nextReplacementTarget.roundTitle}.`,
+        `Cancelaste el pedido de remplazo para ${target.roundTitle || "esta fecha"}.`,
         "success"
       );
     } catch (error) {
@@ -2415,6 +3462,7 @@ export default function LeagueFixtureScreen({ navigation, route }) {
       getFixtureReplacementRequestSignature(nextFixture);
     const didResultDataChange = hasResultDataChanged(league.fixture || {}, nextFixture);
     const didAssignNewWinner = hasNewWinnerAssigned(league.fixture || {}, nextFixture);
+    const didSuspensionDataChange = hasSuspensionDataChanged(league.fixture || {}, nextFixture);
     const replacementConfirmationNotices = collectReplacementConfirmationNotices(nextFixture, league);
     const fixtureToSave = replacementConfirmationNotices.length
       ? clearReplacementConfirmationNoticeFlags(nextFixture)
@@ -2423,8 +3471,9 @@ export default function LeagueFixtureScreen({ navigation, route }) {
     try {
       setSavingMatchId("saving");
       await updateLeagueFixture(league.id, fixtureToSave);
+      let suspensionShareMessages = [];
       if (canEditFixture) {
-        await notifyLeagueSuspensionAsync(league, fixtureToSave);
+        suspensionShareMessages = await notifyLeagueSuspensionAsync(league, fixtureToSave);
       }
       if (replacementConfirmationNotices.length) {
         await Promise.allSettled(
@@ -2471,9 +3520,16 @@ export default function LeagueFixtureScreen({ navigation, route }) {
         } else {
           showFeedback("Resultado guardado", "Tabla de puntajes actualizada", "success");
         }
+      } else if (didSuspensionDataChange) {
+        showFeedback(
+          "Suspension actualizada",
+          "Los cambios de suspension quedaron guardados.",
+          "success"
+        );
       } else {
-        showFeedback("Cambios guardados", "Tabla de puntajes actualizada", "success");
+        showFeedback("Cambios guardados", "Los cambios quedaron guardados.", "success");
       }
+      promptWhatsAppShare(suspensionShareMessages);
     } catch (error) {
       showFeedback(
         "No pudimos guardar el resultado",
@@ -2661,6 +3717,98 @@ export default function LeagueFixtureScreen({ navigation, route }) {
     );
   };
 
+  const renderMigrationTableTeam = ({ team, teamKey, match, roundId }) => {
+    const isWinner = match?.result?.winner === teamKey;
+
+    if (!(team?.players || []).length) {
+      return (
+        <View style={styles.leagueMigrationTeamRow}>
+          <View style={styles.leagueMigrationWinnerIconSlot}>
+            {isWinner ? (
+              <Ionicons
+                color="#36D66B"
+                name="thumbs-up"
+                size={11}
+                style={styles.leagueMigrationWinnerIcon}
+              />
+            ) : null}
+          </View>
+          <Text numberOfLines={2} style={styles.leagueMigrationPairText}>
+            {team?.label || "Pareja"}
+          </Text>
+        </View>
+      );
+    }
+
+    const playerEntries = (team.players || []).map((player, playerIndex) => {
+      const replacementKey = getPlayerReplacementKey(teamKey, player, playerIndex);
+      const replacementEntry = match.replacements?.[replacementKey];
+      return {
+        hasReplacementRequest: Boolean(replacementEntry?.requested),
+        player,
+        replacementPlayer: replacementEntry?.replacement || null,
+      };
+    });
+    return (
+      <View style={styles.leagueMigrationTeamRowTopAligned}>
+        <View style={styles.leagueMigrationWinnerIconSlot}>
+          {isWinner ? (
+            <Ionicons
+              color="#36D66B"
+              name="thumbs-up"
+              size={11}
+              style={styles.leagueMigrationWinnerIcon}
+            />
+          ) : null}
+        </View>
+        <View style={styles.leagueMigrationCompactTeamWrap}>
+          {playerEntries.map((entry, playerIndex) => (
+            <Fragment key={`migration-${match.id}-${teamKey}-${playerIndex}`}>
+              {playerIndex > 0 ? <Text style={styles.leagueMigrationPairSeparator}>/</Text> : null}
+              <View style={styles.leagueMigrationPlayerSlot}>
+                <View style={styles.leagueMigrationPlayerStatusRow}>
+                  {playerIndex === 0 && entry.hasReplacementRequest ? (
+                    <Ionicons
+                      color={entry.replacementPlayer ? "#247653" : "#D47713"}
+                      name="swap-horizontal-outline"
+                      size={11}
+                    />
+                  ) : null}
+                  <Text
+                    numberOfLines={1}
+                    style={[
+                      styles.leagueMigrationPairText,
+                      entry.replacementPlayer ? styles.leagueMigrationPlayerReplaced : null,
+                      entry.hasReplacementRequest && !entry.replacementPlayer
+                        ? styles.leagueMigrationPlayerRequested
+                        : null,
+                    ]}
+                  >
+                    {formatPlayerShortName(entry.player)}
+                  </Text>
+                  {playerIndex > 0 && entry.hasReplacementRequest ? (
+                    <Ionicons
+                      color={entry.replacementPlayer ? "#247653" : "#D47713"}
+                      name="swap-horizontal-outline"
+                      size={11}
+                    />
+                  ) : null}
+                </View>
+                {entry.replacementPlayer ? (
+                  <Text numberOfLines={1} style={styles.leagueMigrationReplacementPlayerText}>
+                    {formatPlayerShortName(entry.replacementPlayer)}
+                  </Text>
+                ) : (
+                  <Text style={styles.leagueMigrationReplacementPlaceholder}> </Text>
+                )}
+              </View>
+            </Fragment>
+          ))}
+        </View>
+      </View>
+    );
+  };
+
   const pendingSuspensionMatches = getPendingMatchesForRound(roundSuspensionTarget);
   const roundHasSuspensionData = hasRoundSuspensionData(roundSuspensionTarget);
   const canChooseSuspensionReason =
@@ -2695,17 +3843,18 @@ export default function LeagueFixtureScreen({ navigation, route }) {
           category={league?.categoria}
           complexName={league?.complejoNombre}
           league={league}
+          organizerLogoUrl={league?.organizerLogoUrl || userData?.organizerLogoUrl || ""}
           sex={league?.sexo}
           title={leagueName}
           teamType={league?.teamType}
         >
-          <Text style={styles.heroMeta}>
+          {canEditFixture ? <Text style={styles.heroMeta}>
             Fechas configuradas: {league?.fixtureConfig?.roundsCount || 0}
             {league?.fixtureConfig?.roundMode === "double" ? " · Ida y vuelta" : " · Ida"}
             {league?.fixtureConfig?.visibilityMode === "current"
               ? " · Jugadores ven proxima pendiente"
               : ""}
-          </Text>
+          </Text> : null}
         </LeagueHeaderCard>
 
         {league?.teamType === "pair" && leaguePlayers.length ? (
@@ -2908,7 +4057,7 @@ export default function LeagueFixtureScreen({ navigation, route }) {
 
           return (
           <Fragment key={round.id}>
-            {historyRoundShowsReprogrammedInfo ? (
+            {false && historyRoundShowsReprogrammedInfo ? (
               <View style={[styles.roundCard, styles.roundHistoryCard]}>
                 <View style={styles.roundHistoryRow}>
                   <Text style={[styles.roundTitle, styles.roundHistoryPill]}>
@@ -2935,12 +4084,11 @@ export default function LeagueFixtureScreen({ navigation, route }) {
               }
             }}
             style={[
-              styles.roundCard,
-              styles[`roundCardTone${(roundIndex % 12) + 1}`],
-              round.id === focusRoundId ? styles.roundCardFocused : null,
+              styles.leagueMigrationRoundWrap,
+              round.id === focusRoundId ? styles.leagueMigrationRoundWrapFocused : null,
             ]}
           >
-            {(() => {
+            {false && (() => {
               const isRoundExpanded = expandedRoundIds.includes(round.id);
               const roundIsComplete = (round.matches || []).length
                 ? round.matches.every((match) => isMatchCompleted(match))
@@ -3072,7 +4220,7 @@ export default function LeagueFixtureScreen({ navigation, route }) {
               );
             })()}
 
-            {expandedRoundIds.includes(round.id) ? (
+            {false && expandedRoundIds.includes(round.id) ? (
               <>
             {(() => {
               const sortedMatches = sortMatchesByTime(round.matches || []);
@@ -3333,10 +4481,213 @@ export default function LeagueFixtureScreen({ navigation, route }) {
             ) : null}
               </>
             ) : null}
+
+            <View style={styles.leagueMigrationTable}>
+              <View style={styles.leagueMigrationDateHeading}>
+                <Text style={styles.leagueMigrationDateHeadingText}>
+                  {String(round.title || `Fecha ${roundIndex + 1}`).toUpperCase()}
+                </Text>
+                {(() => {
+                  const statusMeta = getRoundStatusMeta(round);
+
+                  return (
+                    <View style={styles.leagueMigrationDateStatus}>
+                      <View
+                        style={[
+                          styles.leagueMigrationDateStatusDot,
+                          styles[`leagueMigrationDateStatusDot${statusMeta.styleKey}`],
+                        ]}
+                      />
+                      <Text
+                        style={[
+                          styles.leagueMigrationDateStatusText,
+                          styles[`leagueMigrationDateStatusText${statusMeta.styleKey}`],
+                        ]}
+                      >
+                        {statusMeta.label}
+                      </Text>
+                    </View>
+                  );
+                })()}
+              </View>
+              <View style={styles.leagueMigrationTableHeader}>
+                <Text
+                  style={[
+                    styles.leagueMigrationTableHeaderText,
+                    styles.leagueMigrationResultColumn,
+                  ]}
+                >
+                  RESULTADOS
+                </Text>
+                <Text
+                  style={[
+                    styles.leagueMigrationTableHeaderText,
+                    styles.leagueMigrationPairsColumn,
+                  ]}
+                >
+                  PAREJAS
+                </Text>
+                <Text
+                  style={[
+                    styles.leagueMigrationTableHeaderText,
+                    styles.leagueMigrationDayColumn,
+                  ]}
+                >
+                  DIA
+                </Text>
+                <Text
+                  style={[
+                    styles.leagueMigrationTableHeaderText,
+                    styles.leagueMigrationTimeColumn,
+                  ]}
+                >
+                  HORA
+                </Text>
+                <View style={styles.leagueMigrationActionsColumn}>
+                  <Ionicons
+                    color="#285E59"
+                    name="swap-horizontal-outline"
+                    size={13}
+                  />
+                </View>
+              </View>
+
+              {sortMatchesByTime(round.matches || []).map((match, tableMatchIndex) => {
+                const resultLabel = buildScoreSummary(
+                  getMatchResultSets(match, league?.matchFormat)
+                );
+                const dayLabel = formatDayLabel(
+                  match.rescheduledDateMillis ||
+                    round.rescheduledDateMillis ||
+                    round.scheduledDateMillis
+                );
+
+                return (
+                  <View
+                    key={`league-migration-${round.id}-${match.id}`}
+                    style={[
+                      styles.leagueMigrationTableRow,
+                      tableMatchIndex === (round.matches || []).length - 1
+                        ? styles.leagueMigrationTableRowLast
+                        : null,
+                    ]}
+                  >
+                    <Pressable
+                      disabled={!canEditFixture}
+                      onPress={() => openLeagueResultEditor(round, match)}
+                      style={({ pressed }) => [
+                        styles.leagueMigrationResultColumn,
+                        styles.leagueMigrationResultButton,
+                        pressed && canEditFixture ? styles.generateButtonPressed : null,
+                      ]}
+                    >
+                      <Text
+                        numberOfLines={2}
+                        style={[
+                          styles.leagueMigrationTableCell,
+                          canEditFixture ? styles.leagueMigrationResultButtonText : null,
+                        ]}
+                      >
+                        {resultLabel || "Pendiente"}
+                      </Text>
+                    </Pressable>
+                    <View style={styles.leagueMigrationPairsColumn}>
+                      <View style={styles.leagueMigrationTeamWrap}>
+                        {renderMigrationTableTeam({
+                          match,
+                          roundId: round.id,
+                          team: match.teamA,
+                          teamKey: "teamA",
+                        })}
+                      </View>
+                      <View style={styles.leagueMigrationTeamWrap}>
+                        {renderMigrationTableTeam({
+                          match,
+                          roundId: round.id,
+                          team: match.teamB,
+                          teamKey: "teamB",
+                        })}
+                      </View>
+                    </View>
+                    <Pressable
+                      disabled={!canEditFixture}
+                      onPress={() => openLeagueMatchDayPicker(round, match)}
+                      style={({ pressed }) => [
+                        styles.leagueMigrationDayColumn,
+                        styles.leagueMigrationScheduleButton,
+                        pressed && canEditFixture ? styles.generateButtonPressed : null,
+                      ]}
+                    >
+                      <Text
+                        numberOfLines={2}
+                        style={[
+                          styles.leagueMigrationTableCell,
+                          canEditFixture ? styles.leagueMigrationScheduleButtonText : null,
+                        ]}
+                      >
+                        {dayLabel || "Sin dia"}
+                      </Text>
+                    </Pressable>
+                    <Pressable
+                      disabled={!canEditFixture}
+                      onPress={() => openMatchTimePicker(round.id, match.id, match.timeSlot)}
+                      style={({ pressed }) => [
+                        styles.leagueMigrationTimeColumn,
+                        styles.leagueMigrationScheduleButton,
+                        pressed && canEditFixture ? styles.generateButtonPressed : null,
+                      ]}
+                    >
+                      <Text
+                        numberOfLines={1}
+                        style={[
+                          styles.leagueMigrationTableCell,
+                          canEditFixture ? styles.leagueMigrationScheduleButtonText : null,
+                        ]}
+                      >
+                        {match.timeSlot || "--:--"}
+                      </Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => openTableReplacementMenu(round, match)}
+                      style={({ pressed }) => [
+                        styles.leagueMigrationActionsColumn,
+                        styles.leagueMigrationActionsButton,
+                        pressed ? styles.generateButtonPressed : null,
+                      ]}
+                    >
+                      <Ionicons color={colors.primaryDark} name="ellipsis-vertical" size={16} />
+                      {hasUnassignedReplacement(match) ? (
+                        <View style={styles.leagueMigrationReplacementPendingDot} />
+                      ) : hasAssignedReplacement(match) ? (
+                        <View style={styles.leagueMigrationReplacementAssignedDot} />
+                      ) : null}
+                    </Pressable>
+                  </View>
+                );
+              })}
+            </View>
           </View>
           </Fragment>
           );
         })}
+
+        {hasFixture ? (
+          <Pressable
+            onPress={() =>
+              navigation.navigate("LeagueStandings", {
+                leagueId: league?.id || leagueId,
+                leagueName,
+              })
+            }
+            style={({ pressed }) => [
+              styles.fixtureStandingsShortcut,
+              pressed ? styles.generateButtonPressed : null,
+            ]}
+          >
+            <Ionicons color="#1F6D69" name="trophy-outline" size={18} />
+            <Text style={styles.fixtureStandingsShortcutText}>Puntajes</Text>
+          </Pressable>
+        ) : null}
 
         {hasFixture && canEditFixture ? (
           <View style={styles.bottomActionsSpacer}>
@@ -3413,9 +4764,22 @@ export default function LeagueFixtureScreen({ navigation, route }) {
             </View>
           </View>
         ) : null}
+
+        {hasFixture && canEditFixture ? (
+          <Pressable
+            accessibilityLabel="Compartir fixture"
+            onPress={openLeagueShareModal}
+            style={({ pressed }) => [
+              styles.leagueShareShortcut,
+              pressed ? styles.generateButtonPressed : null,
+            ]}
+          >
+            <Ionicons color="#1F6D69" name="share-social-outline" size={17} />
+          </Pressable>
+        ) : null}
       </ScrollView>
 
-      {canSaveFixtureChanges && canEditFixture ? (
+      {canSaveFixtureChanges && canEditFixture && hasUnsavedFixtureChanges ? (
         <View style={styles.stickyActionsWrap}>
           <Pressable
             disabled={Boolean(savingMatchId)}
@@ -3430,6 +4794,129 @@ export default function LeagueFixtureScreen({ navigation, route }) {
               {savingMatchId === "saving" ? "GUARDANDO..." : "GUARDAR CAMBIOS"}
             </Text>
           </Pressable>
+        </View>
+      ) : null}
+
+      {canEditFixture && leagueShareChunks.length ? (
+        <View pointerEvents="none" style={styles.leagueShareHiddenRoot}>
+          {leagueShareChunks.map((chunk, chunkIndex) => (
+            <View
+              key={`league-share-chunk-${chunkIndex}`}
+              collapsable={false}
+              ref={(ref) => {
+                leagueShareViewRefs.current[chunkIndex] = ref;
+              }}
+              style={styles.leagueShareCaptureCard}
+            >
+              <View style={styles.leagueShareHeader}>
+                <View style={styles.leagueShareHeaderRow}>
+                  {leagueShareLogoUrl ? (
+                    <Image source={{ uri: leagueShareLogoUrl }} style={styles.leagueShareLogo} />
+                  ) : null}
+                  <View style={styles.leagueShareHeaderCopy}>
+                    <Text style={styles.leagueShareTitle}>{leagueName || "Liga"}</Text>
+                    <Text style={styles.leagueShareSubtitle}>
+                      {[league?.categoria || "", resolveLeagueOrganizerLabel(league, "PadelNexo")]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+
+              {chunk.map((round, roundIndex) => {
+                const statusMeta = getRoundStatusMeta(round);
+
+                return (
+                  <View
+                    key={`league-share-round-${round.id || roundIndex}`}
+                    style={styles.leagueShareRoundCard}
+                  >
+                    <View style={styles.leagueShareRoundHeader}>
+                      <Text style={styles.leagueShareRoundTitle}>
+                        {round.title || `Fecha ${roundIndex + 1}`}
+                      </Text>
+                      <Text
+                        style={[
+                          styles.leagueShareRoundStatus,
+                          styles[`leagueShareRoundStatus${statusMeta.styleKey}`],
+                        ]}
+                      >
+                        {statusMeta.label}
+                      </Text>
+                    </View>
+
+                    <View style={styles.leagueShareTableHeader}>
+                      <Text
+                        style={[
+                          styles.leagueShareTableHeaderText,
+                          styles.leagueShareResultColumn,
+                        ]}
+                      >
+                        RESULTADOS
+                      </Text>
+                      <Text
+                        style={[
+                          styles.leagueShareTableHeaderText,
+                          styles.leagueSharePairsColumn,
+                        ]}
+                      >
+                        PAREJAS
+                      </Text>
+                      <Text
+                        style={[styles.leagueShareTableHeaderText, styles.leagueShareDayColumn]}
+                      >
+                        DIA
+                      </Text>
+                      <Text
+                        style={[styles.leagueShareTableHeaderText, styles.leagueShareTimeColumn]}
+                      >
+                        HORA
+                      </Text>
+                    </View>
+
+                    {sortMatchesByTime(round.matches || []).map((match, matchIndex, matchList) => (
+                      <View
+                        key={`league-share-row-${round.id}-${match.id}`}
+                        style={[
+                          styles.leagueShareTableRow,
+                          matchIndex === matchList.length - 1 ? styles.leagueShareTableRowLast : null,
+                        ]}
+                      >
+                        <Text
+                          style={[styles.leagueShareTableCell, styles.leagueShareResultColumn]}
+                        >
+                          {buildScoreSummary(getMatchResultSets(match, league?.matchFormat)) ||
+                            "Pendiente"}
+                        </Text>
+                        <Text
+                          style={[styles.leagueShareTableCell, styles.leagueSharePairsColumn]}
+                        >
+                          {buildLeagueShareTeamLabel(match.teamA)}
+                          {"\n"}
+                          {buildLeagueShareTeamLabel(match.teamB)}
+                        </Text>
+                        <Text
+                          style={[styles.leagueShareTableCell, styles.leagueShareDayColumn]}
+                        >
+                          {formatDayLabel(
+                            match.rescheduledDateMillis ||
+                              round.rescheduledDateMillis ||
+                              round.scheduledDateMillis
+                          ) || "Sin dia"}
+                        </Text>
+                        <Text
+                          style={[styles.leagueShareTableCell, styles.leagueShareTimeColumn]}
+                        >
+                          {match.timeSlot || "--:--"}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                );
+              })}
+            </View>
+          ))}
         </View>
       ) : null}
 
@@ -3465,13 +4952,9 @@ export default function LeagueFixtureScreen({ navigation, route }) {
             onPress={() => setPlayerReplacementMenuVisible(false)}
             style={styles.modalBackdrop}
           />
-          <View style={styles.modalCard}>
+          <View style={[styles.modalCard, styles.playerReplacementMenuModalCard]}>
             <Text style={styles.modalTitle}>Opciones del partido</Text>
-            <Text style={styles.modalMessage}>
-              {nextReplacementTarget
-                ? `${nextReplacementTarget.roundTitle} - ${nextReplacementTarget.match?.timeSlot || "Sin horario"} hs`
-                : "No encontramos un partido pendiente."}
-            </Text>
+            <Text style={styles.modalMessage}>Solicita remplazo de liga</Text>
             {hasOwnReplacementRequest ? (
               <View style={styles.replacementMenuStatusBox}>
                 <Text style={styles.replacementMenuStatusTitle}>
@@ -3542,7 +5025,9 @@ export default function LeagueFixtureScreen({ navigation, route }) {
         <View style={styles.modalOverlay}>
           <Pressable onPress={closeRoundSuspensionOptions} style={styles.modalBackdrop} />
           <View style={[styles.modalCard, styles.suspensionModalCard]}>
-            <Text style={styles.modalTitle}>Liga Suspendida</Text>
+            <Text style={styles.modalTitle}>
+              {retakingSuspension ? "Retomar fecha suspendida" : "Suspender o reprogramar"}
+            </Text>
 
             <ScrollView
               contentContainerStyle={styles.suspensionModalContent}
@@ -3558,9 +5043,23 @@ export default function LeagueFixtureScreen({ navigation, route }) {
                       pressed ? styles.generateButtonPressed : null,
                     ]}
                   >
-                    <Ionicons color={colors.surface} name="warning" size={20} />
-                    <Text style={styles.suspensionPrimaryStartText}>SUSPENDER LIGA</Text>
+                    <Ionicons color={colors.surface} name="options-outline" size={20} />
+                    <Text style={styles.suspensionPrimaryStartText}>CONFIGURAR SUSPENSION</Text>
                   </Pressable>
+                  {roundHasSuspensionData ? (
+                    <Pressable
+                      onPress={() => openRetakeSuspendedRound(roundSuspensionTarget)}
+                      style={({ pressed }) => [
+                        styles.retakeSuspensionButton,
+                        pressed ? styles.generateButtonPressed : null,
+                      ]}
+                    >
+                      <Ionicons color="#176B5B" name="play-forward-circle-outline" size={21} />
+                      <Text style={styles.retakeSuspensionButtonText}>
+                        RETOMAR FECHA SUSPENDIDA
+                      </Text>
+                    </Pressable>
+                  ) : null}
                   {roundHasSuspensionData ? (
                     <Pressable
                       onPress={handleClearRoundSuspension}
@@ -3576,108 +5075,133 @@ export default function LeagueFixtureScreen({ navigation, route }) {
                 </>
               ) : (
                 <>
-                  <Text style={styles.modalMessage}>
-                    Primero elegi que alcance tiene la suspension. Los partidos con resultado cargado
-                    no se modifican.
-                  </Text>
+                  {retakingSuspension ? (
+                    <Text style={styles.suspensionIntroText}>
+                      La fecha ya esta suspendida. Defini ahora cuando se va a retomar.
+                    </Text>
+                  ) : (
+                    <>
+                      <Text style={styles.suspensionIntroText}>
+                        Completa los pasos para definir que partidos se suspenden y cuando se
+                        jugaran. Los partidos con resultado cargado no se modifican.
+                      </Text>
 
-                  <View style={styles.suspensionReasonList}>
-                    <Text style={styles.suspensionReasonTitle}>Alcance:</Text>
-                    <Pressable
-                      onPress={() => selectSuspensionScope(SUSPENSION_SCOPES.ALL_DAY)}
-                      style={({ pressed }) => [
-                        styles.suspensionReasonButton,
-                        suspensionScope === SUSPENSION_SCOPES.ALL_DAY
-                          ? styles.suspensionReasonButtonActive
-                          : null,
-                        pressed ? styles.generateButtonPressed : null,
-                      ]}
-                    >
-                      <Ionicons
-                        color={
-                          suspensionScope === SUSPENSION_SCOPES.ALL_DAY
-                            ? colors.surface
-                            : colors.primaryDark
-                        }
-                        name="calendar-clear-outline"
-                        size={18}
-                      />
-                      <Text
-                        style={[
-                          styles.suspensionReasonText,
-                          suspensionScope === SUSPENSION_SCOPES.ALL_DAY
-                            ? styles.suspensionReasonTextActive
-                            : null,
-                        ]}
-                      >
-                        Suspender todas las Ligas del Dia de la fecha
-                      </Text>
-                    </Pressable>
-                    <Pressable
-                      onPress={() => selectSuspensionScope(SUSPENSION_SCOPES.LEAGUE_ROUND)}
-                      style={({ pressed }) => [
-                        styles.suspensionReasonButton,
-                        suspensionScope === SUSPENSION_SCOPES.LEAGUE_ROUND
-                          ? styles.suspensionReasonButtonActive
-                          : null,
-                        pressed ? styles.generateButtonPressed : null,
-                      ]}
-                    >
-                      <Ionicons
-                        color={
-                          suspensionScope === SUSPENSION_SCOPES.LEAGUE_ROUND
-                            ? colors.surface
-                            : colors.primaryDark
-                        }
-                        name="albums-outline"
-                        size={18}
-                      />
-                      <Text
-                        style={[
-                          styles.suspensionReasonText,
-                          suspensionScope === SUSPENSION_SCOPES.LEAGUE_ROUND
-                            ? styles.suspensionReasonTextActive
-                            : null,
-                        ]}
-                      >
-                        Suspender esta liga completa
-                      </Text>
-                    </Pressable>
-                    <Pressable
-                      onPress={() => selectSuspensionScope(SUSPENSION_SCOPES.SELECTED_MATCHES)}
-                      style={({ pressed }) => [
-                        styles.suspensionReasonButton,
-                        suspensionScope === SUSPENSION_SCOPES.SELECTED_MATCHES
-                          ? styles.suspensionReasonButtonActive
-                          : null,
-                        pressed ? styles.generateButtonPressed : null,
-                      ]}
-                    >
-                      <Ionicons
-                        color={
-                          suspensionScope === SUSPENSION_SCOPES.SELECTED_MATCHES
-                            ? colors.surface
-                            : colors.primaryDark
-                        }
-                        name="checkbox-outline"
-                        size={18}
-                      />
-                      <Text
-                        style={[
-                          styles.suspensionReasonText,
-                          suspensionScope === SUSPENSION_SCOPES.SELECTED_MATCHES
-                            ? styles.suspensionReasonTextActive
-                            : null,
-                        ]}
-                      >
-                        Seleccionar que Partidos se Suspenden
-                      </Text>
-                    </Pressable>
-                  </View>
+                      <View style={styles.suspensionReasonList}>
+                        <View style={styles.suspensionStepHeader}>
+                          <Text style={styles.suspensionStepNumber}>1</Text>
+                          <Text style={styles.suspensionReasonTitle}>Que suspender?</Text>
+                        </View>
+                        <Pressable
+                          onPress={() => selectSuspensionScope(SUSPENSION_SCOPES.ALL_DAY)}
+                          style={({ pressed }) => [
+                            styles.suspensionReasonButton,
+                            suspensionScope === SUSPENSION_SCOPES.ALL_DAY
+                              ? styles.suspensionReasonButtonActive
+                              : null,
+                            pressed ? styles.generateButtonPressed : null,
+                          ]}
+                        >
+                          <Ionicons
+                            color={
+                              suspensionScope === SUSPENSION_SCOPES.ALL_DAY
+                                ? "#176B5B"
+                                : colors.primaryDark
+                            }
+                            name="calendar-clear-outline"
+                            size={18}
+                          />
+                          <Text
+                            style={[
+                              styles.suspensionReasonText,
+                              styles.suspensionReasonTextWithSupport,
+                              suspensionScope === SUSPENSION_SCOPES.ALL_DAY
+                                ? styles.suspensionReasonTextActive
+                                : null,
+                            ]}
+                          >
+                            Todas mis ligas programadas para este dia{"\n"}
+                            <Text style={styles.suspensionReasonSupportText}>
+                              Incluye otras ligas que organices en la misma fecha.
+                            </Text>
+                          </Text>
+                        </Pressable>
+                        <Pressable
+                          onPress={() => selectSuspensionScope(SUSPENSION_SCOPES.LEAGUE_ROUND)}
+                          style={({ pressed }) => [
+                            styles.suspensionReasonButton,
+                            suspensionScope === SUSPENSION_SCOPES.LEAGUE_ROUND
+                              ? styles.suspensionReasonButtonActive
+                              : null,
+                            pressed ? styles.generateButtonPressed : null,
+                          ]}
+                        >
+                          <Ionicons
+                            color={
+                              suspensionScope === SUSPENSION_SCOPES.LEAGUE_ROUND
+                                ? "#176B5B"
+                                : colors.primaryDark
+                            }
+                            name="albums-outline"
+                            size={18}
+                          />
+                          <Text
+                            style={[
+                              styles.suspensionReasonText,
+                              styles.suspensionReasonTextWithSupport,
+                              suspensionScope === SUSPENSION_SCOPES.LEAGUE_ROUND
+                                ? styles.suspensionReasonTextActive
+                                : null,
+                            ]}
+                          >
+                            Esta fecha de {leagueName} solamente{"\n"}
+                            <Text style={styles.suspensionReasonSupportText}>
+                              No afecta ninguna otra liga.
+                            </Text>
+                          </Text>
+                        </Pressable>
+                        <Pressable
+                          onPress={() => selectSuspensionScope(SUSPENSION_SCOPES.SELECTED_MATCHES)}
+                          style={({ pressed }) => [
+                            styles.suspensionReasonButton,
+                            suspensionScope === SUSPENSION_SCOPES.SELECTED_MATCHES
+                              ? styles.suspensionReasonButtonActive
+                              : null,
+                            pressed ? styles.generateButtonPressed : null,
+                          ]}
+                        >
+                          <Ionicons
+                            color={
+                              suspensionScope === SUSPENSION_SCOPES.SELECTED_MATCHES
+                                ? "#176B5B"
+                                : colors.primaryDark
+                            }
+                            name="checkbox-outline"
+                            size={18}
+                          />
+                          <Text
+                            style={[
+                              styles.suspensionReasonText,
+                              styles.suspensionReasonTextWithSupport,
+                              suspensionScope === SUSPENSION_SCOPES.SELECTED_MATCHES
+                                ? styles.suspensionReasonTextActive
+                                : null,
+                            ]}
+                          >
+                            Elegir partidos de{" "}
+                            {String(roundSuspensionTarget?.title || "esta fecha").toUpperCase()}
+                            {"\n"}
+                            <Text style={styles.suspensionReasonSupportText}>
+                              Solo se suspenden los partidos que marques.
+                            </Text>
+                          </Text>
+                        </Pressable>
+                      </View>
+                    </>
+                  )}
 
-                  {suspensionScope === SUSPENSION_SCOPES.SELECTED_MATCHES ? (
+                  {!retakingSuspension && suspensionScope === SUSPENSION_SCOPES.SELECTED_MATCHES ? (
                     <View style={styles.suspensionReasonList}>
-                      <Text style={styles.suspensionReasonTitle}>Partidos pendientes:</Text>
+                      <Text style={styles.suspensionSubsectionTitle}>Partidos pendientes</Text>
                       {pendingSuspensionMatches.length ? (
                         pendingSuspensionMatches.map((match, index) => {
                           const isSelected = selectedSuspendedMatchIds.includes(match.id);
@@ -3693,7 +5217,7 @@ export default function LeagueFixtureScreen({ navigation, route }) {
                               ]}
                             >
                               <Ionicons
-                                color={isSelected ? colors.surface : colors.primaryDark}
+                                color={isSelected ? "#176B5B" : colors.primaryDark}
                                 name={isSelected ? "checkbox" : "square-outline"}
                                 size={18}
                               />
@@ -3716,9 +5240,12 @@ export default function LeagueFixtureScreen({ navigation, route }) {
                     </View>
                   ) : null}
 
-                  {canChooseSuspensionReason ? (
+                  {!retakingSuspension && canChooseSuspensionReason ? (
                     <View style={styles.suspensionReasonList}>
-                      <Text style={styles.suspensionReasonTitle}>Motivo:</Text>
+                      <View style={styles.suspensionStepHeader}>
+                        <Text style={styles.suspensionStepNumber}>2</Text>
+                        <Text style={styles.suspensionReasonTitle}>Motivo</Text>
+                      </View>
                       {SUSPENSION_REASONS.map((reason) => {
                         const isSelected = selectedSuspensionReason === reason.value;
 
@@ -3728,12 +5255,13 @@ export default function LeagueFixtureScreen({ navigation, route }) {
                             onPress={() => setSelectedSuspensionReason(reason.value)}
                             style={({ pressed }) => [
                               styles.suspensionReasonButton,
+                              styles.suspensionReasonButtonCompact,
                               isSelected ? styles.suspensionReasonButtonActive : null,
                               pressed ? styles.generateButtonPressed : null,
                             ]}
                           >
                             <Ionicons
-                              color={isSelected ? colors.surface : colors.primaryDark}
+                              color={isSelected ? "#176B5B" : colors.primaryDark}
                               name={isSelected ? "radio-button-on" : "radio-button-off"}
                               size={18}
                             />
@@ -3753,6 +5281,14 @@ export default function LeagueFixtureScreen({ navigation, route }) {
 
                   {selectedSuspensionReason ? (
                     <View style={styles.modalActionsColumn}>
+                      <View style={styles.suspensionStepHeader}>
+                        {!retakingSuspension ? (
+                          <Text style={styles.suspensionStepNumber}>3</Text>
+                        ) : null}
+                        <Text style={styles.suspensionReasonTitle}>
+                          {retakingSuspension ? "Cuando se retoma" : "Cuando se jugaran"}
+                        </Text>
+                      </View>
                       <Pressable
                         disabled={!canApplySuspension || applyingSuspension}
                         onPress={() =>
@@ -3762,52 +5298,60 @@ export default function LeagueFixtureScreen({ navigation, route }) {
                           })
                         }
                         style={({ pressed }) => [
-                          styles.nextWeekSuspensionButton,
-                          styles.suspensionActionButton,
+                          styles.suspensionScheduleOption,
                           !canApplySuspension || applyingSuspension ? styles.modalButtonDisabled : null,
                           pressed ? styles.generateButtonPressed : null,
                         ]}
                       >
-                        <Ionicons color={colors.surface} name="calendar-number-outline" size={18} />
-                        <Text style={styles.nextWeekSuspensionButtonText}>
-                          {suspensionScope === SUSPENSION_SCOPES.SELECTED_MATCHES
-                            ? "JUGAR PARTIDOS SUSPENDIDOS LA PROXIMA SEMANA"
-                            : "SE JUEGA LA PROXIMA SEMANA FECHA NORMAL"}
-                        </Text>
+                        <Ionicons color="#176B5B" name="calendar-number-outline" size={17} />
+                        <View style={styles.suspensionScheduleOptionCopy}>
+                          <Text style={styles.suspensionScheduleOptionTitle}>Proxima semana</Text>
+                          <Text style={styles.suspensionScheduleOptionText}>
+                            Se mantiene el mismo orden y se corre a la semana siguiente.
+                          </Text>
+                        </View>
                       </Pressable>
                       <Pressable
                         disabled={!canApplySuspension || applyingSuspension}
                         onPress={() => setRescheduleDatePickerVisible(true)}
                         style={({ pressed }) => [
-                          styles.modalPrimaryButton,
-                          styles.suspensionActionButton,
+                          styles.suspensionScheduleOption,
                           !canApplySuspension || applyingSuspension ? styles.modalButtonDisabled : null,
                           pressed ? styles.generateButtonPressed : null,
                         ]}
                       >
-                        <Text style={styles.modalPrimaryButtonText}>Elegir fecha reprogramada</Text>
-                      </Pressable>
-                      {suspensionScope === SUSPENSION_SCOPES.SELECTED_MATCHES ? (
-                        <Pressable
-                          disabled={!canApplySuspension || applyingSuspension}
-                          onPress={() =>
-                            applyRoundSuspension({
-                              rescheduledDateMillis: getDateAfterLastFixtureRound(),
-                              suspensionMode: "after_last",
-                            })
-                          }
-                          style={({ pressed }) => [
-                            styles.modalSecondaryButton,
-                            styles.suspensionActionButton,
-                            !canApplySuspension || applyingSuspension ? styles.modalButtonDisabled : null,
-                            pressed ? styles.generateButtonPressed : null,
-                          ]}
-                        >
-                          <Text style={styles.modalSecondaryButtonText}>
-                            JUGAR DESPUES DE LA ULTIMA FECHA
+                        <Ionicons color="#176B5B" name="calendar-outline" size={17} />
+                        <View style={styles.suspensionScheduleOptionCopy}>
+                          <Text style={styles.suspensionScheduleOptionTitle}>Elegir fecha</Text>
+                          <Text style={styles.suspensionScheduleOptionText}>
+                            Selecciona un dia especifico para jugar la fecha.
                           </Text>
-                        </Pressable>
-                      ) : null}
+                        </View>
+                      </Pressable>
+                      <Pressable
+                        disabled={!canApplySuspension || applyingSuspension}
+                        onPress={() =>
+                          applyRoundSuspension({
+                            rescheduledDateMillis: getDateAfterLastFixtureRound(),
+                            suspensionMode: "after_last",
+                          })
+                        }
+                        style={({ pressed }) => [
+                          styles.suspensionScheduleOption,
+                          !canApplySuspension || applyingSuspension ? styles.modalButtonDisabled : null,
+                          pressed ? styles.generateButtonPressed : null,
+                        ]}
+                      >
+                        <Ionicons color="#176B5B" name="play-skip-forward-outline" size={17} />
+                        <View style={styles.suspensionScheduleOptionCopy}>
+                          <Text style={styles.suspensionScheduleOptionTitle}>
+                            Despues de la ultima fecha
+                          </Text>
+                          <Text style={styles.suspensionScheduleOptionText}>
+                            La fecha queda al final del fixture.
+                          </Text>
+                        </View>
+                      </Pressable>
                     </View>
                   ) : null}
                 </>
@@ -4415,6 +5959,542 @@ export default function LeagueFixtureScreen({ navigation, route }) {
 
       <Modal
         animationType="fade"
+        onRequestClose={closeLeagueShareModal}
+        transparent
+        visible={leagueShareModalVisible}
+      >
+        <View style={styles.modalOverlay}>
+          <Pressable onPress={closeLeagueShareModal} style={styles.modalBackdrop} />
+          <View style={styles.leagueShareModalCard}>
+            <Text style={styles.modalTitle}>Compartir fixture</Text>
+            <Text style={styles.modalMessage}>
+              Selecciona las fechas que quieras compartir. Despues podras elegir WhatsApp desde el
+              panel de compartir.
+            </Text>
+
+            <Pressable
+              disabled={leagueShareInProgress}
+              onPress={toggleLeagueShareAllRounds}
+              style={[
+                styles.leagueShareSelectAllButton,
+                allLeagueShareRoundsSelected ? styles.leagueShareSelectAllButtonActive : null,
+              ]}
+            >
+              <Ionicons
+                color={allLeagueShareRoundsSelected ? colors.surface : "#1F6D69"}
+                name={allLeagueShareRoundsSelected ? "checkbox" : "square-outline"}
+                size={18}
+              />
+              <Text
+                style={[
+                  styles.leagueShareSelectAllButtonText,
+                  allLeagueShareRoundsSelected ? styles.leagueShareSelectAllButtonTextActive : null,
+                ]}
+              >
+                {allLeagueShareRoundsSelected ? "Quitar seleccion" : "Seleccionar todas"}
+              </Text>
+            </Pressable>
+
+            <ScrollView
+              contentContainerStyle={styles.leagueShareRoundOptions}
+              showsVerticalScrollIndicator={false}
+              style={styles.leagueShareRoundOptionsScroll}
+            >
+              {leagueShareRoundOptions.map((round) => {
+                const isSelected = selectedLeagueShareRoundIds.includes(round.id);
+
+                return (
+                  <Pressable
+                    key={`league-share-option-${round.id}`}
+                    disabled={leagueShareInProgress}
+                    onPress={() => toggleLeagueShareRound(round.id)}
+                    style={[
+                      styles.leagueShareRoundOption,
+                      isSelected ? styles.leagueShareRoundOptionSelected : null,
+                    ]}
+                  >
+                    <View style={styles.leagueShareRoundOptionCopy}>
+                      <Text
+                        style={[
+                          styles.leagueShareRoundOptionTitle,
+                          isSelected ? styles.leagueShareRoundOptionTitleSelected : null,
+                        ]}
+                      >
+                        {round.label}
+                      </Text>
+                      <Text
+                        style={[
+                          styles.leagueShareRoundOptionStatus,
+                          isSelected ? styles.leagueShareRoundOptionStatusSelected : null,
+                        ]}
+                      >
+                        {round.status}
+                      </Text>
+                    </View>
+                    <Ionicons
+                      color={isSelected ? "#1F6D69" : colors.textMuted}
+                      name={isSelected ? "checkmark-circle" : "ellipse-outline"}
+                      size={20}
+                    />
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+
+            <View style={styles.leagueShareModalActions}>
+              <Pressable
+                disabled={leagueShareInProgress}
+                onPress={handleShareLeaguePdf}
+                style={({ pressed }) => [
+                  styles.leagueShareOptionButton,
+                  pressed ? styles.generateButtonPressed : null,
+                ]}
+              >
+                <Ionicons color={colors.surface} name="document-text-outline" size={18} />
+                <Text style={styles.leagueShareOptionButtonText}>PDF</Text>
+              </Pressable>
+              <Pressable
+                disabled={leagueShareInProgress}
+                onPress={handleShareLeagueImages}
+                style={({ pressed }) => [
+                  styles.leagueShareOptionButton,
+                  pressed ? styles.generateButtonPressed : null,
+                ]}
+              >
+                <Ionicons color={colors.surface} name="images-outline" size={18} />
+                <Text style={styles.leagueShareOptionButtonText}>
+                  {leagueShareInProgress ? "Generando..." : "Imagenes"}
+                </Text>
+              </Pressable>
+            </View>
+
+            <Pressable onPress={closeLeagueShareModal} style={styles.leagueShareCancelButton}>
+              <Text style={styles.leagueShareCancelButtonText}>Cancelar</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        animationType="fade"
+        onRequestClose={closeLeagueResultEditor}
+        transparent
+        visible={Boolean(leagueResultEditor)}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          style={styles.leagueResultModalOverlay}
+        >
+          <Pressable onPress={closeLeagueResultEditor} style={styles.modalBackdrop} />
+          <ScrollView
+            contentContainerStyle={styles.leagueResultModalScrollContent}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+            <View style={styles.leagueResultModalCard}>
+              <Text style={styles.leagueResultModalTitle}>Resultado</Text>
+              <Text style={styles.leagueResultModalSubtitle}>
+                Selecciona ganador y carga los sets del partido.
+              </Text>
+
+              <View style={styles.leagueResultWinnerOptions}>
+                {(leagueResultEditor?.participants || []).map((participant, index) => {
+                  const isSelected = leagueResultEditor?.winner === participant.id;
+
+                  return (
+                    <Pressable
+                      key={`league-result-winner-${participant.id}`}
+                      onPress={() =>
+                        setLeagueResultEditor((current) =>
+                          current
+                            ? {
+                                ...current,
+                                winner: isSelected ? "" : participant.id,
+                              }
+                            : current
+                        )
+                      }
+                      style={[
+                        styles.leagueResultWinnerOption,
+                        isSelected ? styles.leagueResultWinnerOptionSelected : null,
+                      ]}
+                    >
+                      <Text
+                        numberOfLines={2}
+                        style={[
+                          styles.leagueResultWinnerOptionText,
+                          isSelected ? styles.leagueResultWinnerOptionTextSelected : null,
+                        ]}
+                      >
+                        {index + 1}. {participant.label}
+                      </Text>
+                      {isSelected ? (
+                        <Text style={styles.leagueResultWinnerBadge}>GANADOR</Text>
+                      ) : null}
+                    </Pressable>
+                  );
+                })}
+              </View>
+
+              <View style={styles.leagueResultSetsGrid}>
+                {(leagueResultEditor?.sets || []).map((set, setIndex) => (
+                  <View key={`league-result-set-${set.key || setIndex}`} style={styles.leagueResultSetRow}>
+                    <Text
+                      style={[
+                        styles.leagueResultSetLabel,
+                        set.label === "STB" ? styles.leagueResultSuperTieBreakLabel : null,
+                      ]}
+                    >
+                      {set.label === "STB" ? "SUPER TIE BREAK" : set.label}
+                    </Text>
+                    <TextInput
+                      keyboardType="number-pad"
+                      maxLength={set.label === "STB" ? 5 : 3}
+                      onChangeText={(value) => updateLeagueResultEditorSet(setIndex, value)}
+                      ref={(ref) => {
+                        leagueResultSetInputRefs.current[`set-${setIndex}`] = ref;
+                      }}
+                      style={styles.leagueResultSetInput}
+                      value={formatCompactLeagueSetInput(set)}
+                    />
+                  </View>
+                ))}
+              </View>
+
+              <View style={styles.leagueResultModalActions}>
+                <Pressable onPress={closeLeagueResultEditor} style={styles.modalSecondaryButton}>
+                  <Text style={styles.modalSecondaryButtonText}>Cancelar</Text>
+                </Pressable>
+                <Pressable onPress={saveLeagueResultEditor} style={styles.modalPrimaryButton}>
+                  <Text style={styles.modalPrimaryButtonText}>Guardar</Text>
+                </Pressable>
+              </View>
+            </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      <Modal
+        animationType="fade"
+        onRequestClose={closeLeagueMatchDayPicker}
+        transparent
+        visible={Boolean(leagueMatchDayPickerTarget)}
+      >
+        <View style={styles.leagueDayPickerModalOverlay}>
+          <Pressable onPress={closeLeagueMatchDayPicker} style={styles.modalBackdrop} />
+          <View style={styles.leagueDayPickerModalCard}>
+            <Text style={styles.leagueDayPickerModalTitle}>Seleccionar dia</Text>
+            <View style={styles.leagueDayPickerMatchSummary}>
+              <Text numberOfLines={2} style={styles.leagueDayPickerPairText}>
+                {leagueMatchDayPickerTarget?.participants?.[0] || "Pareja A"}
+              </Text>
+              <Text style={styles.leagueDayPickerVsText}>VS</Text>
+              <Text numberOfLines={2} style={styles.leagueDayPickerPairText}>
+                {leagueMatchDayPickerTarget?.participants?.[1] || "Pareja B"}
+              </Text>
+            </View>
+            <View style={styles.leagueDayPickerOptions}>
+              {leagueFixtureDayOptions.map((day) => {
+                const isSelected =
+                  day.dateMillis === leagueMatchDayPickerTarget?.currentDateMillis;
+
+                return (
+                  <Pressable
+                    key={`league-match-day-${day.dateMillis}`}
+                    onPress={() => selectLeagueMatchDay(day.dateMillis)}
+                    style={[
+                      styles.leagueDayPickerOption,
+                      isSelected ? styles.leagueDayPickerOptionSelected : null,
+                    ]}
+                  >
+                    <Text
+                      numberOfLines={1}
+                      style={[
+                        styles.leagueDayPickerOptionText,
+                        isSelected ? styles.leagueDayPickerOptionTextSelected : null,
+                      ]}
+                    >
+                      {day.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            <Pressable
+              onPress={closeLeagueMatchDayPicker}
+              style={styles.leagueDayPickerCancelButton}
+            >
+              <Text style={styles.leagueDayPickerCancelButtonText}>Cancelar</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        animationType="fade"
+        onRequestClose={closeTableReplacementMenu}
+        transparent
+        visible={Boolean(tableReplacementMenuTarget)}
+      >
+        <View style={styles.modalOverlay}>
+          <Pressable onPress={closeTableReplacementMenu} style={styles.modalBackdrop} />
+          <View
+            style={[
+              styles.modalCard,
+              styles.tableReplacementModalCard,
+              !canEditFixture ? styles.tableReplacementPlayerModalCard : null,
+            ]}
+          >
+            <Text style={styles.modalTitle}>Opciones del partido</Text>
+            <Text style={styles.modalMessage}>
+              {canEditFixture
+                ? "Gestiona remplazos, suspension y reprogramacion sin salir de la tabla."
+                : "Solicita remplazo de liga"}
+            </Text>
+
+            {canEditFixture && tableReplacementMenuMatch?.match ? (
+              <View style={styles.tableMatchManagementActions}>
+                {tableReplacementMenuMatch.round?.suspensionMode ? (
+                  <Pressable
+                    onPress={openTableRetakeSuspendedRound}
+                    style={({ pressed }) => [
+                      styles.tableMatchRetakeAction,
+                      pressed ? styles.generateButtonPressed : null,
+                    ]}
+                  >
+                    <Ionicons color="#176B5B" name="play-forward-circle-outline" size={16} />
+                    <Text style={styles.tableMatchRetakeActionText}>
+                      Retomar fecha suspendida
+                    </Text>
+                  </Pressable>
+                ) : null}
+                {!isMatchCompleted(tableReplacementMenuMatch.match) ? (
+                  <Pressable
+                    onPress={openTableMatchSuspensionFlow}
+                    style={({ pressed }) => [
+                      styles.tableMatchSuspensionAction,
+                      pressed ? styles.generateButtonPressed : null,
+                    ]}
+                  >
+                    <Ionicons color="#8A5A13" name="calendar-outline" size={16} />
+                    <Text style={styles.tableMatchSuspensionActionText}>
+                      {tableReplacementMenuMatch.round?.suspensionMode
+                        ? "Reprogramar partido puntual"
+                        : tableReplacementMenuMatch.match.suspensionMode
+                        ? "Reprogramar partido"
+                        : "Suspender o reprogramar"}
+                    </Text>
+                  </Pressable>
+                ) : null}
+                {hasRoundSuspensionData(tableReplacementMenuMatch.round) ||
+                hasRoundSuspensionData({ matches: [tableReplacementMenuMatch.match] }) ? (
+                  <Pressable
+                    onPress={clearTableMatchSuspension}
+                    style={({ pressed }) => [
+                      styles.tableMatchClearSuspensionAction,
+                      pressed ? styles.generateButtonPressed : null,
+                    ]}
+                  >
+                    <Ionicons color="#A44747" name="refresh-circle-outline" size={17} />
+                    <Text style={styles.tableMatchClearSuspensionActionText}>
+                      {shouldClearWholeRoundSuspension(tableReplacementMenuMatch.round)
+                        ? "Quitar suspension de la fecha"
+                        : "Quitar suspension del partido"}
+                    </Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            ) : null}
+
+            <Text style={styles.tableReplacementSectionTitle}>REMPLAZOS</Text>
+            <ScrollView
+              contentContainerStyle={styles.tableReplacementPlayersContent}
+              showsVerticalScrollIndicator={false}
+              style={styles.tableReplacementPlayersScroll}
+            >
+              {(() => {
+                const match = tableReplacementMenuMatch?.match;
+                const round = tableReplacementMenuMatch?.round;
+
+                if (!match || !round) {
+                  return null;
+                }
+
+                const entries = [
+                  { team: match.teamA, teamKey: "teamA" },
+                  { team: match.teamB, teamKey: "teamB" },
+                ].flatMap(({ team, teamKey }) =>
+                  (team?.players || []).map((player, playerIndex) => {
+                    const replacementKey = getPlayerReplacementKey(teamKey, player, playerIndex);
+                    const replacementEntry = match.replacements?.[replacementKey];
+
+                    return {
+                      canManage:
+                        canEditFixture ||
+                        (canRequestOwnReplacement && isCurrentUserFixturePlayer(player)),
+                      player,
+                      playerIndex,
+                      replacementEntry,
+                      replacementKey,
+                      teamKey,
+                    };
+                  })
+                );
+                const visibleEntries = entries.filter((entry) => entry.canManage);
+
+                if (!visibleEntries.length) {
+                  return (
+                    <Text style={styles.tableReplacementEmptyText}>
+                      No hay acciones de remplazo disponibles para este partido.
+                    </Text>
+                  );
+                }
+
+                return visibleEntries.map((entry) => {
+                  const hasRequest = Boolean(entry.replacementEntry?.requested);
+                  const replacementPlayer = entry.replacementEntry?.replacement;
+                  const canChangeRequest = !match.result?.winner && !hasMatchResultData(match);
+
+                  return (
+                    <View key={entry.replacementKey} style={styles.tableReplacementPlayerCard}>
+                      <View style={styles.tableReplacementPlayerHeader}>
+                        <View style={styles.tableReplacementPlayerCopy}>
+                          <Text numberOfLines={1} style={styles.tableReplacementPlayerName}>
+                            {formatPlayerShortName(entry.player)}
+                          </Text>
+                          <Text
+                            style={[
+                              styles.tableReplacementStatusText,
+                              hasRequest && !replacementPlayer
+                                ? styles.tableReplacementStatusPending
+                                : null,
+                              replacementPlayer ? styles.tableReplacementStatusAssigned : null,
+                            ]}
+                          >
+                            {replacementPlayer
+                              ? `Remplazo: ${formatPlayerShortName(replacementPlayer)}`
+                              : hasRequest
+                              ? "Remplazo solicitado"
+                              : "Sin solicitud"}
+                          </Text>
+                        </View>
+                        <Ionicons
+                          color={
+                            replacementPlayer
+                              ? "#23825B"
+                              : hasRequest
+                              ? "#D47713"
+                              : colors.textMuted
+                          }
+                          name={
+                            replacementPlayer
+                              ? "checkmark-circle"
+                              : hasRequest
+                              ? "alert-circle"
+                              : "swap-horizontal-outline"
+                          }
+                          size={20}
+                        />
+                      </View>
+
+                      {canChangeRequest ? (
+                        <View style={styles.tableReplacementActionsRow}>
+                          {!hasRequest ? (
+                            <Pressable
+                              onPress={() =>
+                                toggleTableReplacementRequest({
+                                  match,
+                                  player: entry.player,
+                                  playerIndex: entry.playerIndex,
+                                  roundId: round.id,
+                                  roundTitle: round.title || `Fecha ${round.number || ""}`.trim(),
+                                  teamKey: entry.teamKey,
+                                })
+                              }
+                              style={styles.tableReplacementPrimaryAction}
+                            >
+                              <Text style={styles.tableReplacementPrimaryActionText}>
+                                Solicitar remplazo
+                              </Text>
+                            </Pressable>
+                          ) : null}
+
+                          {hasRequest && canEditFixture ? (
+                            <Pressable
+                              onPress={() =>
+                                openTableReplacementPicker({
+                                  matchId: match.id,
+                                  replacementKey: entry.replacementKey,
+                                  roundId: round.id,
+                                })
+                              }
+                              style={styles.tableReplacementPrimaryAction}
+                            >
+                              <Text style={styles.tableReplacementPrimaryActionText}>
+                                {replacementPlayer ? "Cambiar remplazo" : "Asignar remplazo"}
+                              </Text>
+                            </Pressable>
+                          ) : null}
+
+                          {hasRequest && (canEditFixture || !replacementPlayer) ? (
+                            <Pressable
+                              onPress={() =>
+                                replacementPlayer
+                                  ? removeTableReplacement({
+                                      matchId: match.id,
+                                      playerName: formatPlayerShortName(replacementPlayer),
+                                      replacementKey: entry.replacementKey,
+                                      roundId: round.id,
+                                    })
+                                  : canEditFixture
+                                  ? toggleTableReplacementRequest({
+                                      match,
+                                      player: entry.player,
+                                      playerIndex: entry.playerIndex,
+                                      roundId: round.id,
+                                      roundTitle: round.title || `Fecha ${round.number || ""}`.trim(),
+                                      teamKey: entry.teamKey,
+                                    })
+                                  : cancelTablePlayerReplacementRequest(
+                                      buildReplacementTargetFromMatchPlayer({
+                                        match,
+                                        player: entry.player,
+                                        playerIndex: entry.playerIndex,
+                                        roundId: round.id,
+                                        roundTitle:
+                                          round.title || `Fecha ${round.number || ""}`.trim(),
+                                        teamKey: entry.teamKey,
+                                      })
+                                    )
+                              }
+                              style={styles.tableReplacementSecondaryAction}
+                            >
+                              <Text style={styles.tableReplacementSecondaryActionText}>
+                                Cancelar solicitud
+                              </Text>
+                            </Pressable>
+                          ) : null}
+                        </View>
+                      ) : (
+                        <Text style={styles.tableReplacementLockedText}>
+                          El partido ya tiene resultados y no admite cambios de remplazo.
+                        </Text>
+                      )}
+                    </View>
+                  );
+                });
+              })()}
+            </ScrollView>
+
+            <Pressable onPress={closeTableReplacementMenu} style={styles.modalSecondaryButton}>
+              <Text style={styles.modalSecondaryButtonText}>Cerrar</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        animationType="fade"
         transparent
         visible={goToPaymentsPromptVisible}
         onRequestClose={() => setGoToPaymentsPromptVisible(false)}
@@ -4447,6 +6527,44 @@ export default function LeagueFixtureScreen({ navigation, route }) {
                 ]}
               >
                 <Text style={styles.modalPrimaryButtonText}>Ir a pagos</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        animationType="fade"
+        onRequestClose={closeWhatsAppSharePrompt}
+        transparent
+        visible={whatsAppSharePrompt.visible}
+      >
+        <View style={styles.modalOverlay}>
+          <Pressable onPress={closeWhatsAppSharePrompt} style={styles.modalBackdrop} />
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Notificar por WhatsApp</Text>
+            <Text style={styles.modalMessage}>
+              Se notifico a los participantes por mensajeria interna. Deseas enviarlo tambien por
+              WhatsApp?
+            </Text>
+            <View style={styles.modalActionsRow}>
+              <Pressable
+                onPress={closeWhatsAppSharePrompt}
+                style={({ pressed }) => [
+                  styles.modalSecondaryButton,
+                  pressed ? styles.generateButtonPressed : null,
+                ]}
+              >
+                <Text style={styles.modalSecondaryButtonText}>No</Text>
+              </Pressable>
+              <Pressable
+                onPress={handleShareSuspensionByWhatsApp}
+                style={({ pressed }) => [
+                  styles.whatsAppShareButton,
+                  pressed ? styles.generateButtonPressed : null,
+                ]}
+              >
+                <Text style={styles.whatsAppShareButtonText}>Enviar por WhatsApp</Text>
               </Pressable>
             </View>
           </View>
@@ -4515,6 +6633,758 @@ const styles = StyleSheet.create({
     color: "#8C2D2D",
     fontSize: 13,
     lineHeight: 18,
+  },
+  leagueMigrationTable: {
+    backgroundColor: colors.surface,
+    borderColor: "#BCD8D4",
+    borderRadius: 10,
+    borderWidth: 1,
+    marginTop: spacing.sm,
+    overflow: "hidden",
+  },
+  leagueMigrationRoundWrap: {
+    marginBottom: spacing.sm,
+  },
+  leagueMigrationRoundWrapFocused: {
+    borderColor: "#FF9F1C",
+    borderRadius: 11,
+    borderWidth: 2,
+  },
+  leagueMigrationDateHeading: {
+    alignItems: "center",
+    backgroundColor: "#CDE9E3",
+    borderBottomColor: "#9FCFC3",
+    borderBottomWidth: 1,
+    flexDirection: "row",
+    gap: spacing.sm,
+    justifyContent: "center",
+    minHeight: 34,
+    paddingHorizontal: spacing.sm,
+  },
+  leagueMigrationDateHeadingText: {
+    color: "#1E5F57",
+    fontSize: 13,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  leagueMigrationDateStatus: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 4,
+  },
+  leagueMigrationDateStatusDot: {
+    borderRadius: 4,
+    height: 7,
+    width: 7,
+  },
+  leagueMigrationDateStatusDotpending: {
+    backgroundColor: "#7D8987",
+  },
+  leagueMigrationDateStatusDotplayed: {
+    backgroundColor: "#3A9A82",
+  },
+  leagueMigrationDateStatusDotsuspended: {
+    backgroundColor: "#C76464",
+  },
+  leagueMigrationDateStatusDotreprogrammed: {
+    backgroundColor: "#D68A2D",
+  },
+  leagueMigrationDateStatusText: {
+    fontSize: 8,
+    fontWeight: "900",
+  },
+  leagueMigrationDateStatusTextpending: {
+    color: "#596563",
+  },
+  leagueMigrationDateStatusTextplayed: {
+    color: "#24725E",
+  },
+  leagueMigrationDateStatusTextsuspended: {
+    color: "#994646",
+  },
+  leagueMigrationDateStatusTextreprogrammed: {
+    color: "#9A601C",
+  },
+  leagueMigrationTableHeader: {
+    alignItems: "center",
+    backgroundColor: "#DCEFEB",
+    borderBottomColor: "#BCD8D4",
+    borderBottomWidth: 1,
+    flexDirection: "row",
+    minHeight: 32,
+    paddingHorizontal: 3,
+  },
+  leagueMigrationTableHeaderText: {
+    color: "#285E59",
+    fontSize: 8,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  leagueMigrationTableRow: {
+    alignItems: "center",
+    borderBottomColor: "#E4ECEA",
+    borderBottomWidth: 1,
+    flexDirection: "row",
+    minHeight: 58,
+    paddingHorizontal: 3,
+    paddingVertical: 6,
+  },
+  leagueMigrationTableRowLast: {
+    borderBottomWidth: 0,
+  },
+  leagueMigrationTableCell: {
+    color: colors.text,
+    fontSize: 9,
+    fontWeight: "800",
+    paddingHorizontal: 2,
+    textAlign: "center",
+    textTransform: "capitalize",
+  },
+  leagueMigrationResultColumn: {
+    flex: 0.8,
+  },
+  leagueMigrationResultButton: {
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 40,
+    paddingHorizontal: 2,
+  },
+  leagueMigrationResultButtonText: {
+    color: "#176B5B",
+    textDecorationLine: "underline",
+  },
+  leagueMigrationPairsColumn: {
+    alignItems: "center",
+    flex: 2.65,
+    justifyContent: "space-between",
+    paddingHorizontal: 2,
+    paddingVertical: 2,
+  },
+  leagueMigrationTeamWrap: {
+    alignItems: "center",
+    gap: 1,
+    minHeight: 20,
+    width: "100%",
+  },
+  leagueMigrationTeamRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "center",
+    minHeight: 16,
+  },
+  leagueMigrationTeamRowTopAligned: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    justifyContent: "center",
+    minHeight: 16,
+  },
+  leagueMigrationCompactTeamWrap: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    gap: 2,
+    justifyContent: "center",
+    maxWidth: "100%",
+  },
+  leagueMigrationWinnerIconSlot: {
+    alignItems: "center",
+    justifyContent: "flex-start",
+    minHeight: 14,
+    width: 14,
+  },
+  leagueMigrationWinnerIcon: {
+    marginRight: 3,
+    marginTop: 1,
+  },
+  leagueMigrationPlayerSlot: {
+    alignItems: "center",
+    flexShrink: 1,
+    minWidth: 0,
+  },
+  leagueMigrationPlayerStatusRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 2,
+    justifyContent: "center",
+    maxWidth: "100%",
+  },
+  leagueMigrationPairSeparator: {
+    color: colors.textMuted,
+    fontSize: 8,
+    fontWeight: "900",
+    lineHeight: 13,
+  },
+  leagueMigrationPairText: {
+    color: colors.text,
+    flexShrink: 1,
+    fontSize: 9,
+    fontWeight: "800",
+    textAlign: "center",
+  },
+  leagueMigrationPlayerRequested: {
+    color: "#A85B0E",
+  },
+  leagueMigrationPlayerReplaced: {
+    color: colors.textMuted,
+    textDecorationLine: "line-through",
+  },
+  leagueMigrationReplacementPlayerText: {
+    color: "#247653",
+    fontSize: 8,
+    fontWeight: "900",
+    minHeight: 10,
+    textAlign: "center",
+  },
+  leagueMigrationReplacementPlaceholder: {
+    fontSize: 8,
+    minHeight: 10,
+  },
+  leagueMigrationDayColumn: {
+    flex: 0.58,
+  },
+  leagueMigrationTimeColumn: {
+    flex: 0.48,
+  },
+  leagueMigrationActionsColumn: {
+    alignItems: "center",
+    flex: 0.34,
+    justifyContent: "center",
+  },
+  leagueMigrationActionsButton: {
+    minHeight: 34,
+    position: "relative",
+  },
+  leagueMigrationReplacementPendingDot: {
+    backgroundColor: "#E88319",
+    borderColor: colors.surface,
+    borderRadius: 5,
+    borderWidth: 1,
+    height: 8,
+    position: "absolute",
+    right: 5,
+    top: 4,
+    width: 8,
+  },
+  leagueMigrationReplacementAssignedDot: {
+    backgroundColor: "#2A9A6B",
+    borderColor: colors.surface,
+    borderRadius: 5,
+    borderWidth: 1,
+    height: 8,
+    position: "absolute",
+    right: 5,
+    top: 4,
+    width: 8,
+  },
+  leagueMigrationScheduleButton: {
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 34,
+    paddingHorizontal: 2,
+  },
+  leagueMigrationScheduleButtonText: {
+    color: "#176B5B",
+    textDecorationLine: "underline",
+  },
+  leagueShareHiddenRoot: {
+    left: -9999,
+    opacity: 0,
+    position: "absolute",
+    top: 0,
+    width: 900,
+  },
+  leagueShareCaptureCard: {
+    backgroundColor: "#F4F7F6",
+    padding: 20,
+    width: 900,
+  },
+  leagueShareHeader: {
+    marginBottom: 14,
+  },
+  leagueShareHeaderRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 12,
+    justifyContent: "center",
+  },
+  leagueShareHeaderCopy: {
+    alignItems: "flex-start",
+    justifyContent: "center",
+  },
+  leagueShareLogo: {
+    borderRadius: 14,
+    height: 48,
+    width: 48,
+  },
+  leagueShareTitle: {
+    color: "#173633",
+    fontSize: 22,
+    fontWeight: "900",
+    textAlign: "left",
+  },
+  leagueShareSubtitle: {
+    color: "#4C6460",
+    fontSize: 12,
+    fontWeight: "700",
+    marginTop: 4,
+    textAlign: "left",
+  },
+  leagueShareRoundCard: {
+    backgroundColor: colors.surface,
+    borderColor: "#CFE0DC",
+    borderRadius: 16,
+    borderWidth: 1,
+    marginBottom: 16,
+    overflow: "hidden",
+  },
+  leagueShareRoundHeader: {
+    alignItems: "center",
+    backgroundColor: "#DCEFEB",
+    borderBottomColor: "#C7DEDA",
+    borderBottomWidth: 1,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  leagueShareRoundTitle: {
+    color: "#285E59",
+    fontSize: 16,
+    fontWeight: "900",
+  },
+  leagueShareRoundStatus: {
+    borderRadius: 999,
+    fontSize: 11,
+    fontWeight: "900",
+    overflow: "hidden",
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  leagueShareRoundStatuspending: {
+    backgroundColor: "#EEF2F1",
+    color: "#596563",
+  },
+  leagueShareRoundStatusplayed: {
+    backgroundColor: "#DFF4EE",
+    color: "#24725E",
+  },
+  leagueShareRoundStatussuspended: {
+    backgroundColor: "#FFF0F0",
+    color: "#994646",
+  },
+  leagueShareRoundStatusreprogrammed: {
+    backgroundColor: "#FFF3E3",
+    color: "#9A601C",
+  },
+  leagueShareTableHeader: {
+    alignItems: "center",
+    backgroundColor: "#EFF7F5",
+    borderBottomColor: "#E3ECEA",
+    borderBottomWidth: 1,
+    flexDirection: "row",
+    minHeight: 34,
+    paddingHorizontal: 8,
+  },
+  leagueShareTableHeaderText: {
+    color: "#285E59",
+    fontSize: 10,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  leagueShareTableRow: {
+    alignItems: "center",
+    borderBottomColor: "#E3ECEA",
+    borderBottomWidth: 1,
+    flexDirection: "row",
+    minHeight: 56,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+  },
+  leagueShareTableRowLast: {
+    borderBottomWidth: 0,
+  },
+  leagueShareTableCell: {
+    color: colors.text,
+    fontSize: 11,
+    fontWeight: "800",
+    lineHeight: 16,
+    paddingHorizontal: 4,
+    textAlign: "center",
+    textTransform: "capitalize",
+  },
+  leagueShareResultColumn: {
+    flex: 0.9,
+  },
+  leagueSharePairsColumn: {
+    flex: 2.8,
+  },
+  leagueShareDayColumn: {
+    flex: 1.05,
+  },
+  leagueShareTimeColumn: {
+    flex: 0.7,
+  },
+  leagueResultModalOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: "center",
+  },
+  leagueResultModalScrollContent: {
+    flexGrow: 1,
+    justifyContent: "center",
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.xl,
+  },
+  leagueResultModalCard: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 22,
+    borderWidth: 1,
+    padding: spacing.lg,
+    width: "100%",
+  },
+  leagueResultModalTitle: {
+    color: colors.primaryDark,
+    fontSize: 20,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  leagueResultModalSubtitle: {
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: "700",
+    lineHeight: 17,
+    marginTop: spacing.xs,
+    textAlign: "center",
+  },
+  leagueResultWinnerOptions: {
+    gap: spacing.xs,
+    marginTop: spacing.md,
+  },
+  leagueResultWinnerOption: {
+    alignItems: "center",
+    backgroundColor: "#F7FAF8",
+    borderColor: colors.border,
+    borderRadius: 14,
+    borderWidth: 1,
+    justifyContent: "center",
+    minHeight: 42,
+    paddingHorizontal: spacing.sm,
+  },
+  leagueResultWinnerOptionSelected: {
+    backgroundColor: "#DDF6EF",
+    borderColor: "#89D9C4",
+  },
+  leagueResultWinnerOptionText: {
+    color: colors.primaryDark,
+    fontSize: 12,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  leagueResultWinnerOptionTextSelected: {
+    color: "#176B5B",
+  },
+  leagueResultWinnerBadge: {
+    color: "#176B5B",
+    fontSize: 9,
+    fontWeight: "900",
+    marginTop: 2,
+  },
+  leagueResultSetsGrid: {
+    gap: spacing.xs,
+    marginTop: spacing.md,
+  },
+  leagueResultSetRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.xs,
+    justifyContent: "center",
+  },
+  leagueResultSetLabel: {
+    color: colors.primaryDark,
+    fontSize: 11,
+    fontWeight: "900",
+    textAlign: "right",
+    width: 102,
+  },
+  leagueResultSuperTieBreakLabel: {
+    fontSize: 10,
+    lineHeight: 12,
+  },
+  leagueResultSetInput: {
+    backgroundColor: "#F7FAF8",
+    borderColor: colors.border,
+    borderRadius: 12,
+    borderWidth: 1,
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: "900",
+    height: 42,
+    paddingHorizontal: spacing.sm,
+    textAlign: "center",
+    width: 86,
+  },
+  leagueResultModalActions: {
+    flexDirection: "row",
+    gap: spacing.sm,
+    marginTop: spacing.md,
+  },
+  leagueDayPickerModalOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
+    padding: spacing.lg,
+  },
+  leagueDayPickerModalCard: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 20,
+    borderWidth: 1,
+    padding: spacing.md,
+    width: "100%",
+  },
+  leagueDayPickerModalTitle: {
+    color: colors.primaryDark,
+    fontSize: 16,
+    fontWeight: "900",
+    textAlign: "center",
+    textTransform: "uppercase",
+  },
+  leagueDayPickerMatchSummary: {
+    alignItems: "center",
+    backgroundColor: "#F7FAF8",
+    borderColor: colors.border,
+    borderRadius: 13,
+    borderWidth: 1,
+    marginTop: spacing.md,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
+  },
+  leagueDayPickerPairText: {
+    color: colors.primaryDark,
+    fontSize: 12,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  leagueDayPickerVsText: {
+    color: colors.textMuted,
+    fontSize: 9,
+    fontWeight: "900",
+    marginVertical: 2,
+  },
+  leagueDayPickerOptions: {
+    gap: spacing.xs,
+    marginTop: spacing.md,
+  },
+  leagueDayPickerOption: {
+    alignItems: "center",
+    backgroundColor: "#F7FAF8",
+    borderColor: colors.border,
+    borderRadius: 13,
+    borderWidth: 1,
+    justifyContent: "center",
+    minHeight: 40,
+    paddingHorizontal: spacing.sm,
+  },
+  leagueDayPickerOptionSelected: {
+    backgroundColor: "#E1F4F0",
+    borderColor: "#9FD6CF",
+  },
+  leagueDayPickerOptionText: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: "900",
+    textAlign: "center",
+    textTransform: "capitalize",
+  },
+  leagueDayPickerOptionTextSelected: {
+    color: "#1F6D69",
+  },
+  leagueDayPickerCancelButton: {
+    alignItems: "center",
+    backgroundColor: "#EEF2F4",
+    borderRadius: 13,
+    justifyContent: "center",
+    marginTop: spacing.md,
+    minHeight: 42,
+  },
+  leagueDayPickerCancelButtonText: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  tableReplacementModalCard: {
+    maxHeight: "82%",
+  },
+  tableReplacementPlayerModalCard: {
+    minHeight: 360,
+    justifyContent: "flex-start",
+  },
+  tableMatchManagementActions: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.xs,
+    marginTop: spacing.md,
+  },
+  tableMatchSuspensionAction: {
+    alignItems: "center",
+    backgroundColor: "#FFF6E8",
+    borderColor: "#E4C48F",
+    borderRadius: 10,
+    borderWidth: 1,
+    flexDirection: "row",
+    flexGrow: 1,
+    gap: 5,
+    justifyContent: "center",
+    minHeight: 38,
+    paddingHorizontal: spacing.sm,
+  },
+  tableMatchSuspensionActionText: {
+    color: "#8A5A13",
+    fontSize: 10,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  tableMatchRetakeAction: {
+    alignItems: "center",
+    backgroundColor: "#E8F6F1",
+    borderColor: "#9CCFC2",
+    borderRadius: 10,
+    borderWidth: 1,
+    flexDirection: "row",
+    flexGrow: 1,
+    gap: 5,
+    justifyContent: "center",
+    minHeight: 38,
+    paddingHorizontal: spacing.sm,
+  },
+  tableMatchRetakeActionText: {
+    color: "#176B5B",
+    fontSize: 10,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  tableMatchClearSuspensionAction: {
+    alignItems: "center",
+    backgroundColor: "#FFF2F2",
+    borderColor: "#E2B4B4",
+    borderRadius: 10,
+    borderWidth: 1,
+    flexDirection: "row",
+    flexGrow: 1,
+    gap: 5,
+    justifyContent: "center",
+    minHeight: 38,
+    paddingHorizontal: spacing.sm,
+  },
+  tableMatchClearSuspensionActionText: {
+    color: "#A44747",
+    fontSize: 10,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  tableReplacementSectionTitle: {
+    color: colors.primaryDark,
+    fontSize: 13,
+    fontWeight: "900",
+    marginTop: spacing.md,
+    textAlign: "center",
+  },
+  tableReplacementPlayersScroll: {
+    flexGrow: 0,
+    marginBottom: spacing.md,
+    marginTop: spacing.sm,
+  },
+  tableReplacementPlayersContent: {
+    gap: spacing.sm,
+    paddingVertical: 2,
+  },
+  tableReplacementPlayerCard: {
+    backgroundColor: "#F7FAF8",
+    borderColor: colors.border,
+    borderRadius: 12,
+    borderWidth: 1,
+    gap: spacing.sm,
+    padding: spacing.sm,
+  },
+  tableReplacementPlayerHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.sm,
+  },
+  tableReplacementPlayerCopy: {
+    alignItems: "center",
+    flex: 1,
+  },
+  tableReplacementPlayerName: {
+    color: colors.primaryDark,
+    fontSize: 12,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  tableReplacementStatusText: {
+    color: colors.textMuted,
+    fontSize: 10,
+    fontWeight: "800",
+    marginTop: 2,
+    textAlign: "center",
+  },
+  tableReplacementStatusPending: {
+    color: "#A85B0E",
+  },
+  tableReplacementStatusAssigned: {
+    color: "#247653",
+  },
+  tableReplacementActionsRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.xs,
+  },
+  tableReplacementPrimaryAction: {
+    alignItems: "center",
+    backgroundColor: "#DDF1EC",
+    borderColor: "#9CCFC2",
+    borderRadius: 9,
+    borderWidth: 1,
+    flexGrow: 1,
+    justifyContent: "center",
+    minHeight: 34,
+    paddingHorizontal: spacing.sm,
+  },
+  tableReplacementPrimaryActionText: {
+    color: "#176B5B",
+    fontSize: 10,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  tableReplacementSecondaryAction: {
+    alignItems: "center",
+    backgroundColor: "#FFF4EF",
+    borderColor: "#E7B9A7",
+    borderRadius: 9,
+    borderWidth: 1,
+    flexGrow: 1,
+    justifyContent: "center",
+    minHeight: 34,
+    paddingHorizontal: spacing.sm,
+  },
+  tableReplacementSecondaryActionText: {
+    color: "#A44747",
+    fontSize: 10,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  tableReplacementLockedText: {
+    color: colors.textMuted,
+    fontSize: 10,
+    fontWeight: "700",
+    lineHeight: 14,
+    textAlign: "center",
+  },
+  tableReplacementEmptyText: {
+    color: colors.textMuted,
+    fontSize: 11,
+    fontWeight: "800",
+    paddingVertical: spacing.md,
+    textAlign: "center",
   },
   fixtureOptionsCard: {
     backgroundColor: colors.surface,
@@ -5713,6 +8583,44 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     textAlign: "center",
   },
+  fixtureStandingsShortcut: {
+    alignItems: "center",
+    alignSelf: "center",
+    backgroundColor: "#E6F3F1",
+    borderColor: "#B9D9D4",
+    borderRadius: 16,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: spacing.xs,
+    justifyContent: "center",
+    marginTop: spacing.sm,
+    minHeight: 42,
+    paddingHorizontal: spacing.lg,
+  },
+  fixtureStandingsShortcutText: {
+    color: "#1F6D69",
+    fontSize: 13,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  leagueShareShortcut: {
+    alignItems: "center",
+    alignSelf: "center",
+    backgroundColor: "#E6F3F1",
+    borderColor: "#B9D9D4",
+    borderRadius: 999,
+    borderWidth: 1,
+    justifyContent: "center",
+    marginTop: spacing.sm,
+    height: 42,
+    width: 42,
+  },
+  leagueShareShortcutText: {
+    color: "#1F6D69",
+    fontSize: 13,
+    fontWeight: "900",
+    textAlign: "center",
+  },
   regenerateFixtureButton: {
     flex: 1,
     minHeight: 48,
@@ -5750,6 +8658,10 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     gap: spacing.md,
   },
+  playerReplacementMenuModalCard: {
+    minHeight: 255,
+    justifyContent: "center",
+  },
   modalTitle: {
     color: colors.text,
     fontSize: 21,
@@ -5761,6 +8673,127 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 22,
     textAlign: "center",
+  },
+  whatsAppSharePreview: {
+    backgroundColor: "#F3F8F6",
+    borderColor: "#C9DDD5",
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  whatsAppSharePreviewText: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: "700",
+    lineHeight: 19,
+  },
+  leagueShareModalCard: {
+    width: "100%",
+    backgroundColor: colors.surface,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: colors.border,
+    maxHeight: "88%",
+    padding: spacing.lg,
+    gap: spacing.md,
+  },
+  leagueShareSelectAllButton: {
+    alignItems: "center",
+    backgroundColor: "#F3FAF8",
+    borderColor: "#CDE3DD",
+    borderRadius: 14,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: spacing.xs,
+    justifyContent: "center",
+    minHeight: 42,
+  },
+  leagueShareSelectAllButtonActive: {
+    backgroundColor: "#1F6D69",
+    borderColor: "#1F6D69",
+  },
+  leagueShareSelectAllButtonText: {
+    color: "#1F6D69",
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  leagueShareSelectAllButtonTextActive: {
+    color: colors.surface,
+  },
+  leagueShareRoundOptionsScroll: {
+    maxHeight: 280,
+  },
+  leagueShareRoundOptions: {
+    gap: spacing.xs,
+    paddingVertical: 2,
+  },
+  leagueShareRoundOption: {
+    alignItems: "center",
+    backgroundColor: "#F7FAF8",
+    borderColor: colors.border,
+    borderRadius: 14,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: spacing.sm,
+    justifyContent: "space-between",
+    minHeight: 48,
+    paddingHorizontal: spacing.md,
+  },
+  leagueShareRoundOptionSelected: {
+    backgroundColor: "#E8F6F2",
+    borderColor: "#A8D7CC",
+  },
+  leagueShareRoundOptionCopy: {
+    flex: 1,
+  },
+  leagueShareRoundOptionTitle: {
+    color: colors.primaryDark,
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  leagueShareRoundOptionTitleSelected: {
+    color: "#176B5B",
+  },
+  leagueShareRoundOptionStatus: {
+    color: colors.textMuted,
+    fontSize: 10,
+    fontWeight: "800",
+    marginTop: 2,
+  },
+  leagueShareRoundOptionStatusSelected: {
+    color: "#4B7E74",
+  },
+  leagueShareModalActions: {
+    flexDirection: "row",
+    gap: spacing.sm,
+  },
+  leagueShareOptionButton: {
+    alignItems: "center",
+    backgroundColor: "#1F6D69",
+    borderRadius: 14,
+    flex: 1,
+    flexDirection: "row",
+    gap: spacing.xs,
+    justifyContent: "center",
+    minHeight: 46,
+  },
+  leagueShareOptionButtonText: {
+    color: colors.surface,
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  leagueShareCancelButton: {
+    alignItems: "center",
+    backgroundColor: "#EEF2F4",
+    borderRadius: 14,
+    justifyContent: "center",
+    minHeight: 42,
+  },
+  leagueShareCancelButtonText: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: "900",
   },
   modalActionsRow: {
     flexDirection: "row",
@@ -5823,13 +8856,20 @@ const styles = StyleSheet.create({
     alignSelf: "stretch",
   },
   suspensionModalContent: {
-    gap: spacing.sm,
+    gap: spacing.md,
     paddingBottom: spacing.xs,
+  },
+  suspensionIntroText: {
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: "500",
+    lineHeight: 17,
+    textAlign: "center",
   },
   suspensionPrimaryStartButton: {
     alignItems: "center",
-    backgroundColor: "#B51F1F",
-    borderColor: "#7F1D1D",
+    backgroundColor: "#2A7F83",
+    borderColor: "#1E6266",
     borderRadius: 8,
     borderWidth: 1,
     flexDirection: "row",
@@ -5862,36 +8902,94 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     textAlign: "center",
   },
+  retakeSuspensionButton: {
+    alignItems: "center",
+    backgroundColor: "#E8F6F1",
+    borderColor: "#9CCFC2",
+    borderRadius: 8,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: spacing.sm,
+    justifyContent: "center",
+    minHeight: 48,
+    paddingHorizontal: spacing.md,
+  },
+  retakeSuspensionButtonText: {
+    color: "#176B5B",
+    fontSize: 13,
+    fontWeight: "900",
+    textAlign: "center",
+  },
   suspensionReasonList: {
     gap: spacing.xs,
   },
-  suspensionReasonTitle: {
-    color: colors.text,
-    fontSize: 14,
+  suspensionStepHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.xs,
+    marginBottom: 2,
+  },
+  suspensionStepNumber: {
+    backgroundColor: "#DDF1EC",
+    borderColor: "#9CCFC2",
+    borderRadius: 10,
+    borderWidth: 1,
+    color: "#176B5B",
+    fontSize: 10,
     fontWeight: "900",
+    height: 20,
+    lineHeight: 18,
+    textAlign: "center",
+    width: 20,
+  },
+  suspensionReasonTitle: {
+    color: colors.primaryDark,
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  suspensionSubsectionTitle: {
+    color: colors.textMuted,
+    fontSize: 11,
+    fontWeight: "700",
+    marginBottom: 2,
   },
   suspensionReasonButton: {
     alignItems: "center",
-    backgroundColor: colors.background,
+    backgroundColor: "#F8FAF9",
     borderColor: colors.border,
-    borderRadius: 8,
+    borderRadius: 10,
     borderWidth: 1,
     flexDirection: "row",
     gap: spacing.sm,
     minHeight: 44,
     paddingHorizontal: spacing.md,
   },
+  suspensionReasonButtonCompact: {
+    minHeight: 36,
+    paddingHorizontal: spacing.sm,
+  },
   suspensionReasonButtonActive: {
-    backgroundColor: colors.primaryDark,
-    borderColor: colors.primaryDark,
+    backgroundColor: "#DDF1EC",
+    borderColor: "#79BFAF",
   },
   suspensionReasonText: {
     color: colors.text,
-    fontSize: 14,
-    fontWeight: "800",
+    flex: 1,
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  suspensionReasonTextWithSupport: {
+    lineHeight: 16,
   },
   suspensionReasonTextActive: {
-    color: colors.surface,
+    color: "#176B5B",
+    fontWeight: "800",
+  },
+  suspensionReasonSupportText: {
+    color: "#2A8FA8",
+    fontSize: 10,
+    fontWeight: "700",
+    lineHeight: 14,
   },
   suspensionEmptyText: {
     color: colors.textMuted,
@@ -5906,6 +9004,33 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     justifyContent: "center",
     minHeight: 44,
+  },
+  suspensionScheduleOption: {
+    alignItems: "center",
+    backgroundColor: "#F8FAF9",
+    borderColor: "#D5E5E0",
+    borderRadius: 11,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: spacing.sm,
+    minHeight: 50,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  suspensionScheduleOptionCopy: {
+    flex: 1,
+    gap: 2,
+  },
+  suspensionScheduleOptionTitle: {
+    color: colors.primaryDark,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  suspensionScheduleOptionText: {
+    color: "#2A8FA8",
+    fontSize: 10,
+    fontWeight: "700",
+    lineHeight: 14,
   },
   nextWeekSuspensionButton: {
     alignItems: "center",
@@ -6191,6 +9316,22 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: colors.primaryDark,
+  },
+  whatsAppShareButton: {
+    flex: 1,
+    minHeight: 46,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#1F8F72",
+    paddingHorizontal: spacing.xs,
+  },
+  whatsAppShareButtonText: {
+    color: colors.surface,
+    fontSize: 13,
+    fontWeight: "800",
+    lineHeight: 16,
+    textAlign: "center",
   },
   modalDangerButton: {
     flex: 1,

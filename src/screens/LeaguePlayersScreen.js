@@ -1085,6 +1085,7 @@ export default function LeaguePlayersScreen({ navigation, route }) {
           category={league?.categoria}
           complexName={league?.complejoNombre}
           league={league}
+          organizerLogoUrl={league?.organizerLogoUrl || userData?.organizerLogoUrl || ""}
           sex={league?.sexo}
           title={league?.nombre || fallbackLeagueName}
           teamType={league?.teamType}

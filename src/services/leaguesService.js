@@ -824,8 +824,12 @@ export function buildLeaguePayload({
     complejo: {
       nombre: complex?.nombre || "Complejo sin definir",
       direccion: complex?.direccion || "",
+      coordinates: complex?.coordinates || complex?.location || null,
+      organizerLogoUrl:
+        complex?.organizerLogoUrl || complex?.organizerLogoURL || organizer?.organizerLogoUrl || "",
     },
     complejoNombre: complex?.nombre || "Complejo sin definir",
+    organizerLogoUrl: organizer?.organizerLogoUrl || "",
     localidad: {
       nombre: localidad?.nombre || "",
       provincia: localidad?.provincia || "",
@@ -948,12 +952,25 @@ export function mapLeagueDoc(docSnapshot) {
         data.complexName ||
         "Complejo sin definir",
       direccion: complejo.direccion || "",
+      coordinates: complejo.coordinates || complejo.location || data.coordinates || null,
+      organizerLogoUrl:
+        complejo.organizerLogoUrl ||
+        complejo.organizerLogoURL ||
+        data.organizerLogoUrl ||
+        data.organizerLogoURL ||
+        "",
     },
     complejoNombre:
       complejo.nombre ||
       data.complejoNombre ||
       data.complexName ||
       "Complejo sin definir",
+    organizerLogoUrl:
+      data.organizerLogoUrl ||
+      data.organizerLogoURL ||
+      complejo.organizerLogoUrl ||
+      complejo.organizerLogoURL ||
+      "",
     localidad: localidad.nombre || data.ciudad || data.city || "",
     provincia: localidad.provincia || data.provincia || data.province || "",
     sexo: formatSex(data.sexo || data.sex),

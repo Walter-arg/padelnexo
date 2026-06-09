@@ -40,9 +40,19 @@ import {
 import { createInvitation } from "../services/invitationsService";
 import { listPlayers } from "../services/playersService";
 import { isApprovedOrganizer } from "../services/roleService";
+import {
+  calculateDistanceKm,
+  geocodeAddress,
+  getCoordinatesFromObject,
+  requestCurrentLocation,
+} from "../services/locationService";
 import { formatPlayerShortName } from "../utils/playerDisplayName";
 
 const SEX_FILTER_OPTIONS = ["Todos", "Masculino", "Femenino", "Mixto"];
+const PROXIMITY_RADIUS_OPTIONS = [5, 10, 20, 50];
+const VISIBLE_PLAYER_CATEGORIES = playerCategories.filter(
+  (category) => !["menores sub 12", "menores sub 15"].includes(normalizeText(category))
+);
 const DAY_FILTER_OPTIONS = [
   { label: "Todos", value: "" },
   { label: "Lunes", value: "monday" },
@@ -56,6 +66,24 @@ const DAY_FILTER_OPTIONS = [
 
 function normalizeText(value = "") {
   return String(value).trim().toLowerCase();
+}
+
+function buildLeagueDistanceKey(league = {}) {
+  return `${league.organizerId || league.createdBy || "organizer"}|${league.complejoNombre || ""}|${
+    league.complejo?.direccion || ""
+  }`;
+}
+
+function buildLeagueGeocodeCandidates(league = {}) {
+  return [
+    [league.complejo?.direccion, league.localidad, league.provincia, "Argentina"]
+      .filter(Boolean)
+      .join(", "),
+    [league.complejoNombre, league.localidad, league.provincia, "Argentina"]
+      .filter(Boolean)
+      .join(", "),
+    [league.localidad, league.provincia, "Argentina"].filter(Boolean).join(", "),
+  ].filter(Boolean);
 }
 
 function hasAssignedReplacementPlayer(replacement = {}) {
@@ -194,6 +222,14 @@ export default function LigasHubScreen({ navigation }) {
   const [deletingLeague, setDeletingLeague] = useState(false);
   const [selectedReplacementRequest, setSelectedReplacementRequest] = useState(null);
   const [submittingReplacementId, setSubmittingReplacementId] = useState("");
+  const [locationActionsVisible, setLocationActionsVisible] = useState(false);
+  const [locatingUser, setLocatingUser] = useState(false);
+  const [proximityFilter, setProximityFilter] = useState({
+    enabled: false,
+    radiusKm: 10,
+    userCoordinates: null,
+  });
+  const [leagueCoordinatesByKey, setLeagueCoordinatesByKey] = useState({});
 
   const userLocalidad = useMemo(() => {
     const name = userData?.localidad?.nombre || userData?.city || "";
@@ -228,7 +264,8 @@ export default function LigasHubScreen({ navigation }) {
     appliedFilters.sexo !== "Todos" ||
     Boolean(appliedFilters.categoria) ||
     Boolean(appliedFilters.complejo) ||
-    Boolean(appliedFilters.dia);
+    Boolean(appliedFilters.dia) ||
+    proximityFilter.enabled;
 
   useEffect(() => {
     if (canCreateLeague) {
@@ -296,9 +333,76 @@ export default function LigasHubScreen({ navigation }) {
     return unsubscribe;
   }, [currentUserId]);
 
+  useEffect(() => {
+    if (!proximityFilter.enabled || !proximityFilter.userCoordinates || !leaguesSource.length) {
+      return undefined;
+    }
+
+    let isCancelled = false;
+
+    const geocodeMissingLeagues = async () => {
+      const missingLeagues = leaguesSource.filter((league) => {
+        const key = buildLeagueDistanceKey(league);
+        return !getCoordinatesFromObject(league.complejo || {}) && !leagueCoordinatesByKey[key];
+      });
+
+      for (const league of missingLeagues) {
+        const key = buildLeagueDistanceKey(league);
+
+        for (const address of buildLeagueGeocodeCandidates(league)) {
+          try {
+            const coordinates = await geocodeAddress(address);
+
+            if (isCancelled) {
+              return;
+            }
+
+            if (coordinates) {
+              setLeagueCoordinatesByKey((current) => ({
+                ...current,
+                [key]: coordinates,
+              }));
+              break;
+            }
+          } catch (error) {
+            // Intentamos con el siguiente dato disponible.
+          }
+        }
+      }
+    };
+
+    geocodeMissingLeagues();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [
+    leagueCoordinatesByKey,
+    leaguesSource,
+    proximityFilter.enabled,
+    proximityFilter.userCoordinates,
+  ]);
+
+  const leaguesWithDistance = useMemo(
+    () =>
+      leaguesSource.map((league) => {
+        const key = buildLeagueDistanceKey(league);
+        const coordinates = getCoordinatesFromObject(league.complejo || {}) || leagueCoordinatesByKey[key];
+        const distanceKm = proximityFilter.userCoordinates
+          ? calculateDistanceKm(proximityFilter.userCoordinates, coordinates)
+          : null;
+
+        return {
+          ...league,
+          distanceKm,
+        };
+      }),
+    [leagueCoordinatesByKey, leaguesSource, proximityFilter.userCoordinates]
+  );
+
   const leaguesFiltered = useMemo(() => {
     const normalizedQuery = normalizeText(query);
-    const filtered = leaguesSource.filter((league) => {
+    const filtered = leaguesWithDistance.filter((league) => {
       if (appliedFilters.sexo !== "Todos" && league.sexo !== appliedFilters.sexo) {
         return false;
       }
@@ -318,7 +422,7 @@ export default function LigasHubScreen({ navigation }) {
         return false;
       }
 
-      if (appliedFilters.localidades.length > 0) {
+      if (!proximityFilter.enabled && appliedFilters.localidades.length > 0) {
         const sameCity = appliedFilters.localidades.some(
           (location) => normalizeText(league.localidad) === normalizeText(location.nombre)
         );
@@ -335,15 +439,42 @@ export default function LigasHubScreen({ navigation }) {
         return false;
       }
 
+      if (
+        proximityFilter.enabled &&
+        Number.isFinite(league.distanceKm) &&
+        league.distanceKm > proximityFilter.radiusKm
+      ) {
+        return false;
+      }
+
       return true;
     });
 
-    if (activeTab === "mine") {
-      return filtered.filter((league) => league.esMiLiga);
+    const visibleLeagues = activeTab === "mine"
+      ? filtered.filter((league) => league.esMiLiga)
+      : filtered;
+
+    if (proximityFilter.enabled && proximityFilter.userCoordinates) {
+      return [...visibleLeagues].sort((first, second) => {
+        const firstDistance = Number.isFinite(first.distanceKm)
+          ? first.distanceKm
+          : Number.MAX_SAFE_INTEGER;
+        const secondDistance = Number.isFinite(second.distanceKm)
+          ? second.distanceKm
+          : Number.MAX_SAFE_INTEGER;
+        const firstIsInsideRadius = firstDistance <= proximityFilter.radiusKm;
+        const secondIsInsideRadius = secondDistance <= proximityFilter.radiusKm;
+
+        if (firstIsInsideRadius !== secondIsInsideRadius) {
+          return firstIsInsideRadius ? -1 : 1;
+        }
+
+        return firstDistance - secondDistance;
+      });
     }
 
-    return filtered;
-  }, [activeTab, appliedFilters, leaguesSource, query]);
+    return visibleLeagues;
+  }, [activeTab, appliedFilters, leaguesWithDistance, proximityFilter, query]);
   const publishedReplacementRequests = useMemo(() => {
     const currentUserKey = normalizeText(userData?.uid || userData?.id || "");
 
@@ -421,6 +552,42 @@ export default function LigasHubScreen({ navigation }) {
       message,
       tone,
     });
+  };
+
+  const handleUseCurrentLocation = async () => {
+    try {
+      setLocatingUser(true);
+      const userCoordinates = await requestCurrentLocation();
+
+      setProximityFilter((current) => ({
+        ...current,
+        enabled: true,
+        userCoordinates,
+      }));
+      setLocationActionsVisible(false);
+      showFeedback(
+        "Ubicacion activada",
+        `Vamos a priorizar ligas dentro de ${proximityFilter.radiusKm} km.`,
+        "success"
+      );
+    } catch (error) {
+      showFeedback(
+        "No pudimos usar tu ubicacion",
+        error?.message || "Revisa los permisos de ubicacion del telefono.",
+        "danger"
+      );
+    } finally {
+      setLocatingUser(false);
+    }
+  };
+
+  const handleDisableProximityFilter = () => {
+    setProximityFilter((current) => ({
+      ...current,
+      enabled: false,
+      userCoordinates: null,
+    }));
+    setLocationActionsVisible(false);
   };
 
   const handleOpenFilters = () => {
@@ -692,133 +859,151 @@ export default function LigasHubScreen({ navigation }) {
   return (
     <SafeAreaView style={styles.safeArea}>
       <SectionHeader onBack={() => navigation.goBack()} subtitle="Ligas">
-        <SectionFilterBar
-          extraSummary={hasActiveFilters ? "Activo" : undefined}
-          onApply={handleApplyFilters}
-          onChange={({ locations }) =>
-            setAppliedFilters((current) => ({
-              ...current,
-              localidades: locations,
-            }))
-          }
-          onModalOpen={handleOpenFilters}
-          renderExtraContent={({ draftLocations }) => {
-            const modalComplexOptions = getLeagueComplexOptions(leaguesSource, draftLocations);
+        <View style={styles.filterLocationRow}>
+          <SectionFilterBar
+            containerStyle={styles.headerFilterBar}
+            extraSummary={hasActiveFilters ? "Activo" : undefined}
+            hideLeadingIcon
+            onApply={handleApplyFilters}
+            onChange={({ locations }) =>
+              setAppliedFilters((current) => ({
+                ...current,
+                localidades: locations,
+              }))
+            }
+            onModalOpen={handleOpenFilters}
+            renderExtraContent={({ draftLocations }) => {
+              const modalComplexOptions = getLeagueComplexOptions(leaguesSource, draftLocations);
 
-            return (
-              <View>
-                <Text style={styles.modalLabel}>Sexo</Text>
-                <View style={styles.modalRow}>
-                  {SEX_FILTER_OPTIONS.map((sex) => (
-                    <Pressable
-                      key={sex}
-                      onPress={() => setDraftSexo(sex)}
-                      style={[styles.filterChip, draftSexo === sex && styles.filterChipActive]}
-                    >
-                      <Text
-                        style={[styles.filterChipText, draftSexo === sex && styles.filterChipTextActive]}
-                      >
-                        {sex}
-                      </Text>
-                    </Pressable>
-                  ))}
-                </View>
-
-                <Text style={styles.modalLabel}>Categoria</Text>
-                <View style={styles.modalRow}>
-                  {playerCategories.map((category) => (
-                    <Pressable
-                      key={category}
-                      onPress={() =>
-                        setDraftCategoria((current) => (current === category ? "" : category))
-                      }
-                      style={[
-                        styles.filterChip,
-                        draftCategoria === category && styles.filterChipActive,
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          styles.filterChipText,
-                          draftCategoria === category && styles.filterChipTextActive,
-                        ]}
-                      >
-                        {category}
-                      </Text>
-                    </Pressable>
-                  ))}
-                </View>
-
-                <Text style={styles.modalLabel}>Dia de juego</Text>
-                <View style={styles.modalRow}>
-                  {DAY_FILTER_OPTIONS.map((day) => (
-                    <Pressable
-                      key={day.value || "all-days"}
-                      onPress={() => setDraftDia(day.value)}
-                      style={[styles.filterChip, draftDia === day.value && styles.filterChipActive]}
-                    >
-                      <Text
-                        style={[
-                          styles.filterChipText,
-                          draftDia === day.value && styles.filterChipTextActive,
-                        ]}
-                      >
-                        {day.label}
-                      </Text>
-                    </Pressable>
-                  ))}
-                </View>
-
-                <Text style={styles.modalLabel}>Complejo</Text>
-                <View style={styles.modalRow}>
-                  <Pressable
-                    onPress={() => setDraftComplejo("")}
-                    style={[styles.filterChip, !draftComplejo && styles.filterChipActive]}
-                  >
-                    <Text
-                      style={[styles.filterChipText, !draftComplejo && styles.filterChipTextActive]}
-                    >
-                      Todos
-                    </Text>
-                  </Pressable>
-                  {modalComplexOptions.length > 0 ? (
-                    modalComplexOptions.map((option) => (
+              return (
+                <View>
+                  <Text style={styles.modalLabel}>Sexo</Text>
+                  <View style={styles.modalRow}>
+                    {SEX_FILTER_OPTIONS.map((sex) => (
                       <Pressable
-                        key={option.value}
+                        key={sex}
+                        onPress={() => setDraftSexo(sex)}
+                        style={[styles.filterChip, draftSexo === sex && styles.filterChipActive]}
+                      >
+                        <Text
+                          style={[styles.filterChipText, draftSexo === sex && styles.filterChipTextActive]}
+                        >
+                          {sex}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </View>
+
+                  <Text style={styles.modalLabel}>Categoria</Text>
+                  <View style={styles.modalRow}>
+                    {VISIBLE_PLAYER_CATEGORIES.map((category) => (
+                      <Pressable
+                        key={category}
                         onPress={() =>
-                          setDraftComplejo((current) =>
-                            current === option.value ? "" : option.value
-                          )
+                          setDraftCategoria((current) => (current === category ? "" : category))
                         }
                         style={[
                           styles.filterChip,
-                          draftComplejo === option.value && styles.filterChipActive,
+                          draftCategoria === category && styles.filterChipActive,
                         ]}
                       >
                         <Text
                           style={[
                             styles.filterChipText,
-                            draftComplejo === option.value && styles.filterChipTextActive,
+                            draftCategoria === category && styles.filterChipTextActive,
                           ]}
                         >
-                          {option.label}
+                          {category}
                         </Text>
                       </Pressable>
-                    ))
-                  ) : (
-                    <View style={styles.placeholderField}>
-                      <Ionicons color={colors.muted} name="business-outline" size={16} />
-                      <Text style={styles.placeholderFieldText}>
-                        El selector de complejo se habilita segun las localidades activas
+                    ))}
+                  </View>
+
+                  <Text style={styles.modalLabel}>Dia de juego</Text>
+                  <View style={styles.modalRow}>
+                    {DAY_FILTER_OPTIONS.map((day) => (
+                      <Pressable
+                        key={day.value || "all-days"}
+                        onPress={() => setDraftDia(day.value)}
+                        style={[styles.filterChip, draftDia === day.value && styles.filterChipActive]}
+                      >
+                        <Text
+                          style={[
+                            styles.filterChipText,
+                            draftDia === day.value && styles.filterChipTextActive,
+                          ]}
+                        >
+                          {day.label}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </View>
+
+                  <Text style={styles.modalLabel}>Complejo</Text>
+                  <View style={styles.modalRow}>
+                    <Pressable
+                      onPress={() => setDraftComplejo("")}
+                      style={[styles.filterChip, !draftComplejo && styles.filterChipActive]}
+                    >
+                      <Text
+                        style={[styles.filterChipText, !draftComplejo && styles.filterChipTextActive]}
+                      >
+                        Todos
                       </Text>
-                    </View>
-                  )}
+                    </Pressable>
+                    {modalComplexOptions.length > 0 ? (
+                      modalComplexOptions.map((option) => (
+                        <Pressable
+                          key={option.value}
+                          onPress={() =>
+                            setDraftComplejo((current) =>
+                              current === option.value ? "" : option.value
+                            )
+                          }
+                          style={[
+                            styles.filterChip,
+                            draftComplejo === option.value && styles.filterChipActive,
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.filterChipText,
+                              draftComplejo === option.value && styles.filterChipTextActive,
+                            ]}
+                          >
+                            {option.label}
+                          </Text>
+                        </Pressable>
+                      ))
+                    ) : (
+                      <View style={styles.placeholderField}>
+                        <Ionicons color={colors.muted} name="business-outline" size={16} />
+                        <Text style={styles.placeholderFieldText}>
+                          El selector de complejo se habilita segun las localidades activas
+                        </Text>
+                      </View>
+                    )}
+                  </View>
                 </View>
-              </View>
-            );
-          }}
-          userLocation={userLocalidad}
-        />
+              );
+            }}
+            userLocation={userLocalidad}
+          />
+          <Pressable
+            onPress={() => setLocationActionsVisible(true)}
+            style={({ pressed }) => [
+              styles.locationActionButton,
+              proximityFilter.enabled ? styles.locationActionButtonActive : null,
+              pressed ? styles.favoriteInlineButtonPressed : null,
+            ]}
+          >
+            <Ionicons
+              color={proximityFilter.enabled ? colors.surface : colors.primaryDark}
+              name="location-outline"
+              size={20}
+            />
+          </Pressable>
+        </View>
       </SectionHeader>
       <View style={styles.backgroundOrbTop} />
       <View style={styles.backgroundOrbBottom} />
@@ -1064,6 +1249,72 @@ export default function LigasHubScreen({ navigation }) {
         />
       </View>
 
+      <Modal
+        animationType="fade"
+        onRequestClose={() => setLocationActionsVisible(false)}
+        transparent
+        visible={locationActionsVisible}
+      >
+        <View style={styles.confirmOverlay}>
+          <Pressable
+            onPress={() => setLocationActionsVisible(false)}
+            style={styles.confirmBackdrop}
+          />
+          <View style={styles.locationOptionsCard}>
+            <Text style={styles.confirmTitle}>Ubicacion</Text>
+            <Text style={styles.locationOptionsSubtitle}>
+              Usa tu ubicacion para priorizar las ligas mas cercanas.
+            </Text>
+            <Text style={styles.locationOptionsLabel}>Radio de busqueda</Text>
+            <View style={styles.radiusOptionsRow}>
+              {PROXIMITY_RADIUS_OPTIONS.map((radiusKm) => {
+                const isSelected = proximityFilter.radiusKm === radiusKm;
+
+                return (
+                  <Pressable
+                    key={radiusKm}
+                    onPress={() =>
+                      setProximityFilter((current) => ({
+                        ...current,
+                        radiusKm,
+                      }))
+                    }
+                    style={[
+                      styles.radiusOption,
+                      isSelected ? styles.radiusOptionActive : null,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.radiusOptionText,
+                        isSelected ? styles.radiusOptionTextActive : null,
+                      ]}
+                    >
+                      {radiusKm} km
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            <Pressable
+              disabled={locatingUser}
+              onPress={handleUseCurrentLocation}
+              style={[
+                styles.locationPrimaryButton,
+                locatingUser ? styles.locationButtonDisabled : null,
+              ]}
+            >
+              <Text style={styles.locationPrimaryButtonText}>
+                {locatingUser ? "BUSCANDO..." : "USAR MI UBICACION"}
+              </Text>
+            </Pressable>
+            <Pressable onPress={handleDisableProximityFilter} style={styles.locationSecondaryButton}>
+              <Text style={styles.locationSecondaryButtonText}>VOLVER A LOCALIDAD</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
       <FeedbackModal
         message={feedback.message}
         onClose={() =>
@@ -1287,6 +1538,42 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: spacing.sm,
     marginTop: 0,
+  },
+  filterLocationRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.xs,
+    marginBottom: 2,
+    marginHorizontal: spacing.md,
+  },
+  headerFilterBar: {
+    flex: 1,
+    marginHorizontal: 0,
+    marginTop: 0,
+    minHeight: 38,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+    shadowOpacity: 0.02,
+    elevation: 1,
+  },
+  locationActionButton: {
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 14,
+    borderWidth: 1,
+    height: 38,
+    justifyContent: "center",
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.02,
+    shadowRadius: 8,
+    width: 42,
+    elevation: 1,
+  },
+  locationActionButtonActive: {
+    backgroundColor: colors.primaryDark,
+    borderColor: colors.primaryDark,
   },
   searchWrap: {
     backgroundColor: colors.surface,
@@ -1611,6 +1898,84 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     padding: spacing.lg,
     width: "100%",
+  },
+  locationOptionsCard: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 24,
+    borderWidth: 1,
+    gap: spacing.sm,
+    padding: spacing.lg,
+    width: "100%",
+  },
+  locationOptionsSubtitle: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "700",
+    lineHeight: 18,
+    textAlign: "center",
+  },
+  locationOptionsLabel: {
+    color: colors.text,
+    fontSize: 12,
+    fontWeight: "900",
+    textAlign: "center",
+    textTransform: "uppercase",
+  },
+  radiusOptionsRow: {
+    flexDirection: "row",
+    gap: spacing.xs,
+  },
+  radiusOption: {
+    alignItems: "center",
+    backgroundColor: "#F2F6F4",
+    borderColor: colors.border,
+    borderRadius: 999,
+    borderWidth: 1,
+    flex: 1,
+    minHeight: 34,
+    justifyContent: "center",
+  },
+  radiusOptionActive: {
+    backgroundColor: "#E1F7EC",
+    borderColor: colors.primary,
+  },
+  radiusOptionText: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  radiusOptionTextActive: {
+    color: colors.primaryDark,
+  },
+  locationPrimaryButton: {
+    alignItems: "center",
+    backgroundColor: colors.primaryDark,
+    borderRadius: 16,
+    justifyContent: "center",
+    minHeight: 44,
+  },
+  locationPrimaryButtonText: {
+    color: colors.surface,
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  locationSecondaryButton: {
+    alignItems: "center",
+    backgroundColor: colors.surfaceAlt,
+    borderColor: colors.border,
+    borderRadius: 16,
+    borderWidth: 1,
+    justifyContent: "center",
+    minHeight: 42,
+  },
+  locationSecondaryButtonText: {
+    color: colors.text,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  locationButtonDisabled: {
+    opacity: 0.65,
   },
   replacementDetailCard: {
     backgroundColor: colors.surface,

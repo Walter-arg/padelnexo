@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   FlatList,
+  Modal,
   Pressable,
   StyleSheet,
   Text,
@@ -14,6 +15,7 @@ import BottomQuickActionsBar, {
   BOTTOM_QUICK_ACTIONS_SPACE,
 } from "../components/BottomQuickActionsBar";
 import AvailabilityEditor from "../components/AvailabilityEditor";
+import FeedbackModal from "../components/FeedbackModal";
 import PlayerCard from "../components/PlayerCard";
 import SectionFilterBar from "../components/SectionFilterBar";
 import SectionHeader from "../components/SectionHeader";
@@ -28,10 +30,17 @@ import {
   subscribeToFavoritePlayers,
   toggleFavoritePlayer,
 } from "../services/favoritesService";
+import {
+  calculateDistanceKm,
+  geocodeAddress,
+  getCoordinatesFromObject,
+  requestCurrentLocation,
+} from "../services/locationService";
 import { listPlayers } from "../services/playersService";
 import { getProfileImageUri } from "../utils/defaultProfileImage";
 
 const SEX_FILTER_OPTIONS = ["Todos", "Masculino", "Femenino"];
+const PROXIMITY_RADIUS_OPTIONS = [5, 10, 20, 50];
 
 function normalizeText(value = "") {
   return value.trim().toLowerCase();
@@ -94,6 +103,17 @@ function toggleCategorySelection(current, target) {
   return [...current, target];
 }
 
+function buildPlayerDistanceKey(player = {}) {
+  return `${player.id || player.nombre || "player"}|${player.ciudad || ""}|${player.provincia || ""}`;
+}
+
+function buildPlayerGeocodeCandidates(player = {}) {
+  return [
+    [player.ciudad, player.provincia, "Argentina"].filter(Boolean).join(", "),
+    [player.provincia, "Argentina"].filter(Boolean).join(", "),
+  ].filter(Boolean);
+}
+
 export default function JugadoresScreen({ navigation }) {
   const { updateProfile, userData } = useAuth();
   const currentUserId = userData?.uid;
@@ -102,6 +122,20 @@ export default function JugadoresScreen({ navigation }) {
   const [playersLoading, setPlayersLoading] = useState(true);
   const [isAvailabilityVisible, setIsAvailabilityVisible] = useState(false);
   const [availabilitySaving, setAvailabilitySaving] = useState(false);
+  const [locationActionsVisible, setLocationActionsVisible] = useState(false);
+  const [locatingUser, setLocatingUser] = useState(false);
+  const [feedback, setFeedback] = useState({
+    visible: false,
+    title: "",
+    message: "",
+    tone: "default",
+  });
+  const [proximityFilter, setProximityFilter] = useState({
+    enabled: false,
+    radiusKm: 10,
+    userCoordinates: null,
+  });
+  const [playerCoordinatesByKey, setPlayerCoordinatesByKey] = useState({});
 
   const userLocalidad = useMemo(() => {
     const name = userData?.localidad?.nombre || userData?.city || "";
@@ -129,7 +163,9 @@ export default function JugadoresScreen({ navigation }) {
   const hasActiveFilters =
     query.trim().length > 0 ||
     appliedFilters.sexo !== "Todos" ||
-    appliedFilters.categorias.length > 0;
+    appliedFilters.categorias.length > 0 ||
+    appliedFilters.localidades.length > 0 ||
+    proximityFilter.enabled;
 
   useEffect(() => {
     let isCancelled = false;
@@ -175,10 +211,77 @@ export default function JugadoresScreen({ navigation }) {
     return unsubscribe;
   }, [currentUserId]);
 
+  useEffect(() => {
+    if (!proximityFilter.enabled || !proximityFilter.userCoordinates || !playersSource.length) {
+      return undefined;
+    }
+
+    let isCancelled = false;
+
+    const geocodeMissingPlayers = async () => {
+      const missingPlayers = playersSource.filter((player) => {
+        const key = buildPlayerDistanceKey(player);
+        return !getCoordinatesFromObject(player) && !playerCoordinatesByKey[key];
+      });
+
+      for (const player of missingPlayers) {
+        const key = buildPlayerDistanceKey(player);
+
+        for (const address of buildPlayerGeocodeCandidates(player)) {
+          try {
+            const coordinates = await geocodeAddress(address);
+
+            if (isCancelled) {
+              return;
+            }
+
+            if (coordinates) {
+              setPlayerCoordinatesByKey((current) => ({
+                ...current,
+                [key]: coordinates,
+              }));
+              break;
+            }
+          } catch (error) {
+            // Intentamos con el siguiente dato disponible del perfil.
+          }
+        }
+      }
+    };
+
+    geocodeMissingPlayers();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [
+    playerCoordinatesByKey,
+    playersSource,
+    proximityFilter.enabled,
+    proximityFilter.userCoordinates,
+  ]);
+
+  const playersWithDistance = useMemo(
+    () =>
+      playersSource.map((player) => {
+        const key = buildPlayerDistanceKey(player);
+        const coordinates = getCoordinatesFromObject(player) || playerCoordinatesByKey[key];
+        const distanceKm = proximityFilter.userCoordinates
+          ? calculateDistanceKm(proximityFilter.userCoordinates, coordinates)
+          : null;
+
+        return {
+          ...player,
+          distanceKm,
+        };
+      }),
+    [playerCoordinatesByKey, playersSource, proximityFilter.userCoordinates]
+  );
+
   const playersFiltered = useMemo(() => {
     const normalizedQuery = normalizeText(query);
 
-    const visiblePlayers = playersSource.filter((player) => {
+    const visiblePlayers = playersWithDistance.filter((player) => {
       if (appliedFilters.sexo !== "Todos" && player.sexo !== appliedFilters.sexo) {
         return false;
       }
@@ -190,7 +293,7 @@ export default function JugadoresScreen({ navigation }) {
         return false;
       }
 
-      if (appliedFilters.localidades.length > 0) {
+      if (!proximityFilter.enabled && appliedFilters.localidades.length > 0) {
         const cityMatches = appliedFilters.localidades.some(
           (location) => normalizeText(player.ciudad) === normalizeText(location.nombre)
         );
@@ -210,16 +313,36 @@ export default function JugadoresScreen({ navigation }) {
       );
     });
 
+    const sortedPlayers =
+      proximityFilter.enabled && proximityFilter.userCoordinates
+        ? [...visiblePlayers].sort((first, second) => {
+            const firstDistance = Number.isFinite(first.distanceKm)
+              ? first.distanceKm
+              : Number.MAX_SAFE_INTEGER;
+            const secondDistance = Number.isFinite(second.distanceKm)
+              ? second.distanceKm
+              : Number.MAX_SAFE_INTEGER;
+            const firstIsInsideRadius = firstDistance <= proximityFilter.radiusKm;
+            const secondIsInsideRadius = secondDistance <= proximityFilter.radiusKm;
+
+            if (firstIsInsideRadius !== secondIsInsideRadius) {
+              return firstIsInsideRadius ? -1 : 1;
+            }
+
+            return firstDistance - secondDistance;
+          })
+        : visiblePlayers;
+
     const ownPlayerFromUser = buildOwnPlayerFromUser(userData);
-    const ownPlayers = visiblePlayers.filter((player) => isOwnPlayer(player, userData));
-    const otherPlayers = visiblePlayers.filter((player) => !isOwnPlayer(player, userData));
+    const ownPlayers = sortedPlayers.filter((player) => isOwnPlayer(player, userData));
+    const otherPlayers = sortedPlayers.filter((player) => !isOwnPlayer(player, userData));
 
     if (!ownPlayerFromUser) {
       return [...ownPlayers, ...otherPlayers];
     }
 
     return [ownPlayerFromUser, ...otherPlayers];
-  }, [appliedFilters, playersSource, query, userData]);
+  }, [appliedFilters, playersWithDistance, proximityFilter, query, userData]);
 
   const handleOpenFilters = () => {
     setDraftSexo(appliedFilters.sexo);
@@ -232,6 +355,44 @@ export default function JugadoresScreen({ navigation }) {
       sexo: draftSexo,
       categorias: draftCategorias,
     }));
+  };
+
+  const handleUseCurrentLocation = async () => {
+    try {
+      setLocatingUser(true);
+      const userCoordinates = await requestCurrentLocation();
+
+      setProximityFilter((current) => ({
+        ...current,
+        enabled: true,
+        userCoordinates,
+      }));
+      setLocationActionsVisible(false);
+      setFeedback({
+        visible: true,
+        title: "Ubicacion activada",
+        message: `Vamos a priorizar jugadores dentro de ${proximityFilter.radiusKm} km.`,
+        tone: "success",
+      });
+    } catch (error) {
+      setFeedback({
+        visible: true,
+        title: "No pudimos usar tu ubicacion",
+        message: error?.message || "Revisa los permisos de ubicacion del telefono.",
+        tone: "danger",
+      });
+    } finally {
+      setLocatingUser(false);
+    }
+  };
+
+  const handleDisableProximityFilter = () => {
+    setProximityFilter((current) => ({
+      ...current,
+      enabled: false,
+      userCoordinates: null,
+    }));
+    setLocationActionsVisible(false);
   };
 
   const handleToggleFavorite = (playerId) => {
@@ -261,71 +422,89 @@ export default function JugadoresScreen({ navigation }) {
   return (
     <SafeAreaView style={styles.safeArea}>
       <SectionHeader onBack={() => navigation.goBack()} subtitle="Jugadores">
-        <SectionFilterBar
-          extraSummary={hasActiveFilters ? "Activo" : undefined}
-          onApply={handleApplyFilters}
-          onChange={({ locations }) =>
-            setAppliedFilters((current) => ({
-              ...current,
-              localidades: locations,
-            }))
-          }
-          onModalOpen={handleOpenFilters}
-          renderExtraContent={() => (
-            <View>
-              <Text style={styles.modalLabel}>Sexo</Text>
-              <View style={styles.modalRow}>
-                {SEX_FILTER_OPTIONS.map((sex) => (
-                  <Pressable
-                    key={sex}
-                    onPress={() => setDraftSexo(sex)}
-                    style={[styles.filterChip, draftSexo === sex && styles.filterChipActive]}
-                  >
-                    <Text
-                      style={[styles.filterChipText, draftSexo === sex && styles.filterChipTextActive]}
+        <View style={styles.filterLocationRow}>
+          <SectionFilterBar
+            containerStyle={styles.headerFilterBar}
+            extraSummary={hasActiveFilters ? "Activo" : undefined}
+            hideLeadingIcon
+            onApply={handleApplyFilters}
+            onChange={({ locations }) =>
+              setAppliedFilters((current) => ({
+                ...current,
+                localidades: locations,
+              }))
+            }
+            onModalOpen={handleOpenFilters}
+            renderExtraContent={() => (
+              <View>
+                <Text style={styles.modalLabel}>Sexo</Text>
+                <View style={styles.modalRow}>
+                  {SEX_FILTER_OPTIONS.map((sex) => (
+                    <Pressable
+                      key={sex}
+                      onPress={() => setDraftSexo(sex)}
+                      style={[styles.filterChip, draftSexo === sex && styles.filterChipActive]}
                     >
-                      {sex}
-                    </Text>
-                  </Pressable>
-                ))}
-              </View>
+                      <Text
+                        style={[styles.filterChipText, draftSexo === sex && styles.filterChipTextActive]}
+                      >
+                        {sex}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
 
-              <Text style={styles.modalLabel}>Categoria (maximo 2)</Text>
-              <View style={styles.modalRow}>
-                {playerCategories.map((category) => (
-                  <Pressable
-                    key={category}
-                    onPress={() =>
-                      setDraftCategorias((current) => toggleCategorySelection(current, category))
-                    }
-                    style={[
-                      styles.filterChip,
-                      draftCategorias.includes(category) && styles.filterChipActive,
-                    ]}
-                  >
-                    <Text
+                <Text style={styles.modalLabel}>Categoria (maximo 2)</Text>
+                <View style={styles.modalRow}>
+                  {playerCategories.map((category) => (
+                    <Pressable
+                      key={category}
+                      onPress={() =>
+                        setDraftCategorias((current) => toggleCategorySelection(current, category))
+                      }
                       style={[
-                        styles.filterChipText,
-                        draftCategorias.includes(category) && styles.filterChipTextActive,
+                        styles.filterChip,
+                        draftCategorias.includes(category) && styles.filterChipActive,
                       ]}
                     >
-                      {category}
-                    </Text>
-                  </Pressable>
-                ))}
-              </View>
+                      <Text
+                        style={[
+                          styles.filterChipText,
+                          draftCategorias.includes(category) && styles.filterChipTextActive,
+                        ]}
+                      >
+                        {category}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
 
-              <Text style={styles.modalLabel}>Complejo</Text>
-              <View style={styles.placeholderField}>
-                <Ionicons color={colors.muted} name="business-outline" size={16} />
-                <Text style={styles.placeholderFieldText}>
-                  Selector de complejo disponible proximamente para esta seccion
-                </Text>
+                <Text style={styles.modalLabel}>Complejo</Text>
+                <View style={styles.placeholderField}>
+                  <Ionicons color={colors.muted} name="business-outline" size={16} />
+                  <Text style={styles.placeholderFieldText}>
+                    Selector de complejo disponible proximamente para esta seccion
+                  </Text>
+                </View>
               </View>
-            </View>
-          )}
-          userLocation={userLocalidad}
-        />
+            )}
+            userLocation={userLocalidad}
+          />
+          <Pressable
+            onPress={() => setLocationActionsVisible(true)}
+            style={({ pressed }) => [
+              styles.locationActionButton,
+              proximityFilter.enabled ? styles.locationActionButtonActive : null,
+              pressed ? styles.favoriteInlineButtonPressed : null,
+            ]}
+          >
+            <Ionicons
+              color={proximityFilter.enabled ? colors.surface : colors.primaryDark}
+              name="location-outline"
+              size={20}
+            />
+          </Pressable>
+        </View>
       </SectionHeader>
       <View style={styles.backgroundOrbTop} />
       <View style={styles.backgroundOrbBottom} />
@@ -427,6 +606,80 @@ export default function JugadoresScreen({ navigation }) {
         visible={isAvailabilityVisible}
       />
 
+      <Modal
+        animationType="fade"
+        onRequestClose={() => setLocationActionsVisible(false)}
+        transparent
+        visible={locationActionsVisible}
+      >
+        <View style={styles.confirmOverlay}>
+          <Pressable
+            onPress={() => setLocationActionsVisible(false)}
+            style={styles.confirmBackdrop}
+          />
+          <View style={styles.locationOptionsCard}>
+            <Text style={styles.confirmTitle}>Ubicacion</Text>
+            <Text style={styles.locationOptionsSubtitle}>
+              Usa tu ubicacion para priorizar jugadores cercanos.
+            </Text>
+            <Text style={styles.locationOptionsLabel}>Radio de busqueda</Text>
+            <View style={styles.radiusOptionsRow}>
+              {PROXIMITY_RADIUS_OPTIONS.map((radiusKm) => {
+                const isSelected = proximityFilter.radiusKm === radiusKm;
+
+                return (
+                  <Pressable
+                    key={radiusKm}
+                    onPress={() =>
+                      setProximityFilter((current) => ({
+                        ...current,
+                        radiusKm,
+                      }))
+                    }
+                    style={[
+                      styles.radiusOption,
+                      isSelected ? styles.radiusOptionActive : null,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.radiusOptionText,
+                        isSelected ? styles.radiusOptionTextActive : null,
+                      ]}
+                    >
+                      {radiusKm} km
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            <Pressable
+              disabled={locatingUser}
+              onPress={handleUseCurrentLocation}
+              style={[
+                styles.locationPrimaryButton,
+                locatingUser ? styles.locationButtonDisabled : null,
+              ]}
+            >
+              <Text style={styles.locationPrimaryButtonText}>
+                {locatingUser ? "BUSCANDO..." : "USAR MI UBICACION"}
+              </Text>
+            </Pressable>
+            <Pressable onPress={handleDisableProximityFilter} style={styles.locationSecondaryButton}>
+              <Text style={styles.locationSecondaryButtonText}>VOLVER A LOCALIDAD</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
+      <FeedbackModal
+        message={feedback.message}
+        onClose={() => setFeedback((current) => ({ ...current, visible: false }))}
+        title={feedback.title}
+        tone={feedback.tone}
+        visible={feedback.visible}
+      />
+
       <BottomQuickActionsBar />
     </SafeAreaView>
   );
@@ -510,6 +763,42 @@ const styles = StyleSheet.create({
     height: 220,
     borderRadius: 999,
     backgroundColor: "rgba(11,132,87,0.08)",
+  },
+  filterLocationRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.xs,
+    marginBottom: 2,
+    marginHorizontal: spacing.md,
+  },
+  headerFilterBar: {
+    flex: 1,
+    marginHorizontal: 0,
+    marginTop: 0,
+    minHeight: 38,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+    shadowOpacity: 0.02,
+    elevation: 1,
+  },
+  locationActionButton: {
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 14,
+    borderWidth: 1,
+    height: 38,
+    justifyContent: "center",
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.02,
+    shadowRadius: 8,
+    width: 42,
+    elevation: 1,
+  },
+  locationActionButtonActive: {
+    backgroundColor: colors.primaryDark,
+    borderColor: colors.primaryDark,
   },
   topSearchRow: {
     alignItems: "center",
@@ -638,6 +927,100 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "600",
     marginLeft: spacing.sm,
+  },
+  confirmOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: spacing.lg,
+  },
+  confirmBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: colors.overlay,
+  },
+  confirmTitle: {
+    color: colors.text,
+    fontSize: 22,
+    fontWeight: "800",
+    textAlign: "center",
+  },
+  locationOptionsCard: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 24,
+    borderWidth: 1,
+    gap: spacing.sm,
+    padding: spacing.lg,
+    width: "100%",
+  },
+  locationOptionsSubtitle: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "700",
+    lineHeight: 18,
+    textAlign: "center",
+  },
+  locationOptionsLabel: {
+    color: colors.text,
+    fontSize: 12,
+    fontWeight: "900",
+    textAlign: "center",
+    textTransform: "uppercase",
+  },
+  radiusOptionsRow: {
+    flexDirection: "row",
+    gap: spacing.xs,
+  },
+  radiusOption: {
+    alignItems: "center",
+    backgroundColor: "#F2F6F4",
+    borderColor: colors.border,
+    borderRadius: 999,
+    borderWidth: 1,
+    flex: 1,
+    justifyContent: "center",
+    minHeight: 34,
+  },
+  radiusOptionActive: {
+    backgroundColor: "#E1F7EC",
+    borderColor: colors.primary,
+  },
+  radiusOptionText: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  radiusOptionTextActive: {
+    color: colors.primaryDark,
+  },
+  locationPrimaryButton: {
+    alignItems: "center",
+    backgroundColor: colors.primaryDark,
+    borderRadius: 16,
+    justifyContent: "center",
+    minHeight: 44,
+  },
+  locationPrimaryButtonText: {
+    color: colors.surface,
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  locationSecondaryButton: {
+    alignItems: "center",
+    backgroundColor: colors.surfaceAlt,
+    borderColor: colors.border,
+    borderRadius: 16,
+    borderWidth: 1,
+    justifyContent: "center",
+    minHeight: 42,
+  },
+  locationSecondaryButtonText: {
+    color: colors.text,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  locationButtonDisabled: {
+    opacity: 0.65,
   },
 });
 

@@ -233,6 +233,7 @@ export default function LeagueDetailScreen({ navigation, route }) {
               category={leagueCategory}
               complexName={leagueComplex}
               league={league}
+              organizerLogoUrl={league?.organizerLogoUrl || userData?.organizerLogoUrl || ""}
               sex={leagueSex}
               title={leagueName}
               teamType={league?.teamType}

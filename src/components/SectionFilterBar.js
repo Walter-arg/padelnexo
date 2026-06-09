@@ -46,6 +46,7 @@ export default function SectionFilterBar({
   containerStyle,
   disablePersistedDefaults = false,
   extraSummary,
+  hideLeadingIcon = false,
   onChange,
   onApply,
   onModalClose,
@@ -209,9 +210,11 @@ export default function SectionFilterBar({
       >
         <View style={styles.filterBarHeader}>
           <View style={styles.filterBarTitleWrap}>
-            <View style={styles.filterBarIconWrap}>
-              <Ionicons color={colors.primaryDark} name="location-outline" size={18} />
-            </View>
+            {!hideLeadingIcon ? (
+              <View style={styles.filterBarIconWrap}>
+                <Ionicons color={colors.primaryDark} name="location-outline" size={18} />
+              </View>
+            ) : null}
             <View style={styles.filterBarTextWrap}>
               <Text style={styles.filterBarEyebrow}>Ajustar filtros</Text>
               <Text numberOfLines={1} style={styles.filterBarTitle}>

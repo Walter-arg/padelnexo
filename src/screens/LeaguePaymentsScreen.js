@@ -236,6 +236,25 @@ function getStatusMeta(status) {
   return STATUS_META[status] || STATUS_META.pendiente;
 }
 
+function getPaymentMethodLabel(entry = {}) {
+  if (entry.paymentStatus !== "pagado") {
+    return entry.paymentMethod === "transferencia" ? "Transf." : "";
+  }
+
+  if (entry.paymentMethod === "efectivo") {
+    return "Efec.";
+  }
+
+  if (
+    entry.paymentMethod === "transferencia" ||
+    entry.paymentMethod === "cuenta_corriente"
+  ) {
+    return "Transf.";
+  }
+
+  return "";
+}
+
 function normalizePhoneNumber(value = "") {
   return String(value || "").replace(/[^\d]/g, "");
 }
@@ -341,6 +360,47 @@ function groupEntriesByPair(entries = []) {
   });
 
   return groups;
+}
+
+function buildPaymentTableRows(entries = [], teamType = "single") {
+  if (teamType !== "pair") {
+    return (entries || []).map((entry) => ({
+      ...entry,
+      pairLabel: "",
+      pairMateLabel: "",
+    }));
+  }
+
+  return groupEntriesByPair(entries || []).flatMap((group) =>
+    group.entries.map((entry, index) => ({
+      ...entry,
+      pairLabel: group.label,
+      pairMateLabel:
+        group.entries.length > 1
+          ? group.entries[index === 0 ? 1 : 0]?.participantLabel || ""
+          : "",
+    }))
+  );
+}
+
+function formatCompactPlayerName(value = "") {
+  const parts = String(value || "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+
+  if (!parts.length) {
+    return "Jugador";
+  }
+
+  if (parts.length === 1) {
+    return parts[0];
+  }
+
+  const lastName = parts[parts.length - 1];
+  const firstNameInitial = parts[0].charAt(0).toUpperCase();
+
+  return `${lastName} ${firstNameInitial}.`;
 }
 
 export default function LeaguePaymentsScreen({ navigation, route }) {
@@ -729,13 +789,18 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
     }
   };
 
-  const handleUploadProof = async (round, entry, proofType = "image") => {
+  const handleUploadProof = async (round, entry, proofType = "any") => {
     if (!round || !entry) {
       return;
     }
 
     try {
-      const pickerType = proofType === "pdf" ? "application/pdf" : "image/*";
+      const pickerType =
+        proofType === "pdf"
+          ? "application/pdf"
+          : proofType === "image"
+          ? "image/*"
+          : ["image/*", "application/pdf"];
       const result = await DocumentPicker.getDocumentAsync({
         copyToCacheDirectory: true,
         multiple: false,
@@ -747,13 +812,23 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
       }
 
       const asset = result.assets[0];
-      const isSupported = proofType === "pdf" ? isPdfProof(asset) : isImageProof(asset);
+      const isSupported =
+        proofType === "pdf"
+          ? isPdfProof(asset)
+          : proofType === "image"
+          ? isImageProof(asset)
+          : isPdfProof(asset) || isImageProof(asset);
 
       if (!isSupported) {
         setFeedback({
           visible: true,
           title: "Archivo no compatible",
-          message: proofType === "pdf" ? "Adjunta un comprobante en PDF." : "Adjunta un comprobante en imagen.",
+          message:
+            proofType === "pdf"
+              ? "Adjunta un comprobante en PDF."
+              : proofType === "image"
+              ? "Adjunta un comprobante en imagen."
+              : "Adjunta un comprobante en imagen o PDF.",
           tone: "danger",
         });
         return;
@@ -763,11 +838,14 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
       const response = await fetch(asset.uri);
       const blob = await response.blob();
       const originalName = asset.name || asset.fileName || "";
-      const extension = originalName.split(".").pop() || (proofType === "pdf" ? "pdf" : "jpg");
+      const detectedPdf = isPdfProof(asset);
+      const extension = originalName.split(".").pop() || (detectedPdf ? "pdf" : "jpg");
       const fileName = `${entry.participantId}-${Date.now()}.${extension}`;
       const proofRef = ref(storage, `league-payment-proofs/${leagueId}/${round.roundId}/${fileName}`);
       const proofContentType =
-        blob.type || asset.mimeType || (extension.toLowerCase() === "pdf" ? "application/pdf" : "image/jpeg");
+        blob.type ||
+        asset.mimeType ||
+        (extension.toLowerCase() === "pdf" ? "application/pdf" : "image/jpeg");
 
       await uploadBytes(proofRef, blob, {
         contentType: proofContentType,
@@ -915,51 +993,51 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
 
   const renderPaymentEntryRow = (round, entry) => {
     const statusMeta = getStatusMeta(entry.paymentStatus);
-    const methodLabel =
-      entry.paymentStatus === "pagado"
-        ? entry.paymentMethod === "efectivo"
-          ? "Efectivo"
-          : entry.paymentMethod === "cuenta_corriente"
-          ? "Transferencia"
-          : entry.paymentMethod === "transferencia"
-          ? "Transferencia"
-          : "Sin medio"
-        : null;
+    const methodLabel = getPaymentMethodLabel(entry);
+    const hasProof = Boolean(entry.proofUrl);
+    const updatedLabel = formatUpdatedAt(entry.updatedAtMillis);
 
     return (
-      <View
-        key={`${round.roundId}-${entry.participantId}`}
-        style={[
-          styles.entryRow,
-          {
-            backgroundColor: statusMeta.tint,
-            borderColor: statusMeta.border,
-          },
-        ]}
-      >
-        <View style={[styles.statusDot, { backgroundColor: statusMeta.accent }]} />
+      <View key={`${round.roundId}-${entry.participantId}`} style={styles.entryRow}>
+        <View style={[styles.entryAccentBar, { backgroundColor: statusMeta.accent }]} />
 
         <View style={styles.entryCopy}>
-          <Text numberOfLines={1} style={styles.entryName}>
-            {entry.participantLabel}
-          </Text>
-          <View style={styles.entryMetaRow}>
+          <View style={[styles.entryTopRow, !canManage ? styles.playerEntryTopRow : null]}>
+            <Text
+              numberOfLines={1}
+              style={[styles.entryName, !canManage ? styles.playerEntryName : null]}
+            >
+              {entry.participantLabel}
+            </Text>
             {roundPricePerPlayer > 0 ? (
               <Text style={styles.entryAmountLabel}>{formatCurrency(roundPricePerPlayer)}</Text>
             ) : null}
-            <Text style={[styles.entryStatusLabel, { color: statusMeta.accent }]}>
-              {statusMeta.label}
-            </Text>
-            {methodLabel ? <Text style={styles.entryDivider}>•</Text> : null}
-            {methodLabel ? <Text style={styles.entryMethod}>{methodLabel}</Text> : null}
-            {entry.proofUrl ? <Text style={styles.entryDivider}>|</Text> : null}
-            {entry.proofUrl ? (
-              <Text style={styles.entryMethod}>
+          </View>
+          <View style={[styles.entryMetaRow, !canManage ? styles.playerEntryMetaRow : null]}>
+            <View
+              style={[
+                styles.entryStatusChip,
+                {
+                  backgroundColor: statusMeta.tint,
+                  borderColor: statusMeta.border,
+                },
+              ]}
+            >
+              <Text style={[styles.entryStatusLabel, { color: statusMeta.accent }]}>
+                {statusMeta.label}
+              </Text>
+            </View>
+            {methodLabel ? <Text style={styles.entryMetaChip}>{methodLabel}</Text> : null}
+            {hasProof ? (
+              <Text style={styles.entryMetaChip}>
                 Comprobante {formatUpdatedAt(entry.proofUploadedAtMillis)}
               </Text>
             ) : null}
-            <Text style={styles.entryDivider}>•</Text>
-            <Text style={styles.entryUpdated}>{formatUpdatedAt(entry.updatedAtMillis)}</Text>
+          </View>
+          <View style={[styles.entryFooterRow, !canManage ? styles.playerEntryFooterRow : null]}>
+            <Text style={styles.entryUpdated}>
+              {canManage ? updatedLabel ? `Actualizado ${updatedLabel}` : "Sin cambios" : "Si pagas en Efectivo, pagas en la sede"}
+            </Text>
           </View>
         </View>
 
@@ -1014,36 +1092,118 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
                 <Text style={styles.playerSecondaryButtonText}>Ver</Text>
               </Pressable>
             ) : null}
-            {entry.paymentStatus !== "pagado" ? (
-              <View style={styles.proofUploadActions}>
-                <Pressable
-                  disabled={saving}
-                  onPress={() => handleUploadProof(round, entry, "image")}
-                  style={({ pressed }) => [
-                    styles.proofUploadButton,
-                    saving ? styles.saveButtonDisabled : null,
-                    pressed && !saving ? styles.pressedState : null,
-                  ]}
-                >
-                  <Ionicons color={colors.surface} name="image-outline" size={14} />
-                  <Text style={styles.proofUploadButtonText}>IMG</Text>
-                </Pressable>
-                <Pressable
-                  disabled={saving}
-                  onPress={() => handleUploadProof(round, entry, "pdf")}
-                  style={({ pressed }) => [
-                    styles.proofUploadButton,
-                    saving ? styles.saveButtonDisabled : null,
-                    pressed && !saving ? styles.pressedState : null,
-                  ]}
-                >
-                  <Ionicons color={colors.surface} name="document-text-outline" size={14} />
-                  <Text style={styles.proofUploadButtonText}>PDF</Text>
-                </Pressable>
-              </View>
-            ) : null}
           </View>
         )}
+      </View>
+    );
+  };
+
+  const renderPaymentTableRow = (round, entry) => {
+    const statusMeta = getStatusMeta(entry.paymentStatus);
+    const methodLabel = getPaymentMethodLabel(entry);
+
+    return (
+      <View key={`${round.roundId}-${entry.participantId}`} style={styles.paymentTableRow}>
+        <View style={styles.paymentTablePlayerCell}>
+          {entry.pairLabel ? (
+            <Text numberOfLines={1} style={styles.paymentTablePairLabel}>
+              {entry.pairLabel}
+            </Text>
+          ) : null}
+          <Text numberOfLines={1} style={styles.paymentTablePlayerName}>
+            {formatCompactPlayerName(entry.participantLabel)}
+          </Text>
+          {entry.pairMateLabel ? (
+            <Text numberOfLines={1} style={styles.paymentTablePlayerMate}>
+              con {formatCompactPlayerName(entry.pairMateLabel)}
+            </Text>
+          ) : null}
+        </View>
+
+        <View style={styles.paymentTableStatusCell}>
+          <Text style={[styles.paymentTableStatusText, { color: statusMeta.accent }]}>
+            {statusMeta.label}
+          </Text>
+        </View>
+
+        <View style={styles.paymentTableMethodCell}>
+          <Text numberOfLines={2} style={styles.paymentTableMethodText}>
+            {methodLabel || "-"}
+          </Text>
+        </View>
+
+        <View style={styles.paymentTableProofCell}>
+          {entry.proofUrl ? (
+            <Pressable
+              onPress={() =>
+                canManage ? openProofReview(round, entry) : handleOpenProof(entry.proofUrl)
+              }
+              style={({ pressed }) => [
+                styles.paymentTableProofButton,
+                pressed ? styles.pressedState : null,
+              ]}
+            >
+              <Ionicons color={colors.primaryDark} name="document-text-outline" size={14} />
+            </Pressable>
+          ) : (
+            <Text style={styles.paymentTableMutedText}>-</Text>
+          )}
+        </View>
+
+        <View style={styles.paymentTableAmountCell}>
+          <Text numberOfLines={1} style={styles.paymentTableAmountText}>
+            {roundPricePerPlayer > 0 ? formatCurrency(roundPricePerPlayer) : "-"}
+          </Text>
+        </View>
+
+        <View style={styles.paymentTableActionsCell}>
+          {canManage ? (
+            <View style={styles.paymentTableActionsRow}>
+              <Pressable
+                onPress={() => openPaymentMethodPicker(round, entry)}
+                style={({ pressed }) => [
+                  styles.paymentTableActionButton,
+                  entry.paymentStatus === "pagado"
+                    ? styles.quickPaidButtonPaid
+                    : entry.paymentStatus === "pendiente"
+                    ? styles.quickPaidButtonPending
+                    : styles.quickPaidButtonTransfer,
+                  pressed ? styles.pressedState : null,
+                ]}
+              >
+                <Ionicons color={colors.surface} name="cash-outline" size={14} />
+              </Pressable>
+              <Pressable
+                onPress={() => openEntryMenu(round, entry)}
+                style={({ pressed }) => [
+                  styles.paymentTableMenuButton,
+                  pressed ? styles.pressedState : null,
+                ]}
+              >
+                <Ionicons color={colors.text} name="ellipsis-vertical" size={16} />
+              </Pressable>
+            </View>
+          ) : (
+            <View style={styles.paymentTableActionsRow}>
+              {entry.paymentStatus !== "pagado" ? (
+                <Pressable
+                  disabled={saving}
+                  onPress={() => handleUploadProof(round, entry)}
+                  style={({ pressed }) => [
+                    styles.paymentTableMiniButton,
+                    styles.paymentTableProofUploadButton,
+                    saving ? styles.saveButtonDisabled : null,
+                    pressed && !saving ? styles.pressedState : null,
+                  ]}
+                >
+                  <Text style={styles.paymentTableMiniButtonText}>Comp.</Text>
+                </Pressable>
+              ) : (
+                <Text style={styles.paymentTableMutedText}>-</Text>
+              )}
+            </View>
+          )}
+        </View>
       </View>
     );
   };
@@ -1073,16 +1233,11 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
           category={league?.categoria}
           complexName={league?.complejoNombre}
           league={league}
+          organizerLogoUrl={league?.organizerLogoUrl || userData?.organizerLogoUrl || ""}
           sex={league?.sexo}
           title={leagueName}
           teamType={league?.teamType}
-        >
-          <Text style={styles.heroText}>
-            {canManage
-              ? "Revisa una fecha a la vez, confirma transferencias y actualiza los pagos de cada participante."
-              : "Aca podes consultar tus pagos de la liga y enviar el comprobante cuando pagues por transferencia."}
-          </Text>
-        </LeagueHeaderCard>
+        />
 
         {!hasFixture ? (
           <View style={styles.emptyCard}>
@@ -1116,6 +1271,7 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
           const roundSummary = getLeaguePaymentRoundSummary(round);
           const roundAmountSummary = getPaymentAmountSummary(round.entries || [], roundPricePerPlayer);
           const roundDateMeta = getPaymentRoundDateMeta(round);
+          const playerPrimaryEntry = !canManage ? (round.entries || [])[0] || null : null;
 
           return (
             <View key={round.roundId} style={styles.roundCard}>
@@ -1135,22 +1291,17 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
                 <View style={styles.roundChevronSpacer} />
                 <View style={styles.roundHeader}>
                   <View style={styles.roundTitleValueRow}>
-                    <Text style={styles.roundTitle}>{String(round.title || "").toUpperCase()}</Text>
-                    {roundDateMeta.label ? (
-                      <Text
-                        style={[
-                          styles.roundDatePill,
-                          roundDateMeta.reprogrammed ? styles.roundDatePillReprogrammed : null,
-                        ]}
-                      >
-                        {roundDateMeta.label}
-                      </Text>
-                    ) : null}
-                    {roundPriceLabel ? (
-                      <Text style={styles.roundPricePill}>{roundPriceLabel}</Text>
-                    ) : null}
+                    <Text
+                      style={[
+                        styles.roundTitle,
+                        roundDateMeta.reprogrammed ? styles.roundDatePillReprogrammed : null,
+                      ]}
+                    >
+                      {String(round.title || "").toUpperCase()}
+                      {roundDateMeta.label ? ` - ${roundDateMeta.label}` : ""}
+                    </Text>
                   </View>
-                  <Text style={styles.roundSchedule}>{round.scheduleLabel}</Text>
+                  {roundPriceLabel ? <Text style={styles.roundPriceText}>{roundPriceLabel}</Text> : null}
                   {round.pendingReprogrammedMatchesCount > 0 ? (
                     <Text style={styles.roundReprogrammedNotice}>
                       {round.pendingReprogrammedMatchesCount} partido(s) reprogramado(s) pendiente(s)
@@ -1187,157 +1338,70 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
 
               {isExpanded ? (
                 <View style={styles.entriesWrap}>
-                  {canManage && league?.teamType === "pair"
-                    ? groupEntriesByPair(round.entries || []).map((group) => (
-                        <View key={`${round.roundId}-${group.key}`} style={styles.pairPaymentCard}>
-                          <Text style={styles.pairPaymentTitle}>{group.label}</Text>
-                          <View style={styles.pairPaymentEntries}>
-                            {group.entries.map((entry) => renderPaymentEntryRow(round, entry))}
-                          </View>
-                        </View>
-                      ))
-                    : (round.entries || []).map((entry) => {
-                    const statusMeta = getStatusMeta(entry.paymentStatus);
-                    const methodLabel =
-                      entry.paymentStatus === "pagado"
-                        ? entry.paymentMethod === "efectivo"
-                          ? "Efectivo"
-                          : entry.paymentMethod === "cuenta_corriente"
-                          ? "Transferencia"
-                          : entry.paymentMethod === "transferencia"
-                          ? "Transferencia"
-                          : "Sin medio"
-                        : null;
-
-                    return (
-                      <View
-                        key={`${round.roundId}-${entry.participantId}`}
-                        style={[
-                          styles.entryRow,
-                          {
-                            backgroundColor: statusMeta.tint,
-                            borderColor: statusMeta.border,
-                          },
-                        ]}
-                      >
-                        <View style={[styles.statusDot, { backgroundColor: statusMeta.accent }]} />
-
-                        <View style={styles.entryCopy}>
-                          <Text numberOfLines={1} style={styles.entryName}>
-                            {entry.participantLabel}
-                          </Text>
-                          <View style={styles.entryMetaRow}>
-                            {roundPricePerPlayer > 0 ? (
-                              <Text style={styles.entryAmountLabel}>{formatCurrency(roundPricePerPlayer)}</Text>
-                            ) : null}
-                            <Text style={[styles.entryStatusLabel, { color: statusMeta.accent }]}>
-                              {statusMeta.label}
-                            </Text>
-                            {methodLabel ? <Text style={styles.entryDivider}>•</Text> : null}
-                            {methodLabel ? <Text style={styles.entryMethod}>{methodLabel}</Text> : null}
-                            {entry.proofUrl ? <Text style={styles.entryDivider}>|</Text> : null}
-                            {entry.proofUrl ? (
-                              <Text style={styles.entryMethod}>
-                                Comprobante {formatUpdatedAt(entry.proofUploadedAtMillis)}
-                              </Text>
-                            ) : null}
-                            <Text style={styles.entryDivider}>•</Text>
-                            <Text style={styles.entryUpdated}>{formatUpdatedAt(entry.updatedAtMillis)}</Text>
-                          </View>
-                        </View>
-
-                        {canManage ? (
-                          <View style={styles.organizerEntryActions}>
-                            {entry.proofUrl && entry.paymentStatus !== "pagado" ? (
-                              <Pressable
-                                onPress={() => openProofReview(round, entry)}
-                                style={({ pressed }) => [
-                                  styles.quickProofButton,
-                                  pressed ? styles.pressedState : null,
-                                ]}
-                              >
-                                <Ionicons color={colors.primaryDark} name="receipt-outline" size={14} />
-                                <Text style={styles.quickProofButtonText}>Ver</Text>
-                              </Pressable>
-                            ) : null}
-                            <Pressable
-                              onPress={() => openPaymentMethodPicker(round, entry)}
-                              style={({ pressed }) => [
-                                styles.quickPaidButton,
-                                entry.paymentStatus === "pagado"
-                                  ? styles.quickPaidButtonPaid
-                                  : entry.paymentStatus === "pendiente"
-                                  ? styles.quickPaidButtonPending
-                                  : styles.quickPaidButtonTransfer,
-                                pressed ? styles.pressedState : null,
-                              ]}
-                            >
-                              <Ionicons color={colors.surface} name="cash-outline" size={14} />
-                            </Pressable>
-                            <Pressable
-                              onPress={() => openEntryMenu(round, entry)}
-                              style={({ pressed }) => [
-                                styles.moreButton,
-                                pressed ? styles.pressedState : null,
-                              ]}
-                            >
-                              <Ionicons color={colors.text} name="ellipsis-vertical" size={16} />
-                            </Pressable>
-                          </View>
-                        ) : (
-                          <View style={styles.playerEntryActions}>
-                            {entry.proofUrl ? (
-                              <Pressable
-                                onPress={() => handleOpenProof(entry.proofUrl)}
-                                style={({ pressed }) => [
-                                  styles.playerSecondaryButton,
-                                  pressed ? styles.pressedState : null,
-                                ]}
-                              >
-                                <Text style={styles.playerSecondaryButtonText}>Ver</Text>
-                              </Pressable>
-                            ) : null}
-                            {entry.paymentStatus !== "pagado" ? (
-                              <View style={styles.proofUploadActions}>
-                                <Pressable
-                                  disabled={saving}
-                                  onPress={() => handleUploadProof(round, entry, "image")}
-                                  style={({ pressed }) => [
-                                    styles.proofUploadButton,
-                                    saving ? styles.saveButtonDisabled : null,
-                                    pressed && !saving ? styles.pressedState : null,
-                                  ]}
-                                >
-                                  <Ionicons color={colors.surface} name="image-outline" size={14} />
-                                  <Text style={styles.proofUploadButtonText}>IMG</Text>
-                                </Pressable>
-                                <Pressable
-                                  disabled={saving}
-                                  onPress={() => handleUploadProof(round, entry, "pdf")}
-                                  style={({ pressed }) => [
-                                    styles.proofUploadButton,
-                                    saving ? styles.saveButtonDisabled : null,
-                                    pressed && !saving ? styles.pressedState : null,
-                                  ]}
-                                >
-                                  <Ionicons color={colors.surface} name="document-text-outline" size={14} />
-                                  <Text style={styles.proofUploadButtonText}>PDF</Text>
-                                </Pressable>
-                              </View>
-                            ) : null}
-                          </View>
-                        )}
+                  {canManage ? (
+                    <View style={styles.paymentTableCard}>
+                      <View style={styles.paymentTableHeaderRow}>
+                        <Text style={[styles.paymentTableHeaderText, styles.paymentTablePlayerHeader]}>
+                          JUGADOR
+                        </Text>
+                        <Text style={[styles.paymentTableHeaderText, styles.paymentTableStatusHeader]}>
+                          ESTADO
+                        </Text>
+                        <Text style={[styles.paymentTableHeaderText, styles.paymentTableMethodHeader]}>
+                          MODO
+                        </Text>
+                        <Text style={[styles.paymentTableHeaderText, styles.paymentTableProofHeader]}>
+                          COMP.
+                        </Text>
+                        <Text style={[styles.paymentTableHeaderText, styles.paymentTableAmountHeader]}>
+                          $
+                        </Text>
+                        <Text style={[styles.paymentTableHeaderText, styles.paymentTableActionsHeader]}>
+                          {" "}
+                        </Text>
                       </View>
-                    );
-                  })}
+
+                      {buildPaymentTableRows(round.entries || [], league?.teamType).map((entry) =>
+                        renderPaymentTableRow(round, entry)
+                      )}
+                    </View>
+                  ) : (
+                    (round.entries || []).map((entry) => renderPaymentEntryRow(round, entry))
+                  )}
                   {!canManage ? (
                     <View style={styles.playerPaymentHelpCard}>
                       <Text style={styles.playerPaymentHelpTitle}>Transferencia</Text>
                       <Text style={styles.playerPaymentHelpText}>
                         Adjunta el comprobante en imagen o PDF. El organizador lo revisa y confirma el pago.
                       </Text>
-                      <View style={styles.modalActionDisabled}>
-                        <Text style={styles.modalActionDisabledText}>Mercado Pago proximamente</Text>
+                      <View style={styles.playerPaymentHelpActions}>
+                        {playerPrimaryEntry?.proofUrl ? (
+                          <Pressable
+                            onPress={() => handleOpenProof(playerPrimaryEntry.proofUrl)}
+                            style={({ pressed }) => [
+                              styles.playerSecondaryButton,
+                              styles.playerPaymentHelpButton,
+                              pressed ? styles.pressedState : null,
+                            ]}
+                          >
+                            <Text style={styles.playerSecondaryButtonText}>Ver comprobante</Text>
+                          </Pressable>
+                        ) : null}
+                        {playerPrimaryEntry?.paymentStatus !== "pagado" ? (
+                          <Pressable
+                            disabled={saving}
+                            onPress={() => handleUploadProof(round, playerPrimaryEntry)}
+                            style={({ pressed }) => [
+                              styles.proofUploadButton,
+                              styles.playerPaymentHelpButton,
+                              saving ? styles.saveButtonDisabled : null,
+                              pressed && !saving ? styles.pressedState : null,
+                            ]}
+                          >
+                            <Ionicons color={colors.surface} name="attach-outline" size={14} />
+                            <Text style={styles.proofUploadButtonText}>Comprobante</Text>
+                          </Pressable>
+                        ) : null}
                       </View>
                     </View>
                   ) : null}
@@ -1896,7 +1960,8 @@ const styles = StyleSheet.create({
   roundCard: {
     backgroundColor: colors.surface,
     borderRadius: 22,
-    padding: spacing.md,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.sm,
     borderWidth: 1,
     borderColor: colors.border,
     gap: spacing.sm,
@@ -1935,29 +2000,6 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     textAlign: "center",
   },
-  roundPricePill: {
-    color: colors.surface,
-    fontSize: 12,
-    fontWeight: "900",
-    backgroundColor: colors.primaryDark,
-    borderRadius: 8,
-    overflow: "hidden",
-    paddingHorizontal: 9,
-    paddingVertical: 4,
-    textAlign: "center",
-  },
-  roundDatePill: {
-    color: colors.surface,
-    fontSize: 12,
-    fontWeight: "900",
-    backgroundColor: "#2D6B8F",
-    borderRadius: 8,
-    minHeight: 26,
-    overflow: "hidden",
-    paddingHorizontal: 9,
-    paddingVertical: 4,
-    textAlign: "center",
-  },
   roundDatePillReprogrammed: {
     backgroundColor: "#1E7F4D",
   },
@@ -1965,6 +2007,12 @@ const styles = StyleSheet.create({
     color: colors.primaryDark,
     fontSize: 12,
     fontWeight: "700",
+    textAlign: "center",
+  },
+  roundPriceText: {
+    color: colors.textMuted,
+    fontSize: 11,
+    fontWeight: "800",
     textAlign: "center",
   },
   roundReprogrammedNotice: {
@@ -2025,11 +2073,196 @@ const styles = StyleSheet.create({
   entriesWrap: {
     gap: spacing.xs,
   },
-  pairPaymentCard: {
+  paymentTableCard: {
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#D6E0DB",
+    backgroundColor: "#FCFDFC",
+    overflow: "hidden",
+  },
+  paymentTableHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#EAF3EE",
+    borderBottomWidth: 1,
+    borderBottomColor: "#D6E0DB",
+    minHeight: 38,
+    paddingLeft: 3,
+    paddingRight: 4,
+  },
+  paymentTableHeaderText: {
+    color: colors.primaryDark,
+    fontSize: 10,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  paymentTableRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    minHeight: 58,
+    paddingLeft: 3,
+    paddingRight: 4,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: "#EEF2F0",
+  },
+  paymentTablePlayerCell: {
+    flex: 2.9,
+    justifyContent: "center",
+    paddingRight: 6,
+  },
+  paymentTablePlayerHeader: {
+    flex: 2.9,
+    textAlign: "left",
+  },
+  paymentTablePairLabel: {
+    color: "#5C7468",
+    fontSize: 9,
+    fontWeight: "900",
+    marginBottom: 1,
+  },
+  paymentTablePlayerName: {
+    color: colors.text,
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  paymentTablePlayerMate: {
+    color: colors.textMuted,
+    fontSize: 10,
+    fontWeight: "600",
+    marginTop: 1,
+  },
+  paymentTableStatusCell: {
+    flex: 1.1,
+    alignItems: "flex-start",
+    justifyContent: "center",
+    paddingLeft: 0,
+    paddingRight: 2,
+    marginLeft: -110,
+  },
+  paymentTableStatusHeader: {
+    flex: 1.1,
+    textAlign: "left",
+    paddingLeft: 0,
+    marginLeft: -110,
+  },
+  paymentTableStatusText: {
+    fontSize: 10,
+    fontWeight: "900",
+    textAlign: "left",
+  },
+  paymentTableMethodCell: {
+    flex: 0.95,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 3,
+    marginLeft: -48,
+  },
+  paymentTableMethodHeader: {
+    flex: 0.95,
+    textAlign: "center",
+    marginLeft: -48,
+  },
+  paymentTableMethodText: {
+    color: colors.text,
+    fontSize: 10,
+    fontWeight: "700",
+    textAlign: "center",
+  },
+  paymentTableProofCell: {
+    flex: 0.75,
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: -20,
+  },
+  paymentTableProofHeader: {
+    flex: 0.75,
+    textAlign: "center",
+    marginLeft: -20,
+  },
+  paymentTableProofButton: {
+    width: 28,
+    height: 28,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: "#CFE2D8",
-    backgroundColor: "#F5FBF8",
+    borderColor: "#BFD2C8",
+    backgroundColor: "#F6FBF8",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  paymentTableAmountCell: {
+    flex: 0.9,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 3,
+    marginLeft: -18,
+  },
+  paymentTableAmountHeader: {
+    flex: 0.9,
+    marginLeft: -18,
+  },
+  paymentTableAmountText: {
+    color: colors.text,
+    fontSize: 9,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  paymentTableActionsCell: {
+    flex: 0.8,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  paymentTableActionsHeader: {
+    flex: 0.8,
+  },
+  paymentTableActionsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+  },
+  paymentTableActionButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  paymentTableMenuButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#D7E0DB",
+    backgroundColor: "#F4F7F6",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  paymentTableMiniButton: {
+    minWidth: 30,
+    minHeight: 26,
+    borderRadius: 8,
+    backgroundColor: colors.primaryDark,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 6,
+  },
+  paymentTableMiniButtonText: {
+    color: colors.surface,
+    fontSize: 9,
+    fontWeight: "900",
+  },
+  paymentTableMutedText: {
+    color: colors.textMuted,
+    fontSize: 10,
+    fontWeight: "700",
+    textAlign: "center",
+  },
+  pairPaymentCard: {
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#D7E4DE",
+    backgroundColor: "#FAFCFB",
     padding: spacing.sm,
     gap: spacing.xs,
   },
@@ -2092,70 +2325,109 @@ const styles = StyleSheet.create({
     color: "#C8581F",
   },
   entryRow: {
-    minHeight: 58,
-    borderRadius: 16,
+    minHeight: 72,
+    borderRadius: 14,
     borderWidth: 1,
+    borderColor: "#DEE6E1",
+    backgroundColor: "#FFFFFF",
     paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
+    paddingVertical: 10,
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "stretch",
     gap: spacing.sm,
   },
-  statusDot: {
-    width: 10,
-    height: 10,
+  entryAccentBar: {
+    width: 5,
     borderRadius: 999,
   },
   entryCopy: {
     flex: 1,
-    gap: 2,
+    gap: 6,
+    justifyContent: "center",
+  },
+  entryTopRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.sm,
+  },
+  playerEntryTopRow: {
+    justifyContent: "center",
+    flexWrap: "wrap",
   },
   entryName: {
     color: colors.text,
     fontSize: 14,
     fontWeight: "800",
+    flex: 1,
+  },
+  playerEntryName: {
+    flex: 0,
+    textAlign: "center",
   },
   entryMetaRow: {
     flexDirection: "row",
     flexWrap: "wrap",
     alignItems: "center",
-    gap: 4,
+    gap: 6,
+  },
+  playerEntryMetaRow: {
+    justifyContent: "center",
   },
   entryAmountLabel: {
-    backgroundColor: colors.primaryDark,
+    backgroundColor: "#EAF3EE",
+    borderWidth: 1,
+    borderColor: "#C9DBD2",
     borderRadius: 8,
-    color: colors.surface,
+    color: colors.primaryDark,
     fontSize: 11,
     fontWeight: "900",
     overflow: "hidden",
     paddingHorizontal: 7,
     paddingVertical: 3,
   },
+  entryStatusChip: {
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
   entryStatusLabel: {
     fontSize: 11,
     fontWeight: "800",
   },
-  entryMethod: {
-    color: colors.textMuted,
+  entryMetaChip: {
+    backgroundColor: "#F3F6F5",
+    borderRadius: 999,
+    color: "#4F635B",
     fontSize: 11,
     fontWeight: "700",
+    overflow: "hidden",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  entryFooterRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.sm,
+  },
+  playerEntryFooterRow: {
+    justifyContent: "center",
   },
   entryUpdated: {
     color: colors.textMuted,
     fontSize: 11,
     fontWeight: "600",
-  },
-  entryDivider: {
-    color: colors.textMuted,
-    fontSize: 10,
+    lineHeight: 15,
   },
   moreButton: {
     width: 32,
     height: 32,
     borderRadius: 10,
-    backgroundColor: "#FFFFFFAA",
+    backgroundColor: "#F4F7F6",
     borderWidth: 1,
-    borderColor: "rgba(0,0,0,0.08)",
+    borderColor: "#D7E0DB",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -2163,13 +2435,14 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.xs,
+    alignSelf: "center",
   },
   quickProofButton: {
     minHeight: 32,
-    borderRadius: 8,
+    borderRadius: 10,
     borderWidth: 1,
-    borderColor: colors.primaryDark,
-    backgroundColor: colors.surface,
+    borderColor: "#B9D2C7",
+    backgroundColor: "#F5FBF8",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
@@ -2184,19 +2457,19 @@ const styles = StyleSheet.create({
   quickPaidButton: {
     width: 32,
     minHeight: 32,
-    borderRadius: 8,
+    borderRadius: 10,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
   },
   quickPaidButtonPending: {
-    backgroundColor: "#D26A2C",
+    backgroundColor: "#D98736",
   },
   quickPaidButtonTransfer: {
-    backgroundColor: "#B77905",
+    backgroundColor: "#B58A33",
   },
   quickPaidButtonPaid: {
-    backgroundColor: "#178A45",
+    backgroundColor: "#319260",
   },
   playerEntryActions: {
     flexDirection: "row",
@@ -2225,15 +2498,18 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primaryDark,
     borderRadius: 8,
     flexDirection: "row",
-    gap: 3,
+    gap: 5,
     justifyContent: "center",
     minHeight: 32,
-    paddingHorizontal: 7,
+    paddingHorizontal: 10,
   },
   proofUploadButtonText: {
     color: colors.surface,
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: "900",
+  },
+  paymentTableProofUploadButton: {
+    minWidth: 50,
   },
   playerSecondaryButton: {
     minHeight: 32,
@@ -2267,6 +2543,13 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     fontSize: 12,
     lineHeight: 17,
+  },
+  playerPaymentHelpActions: {
+    gap: spacing.xs,
+    marginTop: spacing.xs,
+  },
+  playerPaymentHelpButton: {
+    alignSelf: "stretch",
   },
   footerSummaryCard: {
     backgroundColor: "#EEF6FF",

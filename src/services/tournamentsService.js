@@ -216,6 +216,11 @@ function normalizeBuildMode(value) {
     : "automatic";
 }
 
+function normalizeTournamentRuleSet(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return normalized === "apa" ? "apa" : "fap";
+}
+
 function normalizeMatchFormat(value) {
   const normalized = String(value || "").trim().toLowerCase();
 
@@ -275,6 +280,7 @@ function normalizeVenueEntry(venue = {}, index = 0) {
     complexId: normalizeString(venue.complexId || venue.idComplejo),
     city: normalizeString(venue.city || venue.ciudad),
     province: normalizeString(venue.province || venue.provincia),
+    coordinates: venue.coordinates || venue.location || null,
     isTemporary: normalizeBoolean(venue.isTemporary, false),
   };
 }
@@ -286,6 +292,7 @@ function normalizeTemporaryVenueEntry(venue = {}, index = 0) {
     address: normalizeString(venue.address || venue.direccion),
     city: normalizeString(venue.city || venue.ciudad),
     province: normalizeString(venue.province || venue.provincia),
+    coordinates: venue.coordinates || venue.location || null,
     isTemporary: true,
   };
 }
@@ -409,6 +416,7 @@ function buildTournamentPayload(organizer, payload = {}, batchId = "") {
     status: normalizeTournamentStatus(payload.status, "draft"),
     description: normalizeString(payload.description),
     coverImage: normalizeString(payload.coverImage),
+    tournamentRuleSet: normalizeTournamentRuleSet(payload.tournamentRuleSet || payload.ruleSet),
     venueMode,
     venues,
     temporaryVenues,
@@ -521,6 +529,27 @@ function buildRegistrationPairLabel(registration = {}) {
   return [registration.player1Name, registration.player2Name].filter(Boolean).join(" / ");
 }
 
+function resolveRegistrationSidePlayerId(data = {}, payments = [], side = "player1") {
+  const directId = normalizeString(data?.[`${side}Id`]);
+
+  if (directId) {
+    return directId;
+  }
+
+  const sideName = normalizeString(data?.[`${side}Name`]);
+
+  if (!sideName) {
+    return "";
+  }
+
+  const paymentMatch = payments.find(
+    (payment) =>
+      normalizeString(payment?.playerName) === sideName && normalizeString(payment?.playerId)
+  );
+
+  return normalizeString(paymentMatch?.playerId);
+}
+
 function normalizeWithdrawalStatus(value = "") {
   const normalized = String(value || "").trim().toLowerCase();
 
@@ -538,10 +567,14 @@ function isRegistrationWithdrawnConfirmed(registration = {}) {
 function normalizeRegistrationDoc(docSnapshot) {
   const data = docSnapshot.data() || {};
   const payments = Array.isArray(data.payments) ? data.payments : [];
+  const player1Id = resolveRegistrationSidePlayerId(data, payments, "player1");
+  const player2Id = resolveRegistrationSidePlayerId(data, payments, "player2");
 
   return {
     id: docSnapshot.id,
     ...data,
+    player1Id,
+    player2Id,
     createdAtMillis: resolveTimestampMillis(data.createdAt),
     updatedAtMillis: resolveTimestampMillis(data.updatedAt),
     withdrawalRequestedAtMillis: resolveTimestampMillis(data.withdrawalRequestedAt),
@@ -1669,6 +1702,7 @@ export async function updateTournament(tournamentId, organizer, payload, current
     name: normalizedPayload.name,
     description: normalizedPayload.description,
     coverImage: normalizedPayload.coverImage,
+    tournamentRuleSet: normalizedPayload.tournamentRuleSet,
     venueMode: normalizedPayload.venueMode,
     venues: normalizedPayload.venues,
     temporaryVenues: normalizedPayload.temporaryVenues,
@@ -1697,6 +1731,10 @@ export async function updateTournament(tournamentId, organizer, payload, current
       payload?.fixtureSetup !== undefined
         ? payload.fixtureSetup
         : tournament.fixtureSetup || null,
+    zonePlanning:
+      payload?.zonePlanning !== undefined
+        ? payload.zonePlanning
+        : tournament.zonePlanning || null,
     updatedAt: serverTimestamp(),
   });
 
@@ -1707,6 +1745,10 @@ export async function updateTournament(tournamentId, organizer, payload, current
       payload?.fixtureSetup !== undefined
         ? payload.fixtureSetup
         : tournament.fixtureSetup || null,
+    zonePlanning:
+      payload?.zonePlanning !== undefined
+        ? payload.zonePlanning
+        : tournament.zonePlanning || null,
     id: tournamentId,
   };
 }
@@ -1818,9 +1860,9 @@ export async function registerPairToTournament(tournamentId, payload = {}) {
     ? "confirmed"
     : getRegistrationStatusFromPayments(tournament, payments, false);
   const registrationPayload = {
-    player1Id: player1.userId,
+    player1Id: player1.userId || player1.playerId,
     player1Name: player1.name,
-    player2Id: player2.userId,
+    player2Id: player2.userId || player2.playerId,
     player2Name: player2.name,
     pairLabel: [player1.name, player2.name].filter(Boolean).join(" / "),
     status: registrationStatus,
@@ -1938,9 +1980,9 @@ export async function updateTournamentRegistration(tournamentId, registrationId,
   const statusMeta = getRegistrationStatusMeta(tournament, nextPayments, currentRegistration);
 
   await updateDoc(registrationRef, {
-    player1Id: player1.userId,
+    player1Id: player1.userId || player1.playerId,
     player1Name: player1.name,
-    player2Id: player2.userId,
+    player2Id: player2.userId || player2.playerId,
     player2Name: player2.name,
     pairLabel: [player1.name, player2.name].filter(Boolean).join(" / "),
     availability,
@@ -1953,9 +1995,9 @@ export async function updateTournamentRegistration(tournamentId, registrationId,
 
   return {
     ...currentRegistration,
-    player1Id: player1.userId,
+    player1Id: player1.userId || player1.playerId,
     player1Name: player1.name,
-    player2Id: player2.userId,
+    player2Id: player2.userId || player2.playerId,
     player2Name: player2.name,
     pairLabel: [player1.name, player2.name].filter(Boolean).join(" / "),
     availability,

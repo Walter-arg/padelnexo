@@ -83,6 +83,13 @@ export function mapUserDocToPlayer(docSnapshot) {
     sexo: formatSex(data.sexo),
     ciudad: localidad.nombre || location.ciudad || "",
     provincia: localidad.provincia || location.provincia || "",
+    coordinates:
+      data.coordinates ||
+      data.coords ||
+      data.ubicacion ||
+      location.coordinates ||
+      location.coords ||
+      null,
     disponibilidad: data.disponibilidad || getAvailabilityHeadline(availability),
     disponibleHoy: Boolean(data.disponibleHoy) || isAvailableToday(availability),
     manoHabil: formatDominantHand(data.manoHabil),

@@ -36,7 +36,14 @@
     },
     "owner": "waltwr",
     "plugins": [
-      "expo-web-browser"
+      "expo-web-browser",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "PadelNexo usa tu ubicacion para mostrarte complejos, turnos, ligas y jugadores cercanos."
+        }
+      ],
+      "expo-asset"
     ]
   }
 }

@@ -257,7 +257,12 @@ export default function LeagueStandingsScreen({ navigation, route }) {
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
       >
-        <LeagueHeaderCard league={league} subtitle="TABLA DE PUNTUACION" title={leagueName} />
+        <LeagueHeaderCard
+          league={league}
+          organizerLogoUrl={league?.organizerLogoUrl || userData?.organizerLogoUrl || ""}
+          subtitle="TABLA DE PUNTUACION"
+          title={leagueName}
+        />
 
         {!hasFixture ? (
           <View style={styles.emptyCard}>

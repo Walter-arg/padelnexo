@@ -12,6 +12,7 @@ export default function FeedbackModal({
 }) {
   const isDanger = tone === "danger";
   const isWarning = tone === "warning";
+  const messageParts = String(message || "").split(/(\*\*[^*]+\*\*)/g);
 
   return (
     <Modal animationType="fade" onRequestClose={onClose} transparent visible={visible}>
@@ -24,7 +25,18 @@ export default function FeedbackModal({
             </View>
           ) : null}
           <Text style={styles.title}>{title}</Text>
-          <Text style={styles.message}>{message}</Text>
+          <Text style={styles.message}>
+            {messageParts.map((part, index) => {
+              const isBold = part.startsWith("**") && part.endsWith("**");
+              const text = isBold ? part.slice(2, -2) : part;
+
+              return (
+                <Text key={`${text}-${index}`} style={isBold ? styles.messageBold : null}>
+                  {text}
+                </Text>
+              );
+            })}
+          </Text>
           <Pressable
             onPress={onClose}
             style={({ pressed }) => [
@@ -95,6 +107,10 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     marginTop: spacing.sm,
     textAlign: "center",
+  },
+  messageBold: {
+    color: colors.text,
+    fontWeight: "900",
   },
   button: {
     alignItems: "center",

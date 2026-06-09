@@ -26,6 +26,7 @@ import { isLeagueParticipant, listLeagues, updateLeagueFixture } from "../servic
 import { listPlayers } from "../services/playersService";
 import { isApprovedOrganizer } from "../services/roleService";
 import { listTournamentsWithRegistrationCounts } from "../services/tournamentsService";
+import { listBookableComplexes } from "../services/turnosService";
 import { formatPlayerShortName } from "../utils/playerDisplayName";
 
 const MENU_ITEMS = [
@@ -71,6 +72,7 @@ const DEFAULT_USER = {
 
 const LEAGUE_CAROUSEL_ITEM_WIDTH = 252;
 const TOURNAMENT_CAROUSEL_ITEM_WIDTH = 252;
+const TURNOS_CAROUSEL_ITEM_WIDTH = 252;
 
 const DAY_LABELS = {
   monday: "Lunes",
@@ -81,6 +83,16 @@ const DAY_LABELS = {
   saturday: "Sabado",
   sunday: "Domingo",
 };
+
+const WEEKDAY_LABELS = [
+  "Domingo",
+  "Lunes",
+  "Martes",
+  "Miercoles",
+  "Jueves",
+  "Viernes",
+  "Sabado",
+];
 
 function normalizeText(value = "") {
   return String(value || "").trim().toLowerCase();
@@ -377,6 +389,119 @@ function shouldShowTournamentInHomeCarousel(tournament = {}) {
   ].includes(tournament.status);
 }
 
+function buildTurnosDayFromOffset(offset = 0) {
+  const date = new Date();
+  date.setDate(date.getDate() + offset);
+  date.setHours(0, 0, 0, 0);
+
+  return {
+    dateMillis: date.getTime(),
+    dayKey: String(date.getDay()),
+    offset,
+    weekdayLabel: WEEKDAY_LABELS[date.getDay()] || "Dia",
+  };
+}
+
+function parseTurnoTimeToMinutes(time = "") {
+  const [hours, minutes] = String(time || "")
+    .split(":")
+    .map((part) => Number.parseInt(part, 10));
+
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) {
+    return null;
+  }
+
+  return hours * 60 + minutes;
+}
+
+function getHomeCourtSlotsForDate(court = {}, day = {}) {
+  const dateSlots = court?.slotsByDate?.[String(day.dateMillis)];
+
+  if (Array.isArray(dateSlots)) {
+    return dateSlots;
+  }
+
+  const weekSlots = court?.slotsByDay?.[day.dayKey];
+
+  return Array.isArray(weekSlots) ? weekSlots : [];
+}
+
+function getAvailableHomeSlotsForComplex(complex = {}, day = {}, currentMinutes = 0) {
+  const isToday = day.offset === 0;
+
+  return (complex.availableCourts || [])
+    .flatMap((court) => {
+      const reservedSlots = new Set(court?.reservedSlotsByDate?.[String(day.dateMillis)] || []);
+
+      return getHomeCourtSlotsForDate(court, day)
+        .map((slot) => ({
+          minutes: parseTurnoTimeToMinutes(slot),
+          slot,
+        }))
+        .filter((option) => option.minutes !== null)
+        .filter((option) => !isToday || option.minutes >= currentMinutes)
+        .filter((option) => !reservedSlots.has(option.slot));
+    })
+    .sort((first, second) => first.minutes - second.minutes);
+}
+
+function buildTurnosHomePreview(complexes = []) {
+  const now = new Date();
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+  const dayOptions = Array.from({ length: 14 }, (_, index) => buildTurnosDayFromOffset(index));
+  const selectedDay = dayOptions.find((day) =>
+    complexes.some((complex) => getAvailableHomeSlotsForComplex(complex, day, currentMinutes).length)
+  );
+
+  if (!selectedDay) {
+    return {
+      slides: [],
+      title: "Turnos disponibles",
+    };
+  }
+
+  const title =
+    selectedDay.offset === 0
+      ? "Turnos disponibles hoy"
+      : selectedDay.offset === 1
+        ? "Turnos disponibles mañana"
+        : `Turnos disponibles ${selectedDay.weekdayLabel}`;
+
+  const slides = complexes
+    .map((complex) => {
+      const availableSlots = getAvailableHomeSlotsForComplex(
+        complex,
+        selectedDay,
+        currentMinutes
+      );
+      const uniqueSlots = [...new Set(availableSlots.map((option) => option.slot))].slice(0, 4);
+
+      if (!uniqueSlots.length) {
+        return null;
+      }
+
+      return {
+        id: `${complex.organizerId}-${complex.complexKey}-${selectedDay.dateMillis}`,
+        address: complex.address || "",
+        city: complex.city || complex.organizerCity || "",
+        complexName: complex.name || "Complejo",
+        logoUrl: complex.organizerLogoUrl || "",
+        slots: uniqueSlots,
+      };
+    })
+    .filter(Boolean)
+    .sort(
+      (first, second) =>
+        parseTurnoTimeToMinutes(first.slots[0]) - parseTurnoTimeToMinutes(second.slots[0])
+    )
+    .slice(0, 8);
+
+  return {
+    slides,
+    title,
+  };
+}
+
 export default function HomeScreen({ navigation, route }) {
   const { user, userData } = useAuth();
   const [isLoginVisible, setIsLoginVisible] = useState(false);
@@ -387,14 +512,17 @@ export default function HomeScreen({ navigation, route }) {
   const phraseTranslate = useRef(new Animated.Value(0)).current;
   const leagueCarouselRef = useRef(null);
   const tournamentCarouselRef = useRef(null);
+  const turnosCarouselRef = useRef(null);
   const currentUser = userData ? { ...DEFAULT_USER, ...userData } : null;
   const canManageFinances = isApprovedOrganizer(currentUser);
   const canOpenAdminPanel = canAccessAdminPanel(currentUser || {});
   const [playersPreview, setPlayersPreview] = useState([]);
   const [leaguesPreview, setLeaguesPreview] = useState([]);
   const [tournamentsPreview, setTournamentsPreview] = useState([]);
+  const [turnosComplexesPreview, setTurnosComplexesPreview] = useState([]);
   const [activeLeagueIndex, setActiveLeagueIndex] = useState(0);
   const [activeTournamentIndex, setActiveTournamentIndex] = useState(0);
+  const [activeTurnosIndex, setActiveTurnosIndex] = useState(0);
   const [expandedReplacementId, setExpandedReplacementId] = useState("");
   const [pendingPostulationIds, setPendingPostulationIds] = useState([]);
   const [submittingReplacementId, setSubmittingReplacementId] = useState("");
@@ -543,6 +671,39 @@ export default function HomeScreen({ navigation, route }) {
     }, [userData?.uid])
   );
 
+  useFocusEffect(
+    useCallback(() => {
+      let isCancelled = false;
+
+      const loadTurnosPreview = async () => {
+        if (!userData?.uid) {
+          setTurnosComplexesPreview([]);
+          return;
+        }
+
+        try {
+          const complexes = await listBookableComplexes();
+
+          if (isCancelled) {
+            return;
+          }
+
+          setTurnosComplexesPreview(complexes);
+        } catch (error) {
+          if (!isCancelled) {
+            setTurnosComplexesPreview([]);
+          }
+        }
+      };
+
+      loadTurnosPreview();
+
+      return () => {
+        isCancelled = true;
+      };
+    }, [userData?.uid])
+  );
+
   const handleItemPress = (item) => {
     if (!currentUser) {
       setSelectedMenuItem(item);
@@ -568,8 +729,6 @@ export default function HomeScreen({ navigation, route }) {
   const buildCategorySummary = () => {
     const city = currentUser?.city || "tu ciudad";
     const category = currentUser?.category || "tu categoria";
-    const hour = new Date().getHours();
-
     if (selectedMenuItem.key === "Ligas") {
       return {
         title: "Tu panorama de ligas",
@@ -593,16 +752,10 @@ export default function HomeScreen({ navigation, route }) {
     }
 
     if (selectedMenuItem.key === "Turnos") {
-      const firstSlot = `${String(hour + 1).padStart(2, "0")}:00`;
-      const secondSlot = `${String(hour + 2).padStart(2, "0")}:30`;
-
       return {
-        title: "Turnos cercanos para hoy",
-        subtitle: "Horarios proximos pensados para reservar en segundos.",
-        rows: [
-          `Cancha cubierta a las ${firstSlot} en ${city}`,
-          `Cancha rapida a las ${secondSlot} cerca tuyo`,
-        ],
+        title: homeTurnosPreview.title,
+        subtitle: "",
+        rows: [],
       };
     }
 
@@ -616,6 +769,11 @@ export default function HomeScreen({ navigation, route }) {
     };
   };
 
+  const homeTurnosPreview = useMemo(
+    () => buildTurnosHomePreview(turnosComplexesPreview),
+    [turnosComplexesPreview]
+  );
+  const homeTurnosSlides = homeTurnosPreview.slides;
   const categorySummary = buildCategorySummary();
   const homeLeagueSlides = useMemo(
     () => leaguesPreview.filter(shouldShowLeagueInHomeCarousel).slice(0, 8),
@@ -688,6 +846,26 @@ export default function HomeScreen({ navigation, route }) {
 
     return () => clearInterval(interval);
   }, [homeTournamentSlides.length, selectedMenuItem.key]);
+
+  useEffect(() => {
+    if (selectedMenuItem.key !== "Turnos" || homeTurnosSlides.length <= 1) {
+      return undefined;
+    }
+
+    const interval = setInterval(() => {
+      setActiveTurnosIndex((current) => {
+        const nextIndex = (current + 1) % homeTurnosSlides.length;
+        turnosCarouselRef.current?.scrollTo({
+          animated: true,
+          x: nextIndex * TURNOS_CAROUSEL_ITEM_WIDTH,
+          y: 0,
+        });
+        return nextIndex;
+      });
+    }, 3400);
+
+    return () => clearInterval(interval);
+  }, [homeTurnosSlides.length, selectedMenuItem.key]);
 
   const handlePostulateReplacement = async (request) => {
     const candidate = buildReplacementCandidate(userData);
@@ -893,13 +1071,17 @@ export default function HomeScreen({ navigation, route }) {
                     ? "RESUMEN DE LIGAS"
                     : selectedMenuItem.key === "Torneos"
                       ? "RESUMEN DE TORNEOS"
-                    : selectedMenuItem.label}
+                      : selectedMenuItem.key === "Turnos"
+                        ? "RESUMEN DE TURNOS"
+                        : selectedMenuItem.label}
               </Text>
               {selectedMenuItem.key === "Jugadores" ? (
                 <View style={styles.playersAvailableTitleRow}>
                   <View style={styles.playersAvailableDot} />
                   <Text style={styles.playersAvailableTitle}>{categorySummary.title}</Text>
                 </View>
+              ) : selectedMenuItem.key === "Turnos" ? (
+                <Text style={styles.turnosSummaryTitle}>{categorySummary.title}</Text>
               ) : selectedMenuItem.key === "Ligas" || selectedMenuItem.key === "Torneos" ? null : (
                 <Text style={styles.heroTitle}>{categorySummary.title}</Text>
               )}
@@ -1204,6 +1386,84 @@ export default function HomeScreen({ navigation, route }) {
                     </View>
                   )}
                 </View>
+              ) : selectedMenuItem.key === "Turnos" ? (
+                <View style={styles.turnosPreviewBlock}>
+                  {homeTurnosSlides.length ? (
+                    <>
+                      <ScrollView
+                        horizontal
+                        onMomentumScrollEnd={(event) => {
+                          const nextIndex = Math.round(
+                            event.nativeEvent.contentOffset.x / TURNOS_CAROUSEL_ITEM_WIDTH
+                          );
+                          setActiveTurnosIndex(
+                            Math.max(0, Math.min(nextIndex, homeTurnosSlides.length - 1))
+                          );
+                        }}
+                        ref={turnosCarouselRef}
+                        showsHorizontalScrollIndicator={false}
+                        snapToInterval={TURNOS_CAROUSEL_ITEM_WIDTH}
+                        style={styles.turnosCarousel}
+                      >
+                        {homeTurnosSlides.map((turno, turnoIndex) => (
+                          <Pressable
+                            key={`${turno.id || "turno"}-${turnoIndex}`}
+                            onPress={() => navigation.navigate("Turnos")}
+                            style={({ pressed }) => [
+                              styles.turnosSlide,
+                              pressed ? styles.turnosSlidePressed : null,
+                            ]}
+                          >
+                            <View style={styles.turnosSlideTop}>
+                              <AvatarBadge
+                                color="#D9FF63"
+                                size={48}
+                                uri={turno.logoUrl}
+                              />
+                              <View style={styles.turnosSlideMain}>
+                                <Text numberOfLines={1} style={styles.turnosSlideName}>
+                                  {turno.complexName}
+                                </Text>
+                                <Text numberOfLines={1} style={styles.turnosSlideAddress}>
+                                  {[turno.address, turno.city].filter(Boolean).join(" - ") ||
+                                    "Direccion a confirmar"}
+                                </Text>
+                              </View>
+                            </View>
+
+                            <View style={styles.turnosSlotsRow}>
+                              {turno.slots.map((slot) => (
+                                <View key={`${turno.id}-${slot}`} style={styles.turnosSlotItem}>
+                                  <Text style={styles.turnosSlotText}>{slot}</Text>
+                                </View>
+                              ))}
+                            </View>
+                            <Text style={styles.turnosReserveText}>Reservar</Text>
+                          </Pressable>
+                        ))}
+                      </ScrollView>
+
+                      <View style={styles.turnosDotsRow}>
+                        {homeTurnosSlides.map((turno, index) => (
+                          <View
+                            key={`${turno.id}-dot`}
+                            style={[
+                              styles.turnosDot,
+                              index === activeTurnosIndex ? styles.turnosDotActive : null,
+                            ]}
+                          />
+                        ))}
+                      </View>
+                    </>
+                  ) : (
+                    <View style={styles.previewRow}>
+                      <View style={styles.previewDot} />
+                      <Text style={styles.previewText}>
+                        Todavia no hay turnos disponibles para hoy.
+                      </Text>
+                    </View>
+                  )}
+                </View>
               ) : (
                 <View style={styles.previewList}>
                   {categorySummary.rows.map((row) => (
@@ -1422,6 +1682,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     borderRadius: 28,
     marginBottom: spacing.xl,
+    minHeight: 204,
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md,
     shadowColor: colors.shadow,
@@ -1446,6 +1707,14 @@ const styles = StyleSheet.create({
     fontSize: 22,
     fontWeight: "800",
     lineHeight: 27,
+    textAlign: "center",
+  },
+  turnosSummaryTitle: {
+    color: colors.primaryDark,
+    fontSize: 14,
+    fontWeight: "800",
+    lineHeight: 18,
+    marginTop: 2,
     textAlign: "center",
   },
   playersAvailableTitleRow: {
@@ -1819,6 +2088,90 @@ const styles = StyleSheet.create({
   },
   tournamentDotActive: {
     backgroundColor: "#1D8A45",
+    width: 16,
+  },
+  turnosPreviewBlock: {
+    marginTop: spacing.sm,
+  },
+  turnosCarousel: {
+    marginHorizontal: -spacing.xs,
+  },
+  turnosSlide: {
+    backgroundColor: "#F4FBF8",
+    borderColor: "#B9E4D4",
+    borderRadius: 16,
+    borderWidth: 1,
+    marginHorizontal: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 8,
+    width: TURNOS_CAROUSEL_ITEM_WIDTH - spacing.xs * 2,
+  },
+  turnosSlidePressed: {
+    opacity: 0.92,
+  },
+  turnosSlideTop: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.xs,
+  },
+  turnosSlideMain: {
+    flex: 1,
+  },
+  turnosSlideName: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  turnosSlideAddress: {
+    color: colors.muted,
+    fontSize: 10,
+    fontWeight: "700",
+    marginTop: 2,
+  },
+  turnosSlotsRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "center",
+    marginTop: 9,
+  },
+  turnosSlotItem: {
+    alignItems: "center",
+    flex: 1,
+    justifyContent: "center",
+  },
+  turnosSlotText: {
+    color: "#1F2933",
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  turnosReserveText: {
+    alignSelf: "center",
+    backgroundColor: "#D9FF63",
+    borderRadius: 999,
+    color: "#285200",
+    fontSize: 10,
+    fontWeight: "900",
+    marginTop: 7,
+    overflow: "hidden",
+    paddingHorizontal: 16,
+    paddingVertical: 3,
+    textAlign: "center",
+  },
+  turnosDotsRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "center",
+    marginTop: 8,
+  },
+  turnosDot: {
+    backgroundColor: "#B9E4D4",
+    borderRadius: 999,
+    height: 6,
+    marginHorizontal: 3,
+    width: 6,
+  },
+  turnosDotActive: {
+    backgroundColor: colors.primaryDark,
     width: 16,
   },
   previewRow: {

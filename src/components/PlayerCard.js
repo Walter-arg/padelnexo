@@ -49,7 +49,9 @@ export default function PlayerCard({
             ) : null}
           </View>
           <Text numberOfLines={1} style={styles.city}>
-            {player.ciudad}
+            {[player.ciudad, Number.isFinite(player.distanceKm) ? `A ${player.distanceKm.toFixed(1)} km` : ""]
+              .filter(Boolean)
+              .join(" - ")}
           </Text>
         </View>
 

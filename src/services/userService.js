@@ -443,6 +443,9 @@ export async function createUserProfile(uid, payload) {
 
   await setDoc(userRef, {
     nombre: payload.name,
+    firstName: payload.firstName || "",
+    lastName: payload.lastName || "",
+    apellido: payload.lastName || "",
     email: payload.email,
     telefono: payload.phone || "",
     countryCode: payload.countryCode || "+54",
@@ -467,6 +470,9 @@ export async function createUserProfile(uid, payload) {
 
   return mapDocToUserData(uid, {
     nombre: payload.name,
+    firstName: payload.firstName || "",
+    lastName: payload.lastName || "",
+    apellido: payload.lastName || "",
     email: payload.email,
     telefono: payload.phone || "",
     countryCode: payload.countryCode || "+54",

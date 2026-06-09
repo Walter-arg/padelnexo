@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Image,
@@ -27,6 +27,12 @@ import SectionHeader from "../components/SectionHeader";
 import { colors, spacing } from "../config/theme";
 import { useAuth } from "../context/AuthContext";
 import { sendChatMessage } from "../services/chatService";
+import {
+  calculateDistanceKm,
+  geocodeAddress,
+  getCoordinatesFromObject,
+  requestCurrentLocation,
+} from "../services/locationService";
 import { listPlayers } from "../services/playersService";
 import { isApprovedOrganizer } from "../services/roleService";
 import {
@@ -60,6 +66,22 @@ const COMPLEX_AVAILABILITY_COLORS = [
   { background: "#EAF8F3", border: "#92D4BE", text: "#12624E" },
   { background: "#F0FBF7", border: "#B5E5D5", text: "#2F9478" },
 ];
+const PROXIMITY_RADIUS_OPTIONS = [5, 10, 20, 50];
+
+function buildComplexDistanceKey(complex = {}) {
+  return `${complex.organizerId || "organizer"}|${complex.complexKey || complex.name || "complex"}`;
+}
+
+function buildComplexGeocodeCandidates(complex = {}) {
+  const city = complex.city || complex.organizerCity || "";
+  const province = complex.province || complex.organizerProvince || "";
+
+  return [
+    [complex.address, city, province, "Argentina"].filter(Boolean).join(", "),
+    [complex.name, city, province, "Argentina"].filter(Boolean).join(", "),
+    [city, province, "Argentina"].filter(Boolean).join(", "),
+  ].filter(Boolean);
+}
 
 function normalizeText(value = "") {
   return String(value || "").trim().toLowerCase();
@@ -157,22 +179,30 @@ function buildWhatsAppPhoneNumber(phone = "", countryCode = "+54") {
 }
 
 function buildReservationContactMessage(reservation = {}) {
-  const safeReservation = reservation || {};
-
-  return encodeURIComponent(
-    `Hola! Te escribo desde Padel Nexo por tu reserva en ${
-      safeReservation.complexName || "el complejo"
-    }, ${safeReservation.courtName || "cancha"}, ${safeReservation.dateLabel || "fecha a confirmar"} a las ${
-      safeReservation.time || ""
-    } hs.`
-  );
+  return encodeURIComponent(buildReservationConfirmationText(reservation));
 }
 
-function buildReservationCancellationText(reservation = {}) {
+function buildReservationConfirmationText(reservation = {}, options = {}) {
   const safeReservation = reservation || {};
+  const title = options.boldTitle ? "**Tu reserva fue confirmada.**" : "Tu reserva fue confirmada.";
 
   return [
-    "Tu reserva fue cancelada.",
+    title,
+    "",
+    `Complejo: ${safeReservation.complexName || "A confirmar"}`,
+    `Cancha: ${safeReservation.courtName || "A confirmar"}`,
+    `Fecha: ${safeReservation.dateLabel || "A confirmar"}`,
+    `Horario: ${safeReservation.time || "A confirmar"} hs`,
+    `Duracion: ${safeReservation.durationMinutes || 60} min`,
+  ].join("\n");
+}
+
+function buildReservationCancellationText(reservation = {}, options = {}) {
+  const safeReservation = reservation || {};
+  const title = options.boldTitle ? "**Tu reserva fue cancelada.**" : "Tu reserva fue cancelada.";
+
+  return [
+    title,
     "",
     `Complejo: ${safeReservation.complexName || "A confirmar"}`,
     `Cancha: ${safeReservation.courtName || "A confirmar"}`,
@@ -401,6 +431,7 @@ export default function TurnosScreen({ navigation }) {
   const [guestReservationPhone, setGuestReservationPhone] = useState("");
   const [reservationsModalVisible, setReservationsModalVisible] = useState(canManageTurnos);
   const [reservationDetail, setReservationDetail] = useState(null);
+  const [whatsAppConfirmationReservation, setWhatsAppConfirmationReservation] = useState(null);
   const [runningReservationActionId, setRunningReservationActionId] = useState("");
   const [selectedOrganizerComplexKey, setSelectedOrganizerComplexKey] = useState("");
   const [isOrganizerComplexPickerOpen, setIsOrganizerComplexPickerOpen] = useState(false);
@@ -415,6 +446,14 @@ export default function TurnosScreen({ navigation }) {
   const [loading, setLoading] = useState(true);
   const [savingConfig, setSavingConfig] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [locationActionsVisible, setLocationActionsVisible] = useState(false);
+  const [locatingUser, setLocatingUser] = useState(false);
+  const [proximityFilter, setProximityFilter] = useState({
+    enabled: false,
+    radiusKm: 10,
+    userCoordinates: null,
+  });
+  const [complexCoordinatesByKey, setComplexCoordinatesByKey] = useState({});
   const [feedback, setFeedback] = useState({
     visible: false,
     title: "",
@@ -469,14 +508,101 @@ export default function TurnosScreen({ navigation }) {
     };
   }, [userData]);
 
+  useEffect(() => {
+    if (!proximityFilter.enabled || !proximityFilter.userCoordinates || !complexes.length) {
+      return undefined;
+    }
+
+    let isCancelled = false;
+
+    const geocodeMissingComplexes = async () => {
+      const missingComplexes = complexes.filter((complex) => {
+        const key = buildComplexDistanceKey(complex);
+        return !getCoordinatesFromObject(complex) && !complexCoordinatesByKey[key];
+      });
+
+      for (const complex of missingComplexes) {
+        const key = buildComplexDistanceKey(complex);
+        const addressCandidates = buildComplexGeocodeCandidates(complex);
+
+        for (const address of addressCandidates) {
+          try {
+            const coordinates = await geocodeAddress(address);
+
+            if (isCancelled) {
+              return;
+            }
+
+            if (coordinates) {
+              setComplexCoordinatesByKey((current) => ({
+                ...current,
+                [key]: coordinates,
+              }));
+              break;
+            }
+          } catch (error) {
+            // Intentamos con el siguiente dato disponible de la sede.
+          }
+        }
+      }
+    };
+
+    geocodeMissingComplexes();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [
+    complexes,
+    complexCoordinatesByKey,
+    proximityFilter.enabled,
+    proximityFilter.userCoordinates,
+  ]);
+
+  const complexesWithDistance = useMemo(
+    () =>
+      complexes.map((complex) => {
+        const key = buildComplexDistanceKey(complex);
+        const coordinates = getCoordinatesFromObject(complex) || complexCoordinatesByKey[key];
+        const distanceKm = proximityFilter.userCoordinates
+          ? calculateDistanceKm(proximityFilter.userCoordinates, coordinates)
+          : null;
+
+        return {
+          ...complex,
+          distanceKm,
+        };
+      }),
+    [complexCoordinatesByKey, complexes, proximityFilter.userCoordinates]
+  );
+
   const filteredComplexes = useMemo(() => {
+    if (proximityFilter.enabled && proximityFilter.userCoordinates) {
+      return [...complexesWithDistance].sort((first, second) => {
+        const firstDistance = Number.isFinite(first.distanceKm)
+          ? first.distanceKm
+          : Number.MAX_SAFE_INTEGER;
+        const secondDistance = Number.isFinite(second.distanceKm)
+          ? second.distanceKm
+          : Number.MAX_SAFE_INTEGER;
+        const firstIsInsideRadius = firstDistance <= proximityFilter.radiusKm;
+        const secondIsInsideRadius = secondDistance <= proximityFilter.radiusKm;
+
+        if (firstIsInsideRadius !== secondIsInsideRadius) {
+          return firstIsInsideRadius ? -1 : 1;
+        }
+
+        return firstDistance - secondDistance;
+      });
+    }
+
     if (!activeLocations.length) {
-      return complexes;
+      return complexesWithDistance;
     }
 
     const locationNames = activeLocations.map((location) => normalizeText(location.nombre));
 
-    return complexes.filter((complex) =>
+    return complexesWithDistance.filter((complex) =>
       locationNames.some((locationName) => {
         const searchableLocation = normalizeText(
           [
@@ -492,20 +618,30 @@ export default function TurnosScreen({ navigation }) {
         return searchableLocation.includes(locationName);
       })
     );
-  }, [activeLocations, complexes]);
+  }, [activeLocations, complexesWithDistance, proximityFilter]);
   const visibleComplexes = useMemo(
     () =>
-      activeLocations.length > 0 && filteredComplexes.length === 0 && complexes.length > 0
+      !proximityFilter.enabled &&
+      activeLocations.length > 0 &&
+      filteredComplexes.length === 0 &&
+      complexes.length > 0
         ? complexes
         : filteredComplexes,
-    [activeLocations.length, complexes, filteredComplexes]
+    [activeLocations.length, complexes, filteredComplexes, proximityFilter.enabled]
   );
   const reservationComplexes = useMemo(
-    () =>
-      canManageTurnos
-        ? complexes.filter((complex) => complex.organizerId === currentUserId)
-        : visibleComplexes,
-    [canManageTurnos, complexes, currentUserId, visibleComplexes]
+    () => {
+      if (canManageTurnos) {
+        return complexes.filter((complex) => complex.organizerId === currentUserId);
+      }
+
+      if (visibleComplexes.length) {
+        return visibleComplexes;
+      }
+
+      return complexesWithDistance.length ? complexesWithDistance : complexes;
+    },
+    [canManageTurnos, complexes, complexesWithDistance, currentUserId, visibleComplexes]
   );
 
   const selectedComplex = useMemo(
@@ -569,6 +705,78 @@ export default function TurnosScreen({ navigation }) {
       tone,
     });
   };
+
+  const handleUseCurrentLocation = async () => {
+    try {
+      setLocatingUser(true);
+      const userCoordinates = await requestCurrentLocation();
+
+      setProximityFilter((current) => ({
+        ...current,
+        enabled: true,
+        userCoordinates,
+      }));
+      setLocationActionsVisible(false);
+      showFeedback(
+        "Ubicacion activada",
+        `Vamos a mostrar complejos dentro de ${proximityFilter.radiusKm} km.`,
+        "success"
+      );
+    } catch (error) {
+      showFeedback(
+        "No pudimos usar tu ubicacion",
+        error?.message || "Revisa los permisos de ubicacion del telefono.",
+        "danger"
+      );
+    } finally {
+      setLocatingUser(false);
+    }
+  };
+
+  const handleDisableProximityFilter = () => {
+    setProximityFilter((current) => ({
+      ...current,
+      enabled: false,
+      userCoordinates: null,
+    }));
+    setLocationActionsVisible(false);
+  };
+
+  const renderLocationFilterRow = () => (
+    <View style={styles.filterLocationRow}>
+      <SectionFilterBar
+        containerStyle={styles.headerFilterBar}
+        hideLeadingIcon
+        onChange={({ locations }) => setActiveLocations(locations)}
+        renderExtraContent={() => (
+          <View>
+            <Text style={styles.modalLabel}>Complejo</Text>
+            <View style={styles.placeholderField}>
+              <Ionicons color={colors.muted} name="business-outline" size={16} />
+              <Text style={styles.placeholderFieldText}>
+                Primero elegi un complejo y luego una cancha disponible.
+              </Text>
+            </View>
+          </View>
+        )}
+        userLocation={userLocalidad}
+      />
+      <Pressable
+        onPress={() => setLocationActionsVisible(true)}
+        style={({ pressed }) => [
+          styles.locationActionButton,
+          proximityFilter.enabled ? styles.locationActionButtonActive : null,
+          pressed ? styles.pressedState : null,
+        ]}
+      >
+        <Ionicons
+          color={proximityFilter.enabled ? colors.surface : colors.primaryDark}
+          name="location-outline"
+          size={20}
+        />
+      </Pressable>
+    </View>
+  );
 
   const loadData = async () => {
     try {
@@ -1058,6 +1266,32 @@ export default function TurnosScreen({ navigation }) {
     }
   };
 
+  const handleNotifyReservationConfirmationWhatsApp = async () => {
+    const reservation = whatsAppConfirmationReservation || {};
+    const phone = buildWhatsAppPhoneNumber(reservation.playerPhone, reservation.playerCountryCode);
+
+    setWhatsAppConfirmationReservation(null);
+
+    if (!phone) {
+      showFeedback(
+        "Falta telefono",
+        "La reserva quedo confirmada, pero no hay un telefono valido para WhatsApp.",
+        "warning"
+      );
+      return;
+    }
+
+    try {
+      await Linking.openURL(`https://wa.me/${phone}?text=${buildReservationContactMessage(reservation)}`);
+    } catch (error) {
+      showFeedback(
+        "No pudimos abrir WhatsApp",
+        "La reserva quedo confirmada, pero no pudimos abrir WhatsApp en este dispositivo.",
+        "danger"
+      );
+    }
+  };
+
   const handleCancelReservation = async (reservation = {}) => {
     if (!reservation.id || !isReservationActive(reservation)) {
       return;
@@ -1077,9 +1311,9 @@ export default function TurnosScreen({ navigation }) {
               reservation.complexName || userData?.clubName || userData?.name || "Organizador",
             otherUserId: reservation.playerId,
             otherUserName: reservation.playerName || "Jugador",
-            text: buildReservationCancellationText(reservation),
+            text: buildReservationCancellationText(reservation, { boldTitle: true }),
           });
-          notificationMessage += "\n\nSe aviso al jugador por mensaje interno.";
+          notificationMessage += "\n\n**Se notifico al jugador por mensaje interno**";
         } catch (error) {
           notificationMessage += "\n\nLa reserva se cancelo, pero no pudimos enviar el mensaje interno.";
         }
@@ -1205,7 +1439,7 @@ export default function TurnosScreen({ navigation }) {
           ? await uploadTurnoProof(receiptAsset, currentUserId)
           : { proofFileName: "", proofUrl: "" };
 
-      await createTurnoReservation({
+      const reservationPayload = {
         organizerId: selectedComplex.organizerId,
         organizerName: selectedComplex.organizerName,
         createdByOrganizer: canManageTurnos,
@@ -1230,7 +1464,9 @@ export default function TurnosScreen({ navigation }) {
         playerCountryCode: reservationPlayer.countryCode || "+54",
         playerPhone: reservationPlayer.phone || "",
         playerType: reservationPlayer.type || "registered",
-      });
+      };
+
+      await createTurnoReservation(reservationPayload);
 
       setSummaryVisible(false);
       setSelectedSlot("");
@@ -1244,6 +1480,30 @@ export default function TurnosScreen({ navigation }) {
         paymentMethod === "transferencia"
           ? "Metodo de pago: Transferencia - Pago a verificar."
           : "Metodo de pago: Efectivo - El pago se realizara en el complejo.";
+
+      if (canManageTurnos && reservationPayload.playerId) {
+        try {
+          await sendChatMessage({
+            currentUserId,
+            currentUserName:
+              reservationPayload.complexName || userData?.clubName || userData?.name || "Organizador",
+            otherUserId: reservationPayload.playerId,
+            otherUserName: reservationPayload.playerName || "Jugador",
+            text: buildReservationConfirmationText(reservationPayload, { boldTitle: true }),
+          });
+        } catch (error) {
+          // La reserva ya quedo confirmada; si el chat falla, no bloqueamos el alta.
+        }
+      }
+
+      if (
+        canManageTurnos &&
+        buildWhatsAppPhoneNumber(reservationPayload.playerPhone, reservationPayload.playerCountryCode)
+      ) {
+        setWhatsAppConfirmationReservation(reservationPayload);
+        return;
+      }
+
       showFeedback(
         canManageTurnos || selectedComplex.requiresOrganizerApproval === false
           ? "Reserva confirmada"
@@ -1278,24 +1538,7 @@ export default function TurnosScreen({ navigation }) {
         }
         subtitle={reservationsModalVisible && canManageTurnos ? "Gestion de reservas" : "Turnos"}
       >
-        {!canManageTurnos && !reservationsModalVisible ? (
-          <SectionFilterBar
-            containerStyle={styles.headerFilterBar}
-            onChange={({ locations }) => setActiveLocations(locations)}
-            renderExtraContent={() => (
-              <View>
-                <Text style={styles.modalLabel}>Complejo</Text>
-                <View style={styles.placeholderField}>
-                  <Ionicons color={colors.muted} name="business-outline" size={16} />
-                  <Text style={styles.placeholderFieldText}>
-                    Primero elegi un complejo y luego una cancha disponible.
-                  </Text>
-                </View>
-              </View>
-            )}
-            userLocation={userLocalidad}
-          />
-        ) : null}
+        {showReservationFlow ? renderLocationFilterRow() : null}
       </SectionHeader>
 
       <ScrollView
@@ -2039,7 +2282,9 @@ export default function TurnosScreen({ navigation }) {
           <View style={styles.emptyCard}>
             <Text style={styles.emptyTitle}>Sin complejos disponibles</Text>
             <Text style={styles.emptyText}>
-              Cuando los organizadores activen canchas para reservas, apareceran aca.
+              {complexes.length
+                ? "Hay complejos cargados, pero no pudimos prepararlos para reservar. Revisa filtros o recarga la pantalla."
+                : "Cuando los organizadores activen canchas para reservas, apareceran aca."}
             </Text>
           </View>
         ) : null}
@@ -2047,6 +2292,12 @@ export default function TurnosScreen({ navigation }) {
           <Text style={styles.filterFallbackText}>
             No encontramos coincidencias exactas con el filtro. Mostramos todos los complejos con
             turnos activos.
+          </Text>
+        ) : null}
+        {proximityFilter.enabled && proximityFilter.userCoordinates ? (
+          <Text style={styles.proximityInfoText}>
+            Busqueda por cercania activa: primero mostramos complejos dentro de{" "}
+            {proximityFilter.radiusKm} km.
           </Text>
         ) : null}
         {!(canManageTurnos && assignmentModeOpen && reservationComplexes.length === 1)
@@ -2075,6 +2326,9 @@ export default function TurnosScreen({ navigation }) {
                 <Text numberOfLines={1} style={styles.complexAddress}>{complex.address}</Text>
                 <Text style={styles.complexMeta}>
                   {complex.availableCourts.length} cancha(s) disponibles
+                  {Number.isFinite(complex.distanceKm)
+                    ? ` - ${complex.distanceKm.toFixed(1)} km`
+                    : ""}
                 </Text>
               </View>
             </Pressable>
@@ -2337,6 +2591,59 @@ export default function TurnosScreen({ navigation }) {
                 {confirming ? "CONFIRMANDO..." : "CONFIRMAR RESERVA"}
               </Text>
             </Pressable>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        animationType="fade"
+        onRequestClose={() => setWhatsAppConfirmationReservation(null)}
+        transparent
+        visible={Boolean(whatsAppConfirmationReservation)}
+      >
+        <View style={styles.modalOverlay}>
+          <Pressable
+            style={styles.modalBackdrop}
+            onPress={() => setWhatsAppConfirmationReservation(null)}
+          />
+          <View style={styles.whatsAppConfirmCard}>
+            <View style={styles.summaryHero}>
+              <View style={styles.summaryHeroIcon}>
+                <Ionicons color="#1E7A43" name="logo-whatsapp" size={24} />
+              </View>
+              <View style={styles.summaryHeroCopy}>
+                <Text style={styles.summaryEyebrow}>Reserva confirmada</Text>
+                <Text style={styles.summaryTitle}>Notificar por WhatsApp</Text>
+              </View>
+            </View>
+            {whatsAppConfirmationReservation?.playerId ? (
+              <Text style={styles.whatsAppInternalNotice}>Notificacion interna enviada</Text>
+            ) : null}
+            <Text style={styles.whatsAppConfirmText}>
+              ¿Desea notificar por WhatsApp la confirmacion de la reserva?
+            </Text>
+            <View style={styles.whatsAppConfirmActions}>
+              <Pressable
+                onPress={() => setWhatsAppConfirmationReservation(null)}
+                style={({ pressed }) => [
+                  styles.whatsAppConfirmButton,
+                  styles.whatsAppConfirmButtonSecondary,
+                  pressed ? styles.pressedState : null,
+                ]}
+              >
+                <Text style={styles.whatsAppConfirmButtonSecondaryText}>NO</Text>
+              </Pressable>
+              <Pressable
+                onPress={handleNotifyReservationConfirmationWhatsApp}
+                style={({ pressed }) => [
+                  styles.whatsAppConfirmButton,
+                  styles.whatsAppConfirmButtonPrimary,
+                  pressed ? styles.pressedState : null,
+                ]}
+              >
+                <Text style={styles.whatsAppConfirmButtonPrimaryText}>SI</Text>
+              </Pressable>
+            </View>
           </View>
         </View>
       </Modal>
@@ -2716,6 +3023,68 @@ export default function TurnosScreen({ navigation }) {
         </View>
       </Modal>
 
+      <Modal
+        animationType="fade"
+        onRequestClose={() => setLocationActionsVisible(false)}
+        transparent
+        visible={locationActionsVisible}
+      >
+        <View style={styles.modalOverlay}>
+          <Pressable style={styles.modalBackdrop} onPress={() => setLocationActionsVisible(false)} />
+          <View style={styles.locationOptionsCard}>
+            <Text style={styles.summaryTitle}>Ubicacion</Text>
+            <Text style={styles.locationOptionsSubtitle}>
+              Usa tu ubicacion para ordenar y filtrar complejos cercanos.
+            </Text>
+
+            <Text style={styles.locationOptionsLabel}>Radio de busqueda</Text>
+            <View style={styles.radiusOptionsRow}>
+              {PROXIMITY_RADIUS_OPTIONS.map((radiusKm) => {
+                const isSelected = proximityFilter.radiusKm === radiusKm;
+
+                return (
+                  <Pressable
+                    key={radiusKm}
+                    onPress={() =>
+                      setProximityFilter((current) => ({
+                        ...current,
+                        radiusKm,
+                      }))
+                    }
+                    style={[
+                      styles.radiusOption,
+                      isSelected ? styles.radiusOptionActive : null,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.radiusOptionText,
+                        isSelected ? styles.radiusOptionTextActive : null,
+                      ]}
+                    >
+                      {radiusKm} km
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            <Pressable
+              disabled={locatingUser}
+              onPress={handleUseCurrentLocation}
+              style={[styles.primaryButton, locatingUser ? styles.primaryButtonDisabled : null]}
+            >
+              <Text style={styles.primaryButtonText}>
+                {locatingUser ? "BUSCANDO..." : "USAR MI UBICACION"}
+              </Text>
+            </Pressable>
+            <Pressable onPress={handleDisableProximityFilter} style={styles.secondaryButton}>
+              <Text style={styles.secondaryButtonText}>VOLVER A LOCALIDAD</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
       <FeedbackModal
         message={feedback.message}
         onClose={() => setFeedback({ visible: false, title: "", message: "", tone: "default" })}
@@ -2771,10 +3140,41 @@ const styles = StyleSheet.create({
     color: colors.surface,
   },
   headerFilterBar: {
+    flex: 1,
+    marginHorizontal: 0,
+    marginTop: 0,
+    minHeight: 38,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+    shadowOpacity: 0.02,
+    elevation: 1,
+  },
+  filterLocationRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.xs,
+    marginBottom: 2,
     marginHorizontal: spacing.md,
-    marginTop: spacing.xs,
-    minHeight: 44,
-    paddingVertical: 6,
+    marginTop: 0,
+  },
+  locationActionButton: {
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 14,
+    borderWidth: 1,
+    height: 38,
+    justifyContent: "center",
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.02,
+    shadowRadius: 8,
+    width: 42,
+    elevation: 1,
+  },
+  locationActionButtonActive: {
+    backgroundColor: colors.primaryDark,
+    borderColor: colors.primaryDark,
   },
   modalLabel: {
     color: colors.muted,
@@ -3363,6 +3763,13 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xs,
     textAlign: "center",
   },
+  proximityInfoText: {
+    color: colors.primaryDark,
+    fontSize: 12,
+    fontWeight: "800",
+    marginBottom: spacing.xs,
+    textAlign: "center",
+  },
   complexCard: {
     alignItems: "center",
     backgroundColor: colors.surface,
@@ -3627,6 +4034,64 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     width: "100%",
   },
+  whatsAppConfirmCard: {
+    backgroundColor: colors.surface,
+    borderColor: "#DDEAE3",
+    borderRadius: 22,
+    borderWidth: 1,
+    gap: spacing.md,
+    padding: spacing.md,
+    width: "100%",
+  },
+  whatsAppConfirmText: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: "800",
+    lineHeight: 21,
+    textAlign: "center",
+  },
+  whatsAppInternalNotice: {
+    backgroundColor: "#EAF8F3",
+    borderColor: "#91D7B2",
+    borderRadius: 999,
+    borderWidth: 1,
+    color: "#1E7A43",
+    fontSize: 12,
+    fontWeight: "900",
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 7,
+    textAlign: "center",
+  },
+  whatsAppConfirmActions: {
+    flexDirection: "row",
+    gap: spacing.sm,
+  },
+  whatsAppConfirmButton: {
+    alignItems: "center",
+    borderRadius: 12,
+    borderWidth: 1,
+    flex: 1,
+    justifyContent: "center",
+    minHeight: 44,
+  },
+  whatsAppConfirmButtonPrimary: {
+    backgroundColor: "#EAF8F3",
+    borderColor: "#91D7B2",
+  },
+  whatsAppConfirmButtonSecondary: {
+    backgroundColor: "#F7FBF9",
+    borderColor: colors.border,
+  },
+  whatsAppConfirmButtonPrimaryText: {
+    color: "#1E7A43",
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  whatsAppConfirmButtonSecondaryText: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "900",
+  },
   playerPickerCard: {
     backgroundColor: colors.surface,
     borderColor: "#DDEAE3",
@@ -3770,16 +4235,17 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     borderRadius: 10,
     borderWidth: 1,
-    flex: 1,
     height: 52,
     justifyContent: "center",
     minWidth: 0,
     paddingHorizontal: 6,
     paddingVertical: 4,
+    width: "23.5%",
   },
   managementSlotSpacer: {
-    flex: 1,
+    height: 52,
     minWidth: 0,
+    width: "23.5%",
   },
   managementSlotChipReserved: {
     backgroundColor: "#EAF3FF",
@@ -3906,6 +4372,53 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     padding: spacing.lg,
     width: "100%",
+  },
+  locationOptionsCard: {
+    backgroundColor: colors.surface,
+    borderRadius: 18,
+    gap: spacing.sm,
+    padding: spacing.lg,
+    width: "100%",
+  },
+  locationOptionsSubtitle: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "700",
+    lineHeight: 18,
+    textAlign: "center",
+  },
+  locationOptionsLabel: {
+    color: colors.text,
+    fontSize: 12,
+    fontWeight: "900",
+    textAlign: "center",
+    textTransform: "uppercase",
+  },
+  radiusOptionsRow: {
+    flexDirection: "row",
+    gap: spacing.xs,
+  },
+  radiusOption: {
+    alignItems: "center",
+    backgroundColor: "#F2F6F4",
+    borderColor: colors.border,
+    borderRadius: 999,
+    borderWidth: 1,
+    flex: 1,
+    minHeight: 34,
+    justifyContent: "center",
+  },
+  radiusOptionActive: {
+    backgroundColor: "#E1F7EC",
+    borderColor: colors.primary,
+  },
+  radiusOptionText: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  radiusOptionTextActive: {
+    color: colors.primaryDark,
   },
   priceApplySubtitle: {
     color: colors.muted,

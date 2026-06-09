@@ -131,9 +131,9 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
     maxHeight: "82%",
+    paddingBottom: spacing.xl + 28,
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.lg,
-    paddingBottom: spacing.md,
   },
   handle: {
     alignSelf: "center",
@@ -197,7 +197,7 @@ const styles = StyleSheet.create({
   actions: {
     flexDirection: "row",
     gap: spacing.sm,
-    marginTop: spacing.md,
+    marginTop: spacing.lg,
   },
   secondaryButton: {
     alignItems: "center",

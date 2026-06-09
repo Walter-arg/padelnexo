@@ -187,9 +187,18 @@ export default function LeagueCard({
 
   const teamTypeLabel = league?.teamType === "individual" ? "Individual" : "Pareja fija";
   const teamTypeIcon = league?.teamType === "individual" ? "person-outline" : "people-outline";
+  const CardContainer = onDetails ? Pressable : View;
+  const cardContainerProps = onDetails
+    ? {
+        onPress: onDetails,
+        style: ({ pressed }) => [styles.card, pressed ? styles.cardPressed : null],
+      }
+    : {
+        style: styles.card,
+      };
 
   return (
-    <View style={styles.card}>
+    <CardContainer {...cardContainerProps}>
       <View style={styles.headerRow}>
         <View style={styles.copy}>
           <View style={styles.titleInline}>
@@ -271,6 +280,17 @@ export default function LeagueCard({
             </View>
             <Text numberOfLines={1} style={[styles.detailText, styles.detailTextStrong]}>
               {complexName}
+            </Text>
+          </View>
+        ) : null}
+
+        {Number.isFinite(league?.distanceKm) ? (
+          <View style={styles.detailRow}>
+            <View style={styles.detailIconSlot}>
+              <Ionicons color={colors.primaryDark} name="location-outline" size={15} />
+            </View>
+            <Text numberOfLines={1} style={[styles.detailText, styles.detailTextMuted]}>
+              A {league.distanceKm.toFixed(1)} km
             </Text>
           </View>
         ) : null}
@@ -357,7 +377,7 @@ export default function LeagueCard({
           ))}
         </View>
       ) : null}
-    </View>
+    </CardContainer>
   );
 }
 
@@ -376,6 +396,10 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.08,
     shadowRadius: 16,
     elevation: 3,
+  },
+  cardPressed: {
+    opacity: 0.96,
+    transform: [{ scale: 0.995 }],
   },
   statusPill: {
     alignItems: "center",

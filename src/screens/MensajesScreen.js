@@ -51,6 +51,21 @@ function buildConversation({ conversationId, playerId, playerName }) {
 
 const MESSAGE_MAX_LENGTH = 180;
 
+function renderRichMessageText(text = "", baseStyle = null) {
+  return String(text || "")
+    .split(/(\*\*.*?\*\*)/g)
+    .filter(Boolean)
+    .map((part, index) => {
+      const isBold = part.startsWith("**") && part.endsWith("**");
+
+      return (
+        <Text key={`${part}-${index}`} style={isBold ? styles.messageTextBold : baseStyle}>
+          {isBold ? part.slice(2, -2) : part}
+        </Text>
+      );
+    });
+}
+
 function formatMessageDate(value) {
   const date = value instanceof Date ? value : new Date(value || Date.now());
   const day = String(date.getDate()).padStart(2, "0");
@@ -626,7 +641,14 @@ export default function MensajesScreen({ navigation, route }) {
                           isSystemMessage && styles.messageTextSystem,
                         ]}
                       >
-                        {item.text}
+                        {renderRichMessageText(
+                          item.text,
+                          isOwnMessage
+                            ? styles.messageTextOwn
+                            : isSystemMessage
+                              ? styles.messageTextSystem
+                              : null
+                        )}
                       </Text>
                       {item.action?.type ? (
                         <Pressable
@@ -1331,6 +1353,9 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 14,
     lineHeight: 17,
+  },
+  messageTextBold: {
+    fontWeight: "900",
   },
   messageTime: {
     color: "#6E8D82",

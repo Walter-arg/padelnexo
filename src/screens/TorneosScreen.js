@@ -32,6 +32,12 @@ import {
   listTournamentsWithRegistrationCounts,
 } from "../services/tournamentsService";
 import { isApprovedOrganizer } from "../services/roleService";
+import {
+  calculateDistanceKm,
+  geocodeAddress,
+  getCoordinatesFromObject,
+  requestCurrentLocation,
+} from "../services/locationService";
 import { auth } from "../../services/firebaseConfig";
 
 const HISTORY_WINDOW_DAYS = 30;
@@ -48,6 +54,13 @@ const PLAYER_MENU_OPTIONS = [
   { key: "cancelled", label: "CANCELADOS" },
   { key: "rescheduled", label: "REPROGRAMADOS" },
 ];
+const PROXIMITY_RADIUS_OPTIONS = [5, 10, 20, 50];
+const DEFAULT_TOURNAMENT_FILTERS = {
+  localidades: [],
+  sexo: "Todos",
+  categoria: "Todas",
+  complejo: "Todos",
+};
 
 const STATUS_META = {
   draft: {
@@ -102,6 +115,19 @@ const STATUS_META = {
 
 function normalizeText(value = "") {
   return String(value || "").trim().toLowerCase();
+}
+
+function areTournamentFiltersEqual(left = {}, right = {}) {
+  const leftLocations = Array.isArray(left.localidades) ? left.localidades : [];
+  const rightLocations = Array.isArray(right.localidades) ? right.localidades : [];
+
+  return (
+    left.sexo === right.sexo &&
+    left.categoria === right.categoria &&
+    left.complejo === right.complejo &&
+    leftLocations.length === rightLocations.length &&
+    leftLocations.every((location, index) => location === rightLocations[index])
+  );
 }
 
 function sortByUpdatedAt(items = []) {
@@ -312,6 +338,52 @@ function getTournamentComplexNames(tournament = {}) {
 
   const fallback = normalizeText(tournament.venueLabel || "");
   return fallback && fallback !== "sede a confirmar" ? [fallback] : [];
+}
+
+function getTournamentVenueEntries(tournament = {}) {
+  return [
+    ...(Array.isArray(tournament.venues) ? tournament.venues : []),
+    ...(Array.isArray(tournament.temporaryVenues) ? tournament.temporaryVenues : []),
+  ];
+}
+
+function buildTournamentDistanceKey(tournament = {}) {
+  return `${tournament.id || tournament.name || "tournament"}|${tournament.venueLabel || ""}`;
+}
+
+function getTournamentCoordinates(tournament = {}) {
+  const venues = getTournamentVenueEntries(tournament);
+
+  for (const venue of venues) {
+    const coordinates = getCoordinatesFromObject(venue);
+
+    if (coordinates) {
+      return coordinates;
+    }
+  }
+
+  return getCoordinatesFromObject(tournament);
+}
+
+function buildTournamentGeocodeCandidates(tournament = {}) {
+  const venueCandidates = getTournamentVenueEntries(tournament).flatMap((venue) => [
+    [venue.address || venue.direccion, venue.city || venue.ciudad, venue.province || venue.provincia, "Argentina"]
+      .filter(Boolean)
+      .join(", "),
+    [venue.name || venue.nombre, venue.city || venue.ciudad, venue.province || venue.provincia, "Argentina"]
+      .filter(Boolean)
+      .join(", "),
+  ]);
+  const fallbackCandidates = [
+    [tournament.venueLabel, tournament.city || tournament.ciudad, tournament.province || tournament.provincia, "Argentina"]
+      .filter(Boolean)
+      .join(", "),
+    [tournament.city || tournament.ciudad, tournament.province || tournament.provincia, "Argentina"]
+      .filter(Boolean)
+      .join(", "),
+  ];
+
+  return [...venueCandidates, ...fallbackCandidates].filter(Boolean);
 }
 
 function getHistoryCutoffMillis() {
@@ -654,6 +726,11 @@ function TournamentCard({
                 <Text numberOfLines={2} style={styles.cardFriendlyText}>
                   {item.venueLabel || "Sede a confirmar"}
                 </Text>
+                {Number.isFinite(item.distanceKm) ? (
+                  <Text numberOfLines={1} style={styles.cardFriendlyMutedText}>
+                    A {item.distanceKm.toFixed(1)} km
+                  </Text>
+                ) : null}
               </View>
             </View>
           </View>
@@ -750,6 +827,14 @@ export default function TorneosScreen({ navigation, route }) {
   });
   const [cancelledTournamentToDelete, setCancelledTournamentToDelete] = useState(null);
   const [deletingCancelledTournament, setDeletingCancelledTournament] = useState(false);
+  const [locationActionsVisible, setLocationActionsVisible] = useState(false);
+  const [locatingUser, setLocatingUser] = useState(false);
+  const [proximityFilter, setProximityFilter] = useState({
+    enabled: false,
+    radiusKm: 10,
+    userCoordinates: null,
+  });
+  const [tournamentCoordinatesByKey, setTournamentCoordinatesByKey] = useState({});
 
   const currentUserId = userData?.uid || user?.uid || auth?.currentUser?.uid || "";
   const userLocalidad = useMemo(() => {
@@ -766,12 +851,7 @@ export default function TorneosScreen({ navigation, route }) {
       pais: userData?.localidad?.pais || userData?.location?.pais || "Argentina",
     };
   }, [userData]);
-  const [appliedFilters, setAppliedFilters] = useState({
-    localidades: [],
-    sexo: "Todos",
-    categoria: "Todas",
-    complejo: "Todos",
-  });
+  const [appliedFilters, setAppliedFilters] = useState(DEFAULT_TOURNAMENT_FILTERS);
   const [draftSexo, setDraftSexo] = useState("Todos");
   const [draftCategoria, setDraftCategoria] = useState("Todas");
   const [draftComplejo, setDraftComplejo] = useState("Todos");
@@ -779,18 +859,18 @@ export default function TorneosScreen({ navigation, route }) {
     appliedFilters.localidades.length > 0 ||
     appliedFilters.sexo !== "Todos" ||
     appliedFilters.categoria !== "Todas" ||
-    appliedFilters.complejo !== "Todos";
+    appliedFilters.complejo !== "Todos" ||
+    proximityFilter.enabled;
 
   useEffect(() => {
-    setAppliedFilters({
-      localidades: [],
-      sexo: "Todos",
-      categoria: "Todas",
-      complejo: "Todos",
-    });
-    setDraftSexo("Todos");
-    setDraftCategoria("Todas");
-    setDraftComplejo("Todos");
+    setAppliedFilters((current) =>
+      areTournamentFiltersEqual(current, DEFAULT_TOURNAMENT_FILTERS)
+        ? current
+        : DEFAULT_TOURNAMENT_FILTERS
+    );
+    setDraftSexo((current) => (current === "Todos" ? current : "Todos"));
+    setDraftCategoria((current) => (current === "Todas" ? current : "Todas"));
+    setDraftComplejo((current) => (current === "Todos" ? current : "Todos"));
   }, [canCreateTournament, currentUserId, userLocalidad]);
 
   useEffect(() => {
@@ -798,12 +878,11 @@ export default function TorneosScreen({ navigation, route }) {
       return;
     }
 
-    setAppliedFilters({
-      localidades: [],
-      sexo: "Todos",
-      categoria: "Todas",
-      complejo: "Todos",
-    });
+    setAppliedFilters((current) =>
+      areTournamentFiltersEqual(current, DEFAULT_TOURNAMENT_FILTERS)
+        ? current
+        : DEFAULT_TOURNAMENT_FILTERS
+    );
     navigation.setParams({
       resetOrganizerFilters: undefined,
     });
@@ -939,6 +1018,74 @@ export default function TorneosScreen({ navigation, route }) {
     );
   }, [organizerBrandingMap, registrationsMap, tournaments]);
 
+  useEffect(() => {
+    if (!proximityFilter.enabled || !proximityFilter.userCoordinates || !tournamentsEnriched.length) {
+      return undefined;
+    }
+
+    let isCancelled = false;
+
+    const geocodeMissingTournaments = async () => {
+      const missingTournaments = tournamentsEnriched.filter((tournament) => {
+        const key = buildTournamentDistanceKey(tournament);
+        return !getTournamentCoordinates(tournament) && !tournamentCoordinatesByKey[key];
+      });
+
+      for (const tournament of missingTournaments) {
+        const key = buildTournamentDistanceKey(tournament);
+
+        for (const address of buildTournamentGeocodeCandidates(tournament)) {
+          try {
+            const coordinates = await geocodeAddress(address);
+
+            if (isCancelled) {
+              return;
+            }
+
+            if (coordinates) {
+              setTournamentCoordinatesByKey((current) => ({
+                ...current,
+                [key]: coordinates,
+              }));
+              break;
+            }
+          } catch (error) {
+            // Intentamos con el siguiente dato disponible de la sede.
+          }
+        }
+      }
+    };
+
+    geocodeMissingTournaments();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [
+    proximityFilter.enabled,
+    proximityFilter.userCoordinates,
+    tournamentCoordinatesByKey,
+    tournamentsEnriched,
+  ]);
+
+  const tournamentsWithDistance = useMemo(
+    () =>
+      tournamentsEnriched.map((tournament) => {
+        const key = buildTournamentDistanceKey(tournament);
+        const coordinates =
+          getTournamentCoordinates(tournament) || tournamentCoordinatesByKey[key];
+        const distanceKm = proximityFilter.userCoordinates
+          ? calculateDistanceKm(proximityFilter.userCoordinates, coordinates)
+          : null;
+
+        return {
+          ...tournament,
+          distanceKm,
+        };
+      }),
+    [proximityFilter.userCoordinates, tournamentCoordinatesByKey, tournamentsEnriched]
+  );
+
   const sexFilterOptions = useMemo(
     () => ["Todos", ...LEAGUE_BRANCH_OPTIONS.map((option) => option.value)],
     []
@@ -977,6 +1124,44 @@ export default function TorneosScreen({ navigation, route }) {
     }));
   };
 
+  const handleUseCurrentLocation = async () => {
+    try {
+      setLocatingUser(true);
+      const userCoordinates = await requestCurrentLocation();
+
+      setProximityFilter((current) => ({
+        ...current,
+        enabled: true,
+        userCoordinates,
+      }));
+      setLocationActionsVisible(false);
+      setFeedback({
+        visible: true,
+        title: "Ubicacion activada",
+        message: `Vamos a priorizar torneos dentro de ${proximityFilter.radiusKm} km.`,
+        tone: "success",
+      });
+    } catch (error) {
+      setFeedback({
+        visible: true,
+        title: "No pudimos usar tu ubicacion",
+        message: error?.message || "Revisa los permisos de ubicacion del telefono.",
+        tone: "danger",
+      });
+    } finally {
+      setLocatingUser(false);
+    }
+  };
+
+  const handleDisableProximityFilter = () => {
+    setProximityFilter((current) => ({
+      ...current,
+      enabled: false,
+      userCoordinates: null,
+    }));
+    setLocationActionsVisible(false);
+  };
+
   const handleOpenOrganizerView = (viewKey) => {
     setShowOrganizerHistoryMenu(false);
     navigation.setParams({ organizerView: viewKey });
@@ -988,11 +1173,11 @@ export default function TorneosScreen({ navigation, route }) {
   };
 
   const filteredTournaments = useMemo(() => {
-    return tournamentsEnriched.filter((tournament) => {
+    const filtered = tournamentsWithDistance.filter((tournament) => {
       const isHistory = isHistoricalTournament(tournament);
       const isRescheduled = isReprogrammedTournament(tournament);
 
-      if (appliedFilters.localidades.length > 0) {
+      if (!proximityFilter.enabled && appliedFilters.localidades.length > 0) {
         const tournamentLocations = getTournamentLocationNames(tournament);
         const cityMatches = appliedFilters.localidades.some((location) =>
           tournamentLocations.includes(normalizeText(location.nombre))
@@ -1071,6 +1256,27 @@ export default function TorneosScreen({ navigation, route }) {
 
       return tournament.status !== "draft" && !isHistory && !isRescheduled;
     });
+
+    if (proximityFilter.enabled && proximityFilter.userCoordinates) {
+      return [...filtered].sort((first, second) => {
+        const firstDistance = Number.isFinite(first.distanceKm)
+          ? first.distanceKm
+          : Number.MAX_SAFE_INTEGER;
+        const secondDistance = Number.isFinite(second.distanceKm)
+          ? second.distanceKm
+          : Number.MAX_SAFE_INTEGER;
+        const firstIsInsideRadius = firstDistance <= proximityFilter.radiusKm;
+        const secondIsInsideRadius = secondDistance <= proximityFilter.radiusKm;
+
+        if (firstIsInsideRadius !== secondIsInsideRadius) {
+          return firstIsInsideRadius ? -1 : 1;
+        }
+
+        return firstDistance - secondDistance;
+      });
+    }
+
+    return filtered;
   }, [
     appliedFilters.categoria,
     appliedFilters.complejo,
@@ -1080,7 +1286,8 @@ export default function TorneosScreen({ navigation, route }) {
     currentUserId,
     organizerView,
     playerView,
-    tournamentsEnriched,
+    proximityFilter,
+    tournamentsWithDistance,
   ]);
 
   const organizerOwnedActiveTournaments = useMemo(() => {
@@ -1377,12 +1584,13 @@ export default function TorneosScreen({ navigation, route }) {
         subtitle={resolvedHeaderSubtitle}
       >
         <>
-          <View style={!canCreateTournament ? styles.filterAndMenuRow : null}>
-            <View style={!canCreateTournament ? styles.filterInlineWrap : null}>
+          <View style={styles.filterAndMenuRow}>
+            <View style={styles.filterInlineWrap}>
               <SectionFilterBar
-                containerStyle={!canCreateTournament ? styles.inlineFilterBar : null}
+                containerStyle={styles.inlineFilterBar}
                 disablePersistedDefaults
                 extraSummary={hasActiveFilters ? "Activo" : undefined}
+                hideLeadingIcon
                 onApply={handleApplyFilters}
                 onChange={({ locations }) =>
                   setAppliedFilters((current) => ({
@@ -1458,6 +1666,21 @@ export default function TorneosScreen({ navigation, route }) {
                 userLocation={userLocalidad}
               />
             </View>
+
+            <Pressable
+              onPress={() => setLocationActionsVisible(true)}
+              style={({ pressed }) => [
+                styles.locationActionButton,
+                proximityFilter.enabled ? styles.locationActionButtonActive : null,
+                pressed ? styles.organizerMenuButtonPressed : null,
+              ]}
+            >
+              <Ionicons
+                color={proximityFilter.enabled ? colors.surface : colors.primaryDark}
+                name="location-outline"
+                size={19}
+              />
+            </Pressable>
 
             {!canCreateTournament ? (
               <Pressable
@@ -1535,6 +1758,72 @@ export default function TorneosScreen({ navigation, route }) {
           showsVerticalScrollIndicator={false}
         />
       </View>
+
+      <Modal
+        animationType="fade"
+        onRequestClose={() => setLocationActionsVisible(false)}
+        transparent
+        visible={locationActionsVisible}
+      >
+        <View style={styles.confirmOverlay}>
+          <Pressable
+            onPress={() => setLocationActionsVisible(false)}
+            style={styles.confirmBackdrop}
+          />
+          <View style={styles.locationOptionsCard}>
+            <Text style={styles.confirmTitle}>Ubicacion</Text>
+            <Text style={styles.locationOptionsSubtitle}>
+              Usa tu ubicacion para priorizar los torneos mas cercanos.
+            </Text>
+            <Text style={styles.locationOptionsLabel}>Radio de busqueda</Text>
+            <View style={styles.radiusOptionsRow}>
+              {PROXIMITY_RADIUS_OPTIONS.map((radiusKm) => {
+                const isSelected = proximityFilter.radiusKm === radiusKm;
+
+                return (
+                  <Pressable
+                    key={radiusKm}
+                    onPress={() =>
+                      setProximityFilter((current) => ({
+                        ...current,
+                        radiusKm,
+                      }))
+                    }
+                    style={[
+                      styles.radiusOption,
+                      isSelected ? styles.radiusOptionActive : null,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.radiusOptionText,
+                        isSelected ? styles.radiusOptionTextActive : null,
+                      ]}
+                    >
+                      {radiusKm} km
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            <Pressable
+              disabled={locatingUser}
+              onPress={handleUseCurrentLocation}
+              style={[
+                styles.locationPrimaryButton,
+                locatingUser ? styles.locationButtonDisabled : null,
+              ]}
+            >
+              <Text style={styles.locationPrimaryButtonText}>
+                {locatingUser ? "BUSCANDO..." : "USAR MI UBICACION"}
+              </Text>
+            </Pressable>
+            <Pressable onPress={handleDisableProximityFilter} style={styles.locationSecondaryButton}>
+              <Text style={styles.locationSecondaryButtonText}>VOLVER A LOCALIDAD</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
 
       <FeedbackModal
         message={feedback.message}
@@ -1637,6 +1926,84 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     width: "100%",
   },
+  locationOptionsCard: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 24,
+    borderWidth: 1,
+    gap: spacing.sm,
+    padding: spacing.lg,
+    width: "100%",
+  },
+  locationOptionsSubtitle: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "700",
+    lineHeight: 18,
+    textAlign: "center",
+  },
+  locationOptionsLabel: {
+    color: colors.text,
+    fontSize: 12,
+    fontWeight: "900",
+    textAlign: "center",
+    textTransform: "uppercase",
+  },
+  radiusOptionsRow: {
+    flexDirection: "row",
+    gap: spacing.xs,
+  },
+  radiusOption: {
+    alignItems: "center",
+    backgroundColor: "#F2F6F4",
+    borderColor: colors.border,
+    borderRadius: 999,
+    borderWidth: 1,
+    flex: 1,
+    justifyContent: "center",
+    minHeight: 34,
+  },
+  radiusOptionActive: {
+    backgroundColor: "#E1F7EC",
+    borderColor: colors.primary,
+  },
+  radiusOptionText: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  radiusOptionTextActive: {
+    color: colors.primaryDark,
+  },
+  locationPrimaryButton: {
+    alignItems: "center",
+    backgroundColor: colors.primaryDark,
+    borderRadius: 16,
+    justifyContent: "center",
+    minHeight: 44,
+  },
+  locationPrimaryButtonText: {
+    color: colors.surface,
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  locationSecondaryButton: {
+    alignItems: "center",
+    backgroundColor: colors.surfaceAlt,
+    borderColor: colors.border,
+    borderRadius: 16,
+    borderWidth: 1,
+    justifyContent: "center",
+    minHeight: 42,
+  },
+  locationSecondaryButtonText: {
+    color: colors.text,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  locationButtonDisabled: {
+    opacity: 0.65,
+  },
   confirmWarningIcon: {
     alignItems: "center",
     alignSelf: "center",
@@ -1716,6 +2083,30 @@ const styles = StyleSheet.create({
   },
   inlineFilterBar: {
     marginHorizontal: 0,
+    marginTop: 0,
+    minHeight: 38,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+  },
+  locationActionButton: {
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 14,
+    borderWidth: 1,
+    height: 38,
+    justifyContent: "center",
+    marginTop: -6,
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.02,
+    shadowRadius: 8,
+    width: 42,
+    elevation: 1,
+  },
+  locationActionButtonActive: {
+    backgroundColor: colors.primaryDark,
+    borderColor: colors.primaryDark,
   },
   playerTopRow: {
     alignItems: "center",
@@ -1930,6 +2321,13 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "700",
     lineHeight: 18,
+  },
+  cardFriendlyMutedText: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "800",
+    lineHeight: 16,
+    marginTop: 1,
   },
   cardPosterThumbButton: {
     borderRadius: 12,

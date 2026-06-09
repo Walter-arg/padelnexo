@@ -403,12 +403,24 @@ export default function TournamentRegistrationsScreen({ navigation, route }) {
                   </View>
 
                   <View style={styles.playersStack}>
-                    {renderPlayerRow(item.player1Id, item.player1Name)}
-                    {item.player2Id ? renderPlayerRow(item.player2Id, item.player2Name) : null}
+                    {renderPlayerRow(item.player1Id || `${item.id}-player1`, item.player1Name)}
+                    {item.player2Name
+                      ? renderPlayerRow(item.player2Id || `${item.id}-player2`, item.player2Name)
+                      : null}
                   </View>
 
                   <View style={styles.actionsRow}>
-                    <View
+                    <Pressable
+                      onPress={() =>
+                        navigation.navigate("TournamentRegistration", {
+                          autoOpenAvailability: true,
+                          editorRole: "organizer",
+                          initialPanel: "availability",
+                          registrationId: item.id,
+                          tournamentId: tournament.id,
+                          tournamentName: tournament.name || "Torneo",
+                        })
+                      }
                       style={[
                         styles.summaryChip,
                         availabilityMeta.tone === "ready"
@@ -431,7 +443,7 @@ export default function TournamentRegistrationsScreen({ navigation, route }) {
                       >
                         {availabilityMeta.label}
                       </Text>
-                    </View>
+                    </Pressable>
                     <Pressable
                       onPress={() =>
                         navigation.navigate("TournamentRegistration", {

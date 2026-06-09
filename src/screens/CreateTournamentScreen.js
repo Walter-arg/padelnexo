@@ -85,6 +85,21 @@ const VENUE_MODE_OPTIONS = [
   },
 ];
 
+const TOURNAMENT_RULESET_OPTIONS = [
+  {
+    label: "TORNEO FAP",
+    value: "fap",
+    subtitle: "Federacion Argentina de Padel",
+    description: "3 clasificados por zona de 4. Modalidad mas extensa.",
+  },
+  {
+    label: "TORNEO APA",
+    value: "apa",
+    subtitle: "Asociacion Padel Argentina",
+    description: "2 clasificados por zona de 4. Modalidad mas corta.",
+  },
+];
+
 function sanitizeInteger(value, maxLength = 2) {
   return String(value || "")
     .replace(/[^0-9]/g, "")
@@ -150,6 +165,7 @@ function buildInitialForm(userData = {}) {
     selectedVenueNames: firstComplex?.nombre ? [firstComplex.nombre] : [],
     entryFee: "",
     paymentAlias: "",
+    tournamentRuleSet: fixtureDefaults.tournamentRuleSet || "fap",
     branch: "Masculino",
     categoryFormat: "libre",
     sumRule: "open",
@@ -268,6 +284,7 @@ function buildSelectedVenueEntries(complejos = [], selectedVenueNames = []) {
       address: complex.direccion || "",
       city: complex.ciudad || complex.localidad?.nombre || "",
       province: complex.provincia || complex.localidad?.provincia || "",
+      coordinates: complex.coordinates || complex.location || null,
       complexId: complex.id || "",
       totalCanchas: Number(complex.totalCanchas || 0) || 0,
       blindex: Number(complex.blindex || 0) || 0,
@@ -314,6 +331,7 @@ function buildPayloadFromForm(
     pairConfirmationMode: form.pairConfirmationMode,
     paymentMethods: parseMoneyInput(form.entryFee) > 0 ? ["transferencia"] : [],
     paymentAlias: String(form.paymentAlias || "").trim(),
+    tournamentRuleSet: form.tournamentRuleSet || "fap",
     entryFee: parseMoneyInput(form.entryFee),
     playDays: [],
     groupStageDays: [],
@@ -367,6 +385,7 @@ function buildFormFromTournament(tournament = {}, userData = {}) {
     selectedVenueNames,
     entryFee: tournament?.entryFee ? formatMoneyInput(tournament.entryFee) : "",
     paymentAlias: tournament?.paymentAlias || "",
+    tournamentRuleSet: tournament?.tournamentRuleSet || tournament?.ruleSet || "fap",
     branch: composition.branch || "Masculino",
     categoryFormat: composition.categoryFormat || "libre",
     sumRule: composition.sumRule || "open",
@@ -491,6 +510,13 @@ function getCreationModeOptionMeta(value = "") {
     description: "Crea un torneo independiente.",
     label: "CREAR UNO",
   };
+}
+
+function getTournamentRuleSetOptionMeta(value = "") {
+  return (
+    TOURNAMENT_RULESET_OPTIONS.find((option) => option.value === value) ||
+    TOURNAMENT_RULESET_OPTIONS[0]
+  );
 }
 
 function isLocalAssetUri(value = "") {
@@ -1196,6 +1222,49 @@ export default function CreateTournamentScreen({ navigation, route }) {
               </View>
             </View>
           ) : null}
+        </View>
+
+        <View style={styles.sectionCard}>
+          <Text style={styles.sectionTitle}>TIPO DE TORNEO</Text>
+          <View style={styles.confirmationList}>
+            {TOURNAMENT_RULESET_OPTIONS.map((option) => {
+              const isActive = form.tournamentRuleSet === option.value;
+
+              return (
+                <Pressable
+                  key={option.value}
+                  onPress={() => updateField("tournamentRuleSet", option.value)}
+                  style={[
+                    styles.confirmationOption,
+                    styles.ruleSetOption,
+                    isActive && styles.confirmationOptionActive,
+                  ]}
+                >
+                  <View
+                    style={[
+                      styles.confirmationBullet,
+                      isActive && styles.confirmationBulletActive,
+                    ]}
+                  />
+                  <View style={styles.ruleSetCopy}>
+                    <Text
+                      style={[
+                        styles.confirmationOptionText,
+                        isActive && styles.confirmationOptionTextActive,
+                      ]}
+                    >
+                      {option.label}
+                    </Text>
+                    <Text style={styles.ruleSetSubtitle}>{option.subtitle}</Text>
+                    <Text style={styles.ruleSetDescription}>{option.description}</Text>
+                  </View>
+                </Pressable>
+              );
+            })}
+          </View>
+          <Text style={styles.confirmationDescription}>
+            {getTournamentRuleSetOptionMeta(form.tournamentRuleSet).description}
+          </Text>
         </View>
 
         <View style={styles.sectionCard}>
@@ -2084,6 +2153,26 @@ const styles = StyleSheet.create({
   },
   confirmationOptionTextActive: {
     color: colors.primaryDark,
+  },
+  ruleSetOption: {
+    alignItems: "flex-start",
+    paddingVertical: spacing.sm,
+  },
+  ruleSetCopy: {
+    flex: 1,
+  },
+  ruleSetSubtitle: {
+    color: colors.text,
+    fontSize: 12,
+    fontWeight: "800",
+    marginTop: 2,
+  },
+  ruleSetDescription: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "700",
+    lineHeight: 17,
+    marginTop: 3,
   },
   confirmationDescription: {
     color: "#1E88C8",

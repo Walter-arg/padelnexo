@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Animated,
+  Image,
+  KeyboardAvoidingView,
   Modal,
   PanResponder,
   Platform,
@@ -14,9 +16,12 @@ import {
   View,
 } from "react-native";
 import DateTimePicker from "@react-native-community/datetimepicker";
+import * as FileSystem from "expo-file-system/legacy";
+import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
-import { FontAwesome5, Ionicons } from "@expo/vector-icons";
+import { FontAwesome5, Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useFocusEffect } from "@react-navigation/native";
+import Share from "react-native-share";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { captureRef } from "react-native-view-shot";
 
@@ -38,37 +43,6 @@ import {
   buildTournamentDayOptions,
   getTournamentDayLabel,
 } from "../services/tournamentAvailabilityService";
-
-const FIXTURE_MODE_OPTIONS = [
-  {
-    label: "AUTOMATICO",
-    value: "automatic",
-    description: "Zonas y llaves se crean automaticamente segun la recomendacion de la app.",
-  },
-  {
-    label: "SEMIAUTOMATICO",
-    value: "semiautomatic",
-    description: "Las zonas se crean automaticamente y las llaves las define el organizador.",
-  },
-  {
-    label: "MANUAL",
-    value: "manual",
-    description: "La app recomienda la estructura, pero la decision final sera del organizador.",
-  },
-];
-
-const FIXTURE_PATH_OPTIONS = [
-  {
-    label: "A: ESTRICTO",
-    value: "strict",
-    description: "Menos cantidad de partidos, mas eliminados.",
-  },
-  {
-    label: "B: FLEXIBILIDAD",
-    value: "flex",
-    description: "Menos eliminados directos y mas continuidad deportiva.",
-  },
-];
 
 const MATCH_FORMAT_OPTIONS = [
   {
@@ -116,9 +90,9 @@ const BRACKET_FINAL_OVERRIDE_OPTIONS = [
 
 const BRACKET_HEADER_HEIGHT = 34;
 const BRACKET_CARD_WIDTH = 258;
-const BRACKET_CARD_HEIGHT = 164;
-const BRACKET_TEAM_CARD_HEIGHT = 50;
-const BRACKET_TEAMS_STACK_HEIGHT = 126;
+const BRACKET_CARD_HEIGHT = 150;
+const BRACKET_TEAM_CARD_HEIGHT = 42;
+const BRACKET_TEAMS_STACK_HEIGHT = 100;
 const BRACKET_COLUMN_STEP = 282;
 const BRACKET_FIRST_ROUND_GAP = 6;
 const BRACKET_CONNECTOR_THICKNESS = 2;
@@ -131,7 +105,7 @@ const BRACKET_SHARE_IMAGE_SCALE = 3;
 const VENUE_SCHEDULE_COLOR_KEYS = ["blue", "sky", "lilac"];
 const BRACKET_DOUBLE_TAP_DELAY = 280;
 const CLOSE_MATCH_VENUE_GAP_MINUTES = 90;
-const FIXTURE_SECTION_KEYS = ["configuration", "create", "zones", "bracket"];
+const FIXTURE_SECTION_KEYS = ["configuration", "newzones", "bracket"];
 
 function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
@@ -139,6 +113,47 @@ function clamp(value, min, max) {
 
 function normalizeText(value = "") {
   return String(value || "").trim().toLowerCase();
+}
+
+function escapeHtml(value = "") {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function sanitizeSharedFileName(value = "") {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 90);
+}
+
+function areJsonEqual(firstValue, secondValue) {
+  return JSON.stringify(firstValue || null) === JSON.stringify(secondValue || null);
+}
+
+function removeUndefinedFields(value) {
+  if (Array.isArray(value)) {
+    return value.map(removeUndefinedFields);
+  }
+
+  if (!value || typeof value !== "object") {
+    return value;
+  }
+
+  return Object.entries(value).reduce((accumulator, [key, entryValue]) => {
+    if (entryValue === undefined) {
+      return accumulator;
+    }
+
+    accumulator[key] = removeUndefinedFields(entryValue);
+    return accumulator;
+  }, {});
 }
 
 function normalizeFixtureActiveSection(value = "") {
@@ -242,6 +257,35 @@ function splitCourtLabelPartsSafe(courtLabel = "") {
   };
 }
 
+function getCourtDisplayName(court = {}, index = 0) {
+  return String(court?.nombre || court?.name || court?.label || "").trim() || `Cancha ${index + 1}`;
+}
+
+function buildCourtPickerOptions(venue = null, venueName = "", fallbackCourtCount = 1) {
+  const venueCourts = Array.isArray(venue?.canchas)
+    ? venue.canchas
+    : Array.isArray(venue?.courts)
+    ? venue.courts
+    : [];
+  const courtCount = Math.max(Number(fallbackCourtCount || 0) || Number(venue?.totalCanchas || 0) || 1, 1);
+  const sourceCourts = venueCourts.length
+    ? venueCourts.slice(0, courtCount)
+    : Array.from({ length: courtCount }, (_, index) => ({ id: `court-${index + 1}` }));
+
+  return sourceCourts.map((court, index) => {
+    const courtName = getCourtDisplayName(court, index);
+    const cleanVenueName = String(venueName || "").trim();
+
+    return {
+      courtName,
+      label: courtName,
+      value: cleanVenueName ? `${cleanVenueName} \u00B7 ${courtName}` : courtName,
+      venueId: String(venue?.id || "").trim(),
+      venueName: cleanVenueName,
+    };
+  });
+}
+
 function formatScheduleDayDisplay(dayKey = "", dayOptions = []) {
   const rawLabel = String(getTournamentDayLabel(dayKey, dayOptions, "full") || "").trim();
 
@@ -250,6 +294,17 @@ function formatScheduleDayDisplay(dayKey = "", dayOptions = []) {
   }
 
   return rawLabel.charAt(0).toUpperCase() + rawLabel.slice(1);
+}
+
+function formatScheduleWeekdayDisplay(dayKey = "", dayOptions = []) {
+  const rawLabel = String(getTournamentDayLabel(dayKey, dayOptions, "full") || "").trim();
+  const weekdayLabel = rawLabel.split(",")[0].replace(/\d.*/, "").trim();
+
+  if (!weekdayLabel) {
+    return "Dia";
+  }
+
+  return weekdayLabel.charAt(0).toUpperCase() + weekdayLabel.slice(1);
 }
 
 function isValidTimeString(value = "") {
@@ -428,11 +483,36 @@ function buildZoneMatchSchedulingSlots(schedules = [], durationMinutes = ZONE_MA
   });
 }
 
-function isRegistrationConfirmed(registration = {}) {
-  return (
-    registration?.status === "confirmed" &&
-    registration?.withdrawalStatus !== "confirmed"
-  );
+function isRegistrationConfirmed(registration = {}, tournament = {}) {
+  if (
+    registration?.withdrawalStatus === "confirmed" ||
+    registration?.status === "rejected"
+  ) {
+    return false;
+  }
+
+  if (registration?.status === "confirmed" || registration?.confirmedAt) {
+    return true;
+  }
+
+  const payments = Array.isArray(registration?.payments) ? registration.payments : [];
+  const approvedCount = payments.filter((payment) => payment?.status === "approved").length;
+  const pairConfirmationMode = String(tournament?.pairConfirmationMode || "").trim().toLowerCase();
+  const requiresPayment = Number(tournament?.entryFee || 0) > 0;
+
+  if (!requiresPayment && pairConfirmationMode !== "manual") {
+    return true;
+  }
+
+  if (pairConfirmationMode === "one_paid") {
+    return approvedCount >= 1;
+  }
+
+  if (pairConfirmationMode === "both_paid") {
+    return payments.length > 0 && approvedCount >= payments.length;
+  }
+
+  return false;
 }
 
 function formatZoneLabel(zoneSizes = []) {
@@ -458,6 +538,29 @@ function buildZoneTemplates(zoneSizes = [], qualifierSizes = []) {
     size,
     qualifiers: Number(qualifierSizes[index] || 2),
   }));
+}
+
+function orderZoneSizesWithQualifiers(zoneSizes = [], qualifierSizes = []) {
+  return (Array.isArray(zoneSizes) ? zoneSizes : [])
+    .map((size, index) => ({
+      originalIndex: index,
+      qualifiers: Number(qualifierSizes[index] || 2),
+      size: Number(size || 0),
+    }))
+    .sort((first, second) => {
+      const firstRank = first.size === 4 ? 0 : first.size === 2 ? 2 : 1;
+      const secondRank = second.size === 4 ? 0 : second.size === 2 ? 2 : 1;
+
+      if (firstRank !== secondRank) {
+        return firstRank - secondRank;
+      }
+
+      if (second.size !== first.size) {
+        return second.size - first.size;
+      }
+
+      return first.originalIndex - second.originalIndex;
+    });
 }
 
 function getNextPowerOfTwo(value = 0) {
@@ -667,7 +770,115 @@ function formatShortPairLines(value = "") {
   return pairParts.length ? pairParts : [String(value || "").trim() || "Pareja"];
 }
 
-function resolveFixtureRecommendation(pairCount = 0, pathType = "strict") {
+function getApaZoneCount(totalPairs = 0) {
+  if (totalPairs >= 6 && totalPairs <= 8) return 2;
+  if (totalPairs >= 9 && totalPairs <= 11) return 3;
+  if (totalPairs >= 12 && totalPairs <= 14) return 4;
+  if (totalPairs >= 15 && totalPairs <= 17) return 5;
+  if (totalPairs >= 18 && totalPairs <= 20) return 6;
+  if (totalPairs >= 21 && totalPairs <= 23) return 7;
+  if (totalPairs >= 24 && totalPairs <= 26) return 8;
+  if (totalPairs >= 27 && totalPairs <= 29) return 9;
+  if (totalPairs >= 30 && totalPairs <= 32) return 10;
+  return 0;
+}
+
+function buildApaZoneSizes(totalPairs = 0) {
+  const zoneCount = getApaZoneCount(totalPairs);
+
+  if (!zoneCount) {
+    return [];
+  }
+
+  const baseSize = Math.max(Math.floor(totalPairs / zoneCount), 2);
+  let remainder = totalPairs - baseSize * zoneCount;
+
+  return Array.from({ length: zoneCount }, (_, index) => {
+    const shouldGrow = remainder > 0 && index < remainder;
+    return baseSize + (shouldGrow ? 1 : 0);
+  });
+}
+
+function buildFapZoneSizes(totalPairs = 0) {
+  const zoneCountByPairs = {
+    6: 2,
+    7: 2,
+    8: 2,
+    9: 3,
+    10: 3,
+    11: 3,
+    12: 4,
+    13: 4,
+    14: 4,
+    15: 5,
+    16: 5,
+    17: 5,
+    18: 6,
+    19: 6,
+    20: 6,
+    21: 7,
+    22: 7,
+    23: 7,
+    24: 8,
+    25: 8,
+    26: 8,
+    27: 9,
+    28: 9,
+    29: 9,
+    30: 10,
+    31: 10,
+    32: 10,
+  };
+  const zoneCount = zoneCountByPairs[Number(totalPairs || 0)] || 0;
+
+  if (!zoneCount) {
+    return [];
+  }
+
+  const baseSize = Math.max(Math.floor(totalPairs / zoneCount), 2);
+  let remainder = totalPairs - baseSize * zoneCount;
+
+  return Array.from({ length: zoneCount }, (_, index) => {
+    const shouldGrow = remainder > 0 && index < remainder;
+    return baseSize + (shouldGrow ? 1 : 0);
+  });
+}
+
+function buildFapQualifierSizes(totalPairs = 0, zoneCount = 0) {
+  const qualifierSizesByPairs = {
+    6: [2, 2],
+    7: [3, 2],
+    8: [3, 3],
+    9: [2, 2, 2],
+    10: [3, 2, 2],
+    11: [3, 3, 2],
+    12: [2, 2, 2, 2],
+    13: [3, 2, 2, 2],
+    14: [3, 3, 2, 2],
+    15: [2, 2, 2, 2, 2],
+    16: [3, 2, 2, 2, 2],
+    17: [3, 3, 2, 2, 2],
+    18: [2, 2, 2, 2, 2, 2],
+    19: [3, 2, 2, 2, 2, 2],
+    20: [3, 3, 2, 2, 2, 2],
+    21: [2, 2, 2, 2, 2, 2, 2],
+    22: [3, 2, 2, 2, 2, 2, 2],
+    23: [3, 3, 2, 2, 2, 2, 2],
+    24: [2, 2, 2, 2, 2, 2, 2, 2],
+    25: [3, 2, 2, 2, 2, 2, 2, 2],
+    26: [3, 3, 2, 2, 2, 2, 2, 2],
+    27: [2, 2, 2, 2, 2, 2, 2, 2, 2],
+    28: [3, 2, 2, 2, 2, 2, 2, 2, 2],
+    29: [3, 3, 2, 2, 2, 2, 2, 2, 2],
+    30: [2, 2, 2, 2, 2, 2, 2, 2, 2, 2],
+    31: [3, 2, 2, 2, 2, 2, 2, 2, 2, 2],
+    32: [3, 3, 2, 2, 2, 2, 2, 2, 2, 2],
+  };
+
+  return qualifierSizesByPairs[Number(totalPairs || 0)] || Array.from({ length: zoneCount }, () => 2);
+}
+
+function resolveFixtureRecommendation(pairCount = 0, pathType = "strict", ruleSet = "fap") {
   const path = pathType === "flex" ? "flex" : "strict";
   const totalPairs = Number(pairCount || 0);
 
@@ -685,6 +896,53 @@ function resolveFixtureRecommendation(pairCount = 0, pathType = "strict") {
       note: "Completa el cupo minimo antes de crear el fixture.",
       bracketTitle: "Pendiente",
     };
+  }
+
+  if (ruleSet === "apa") {
+    const rawZoneSizes = buildApaZoneSizes(totalPairs);
+    const orderedZones = orderZoneSizesWithQualifiers(rawZoneSizes, rawZoneSizes.map(() => 2));
+    const zoneSizes = orderedZones.map((zone) => zone.size);
+    const qualifierSizes = orderedZones.map((zone) => zone.qualifiers);
+
+    if (zoneSizes.length) {
+      return {
+        zoneSizes,
+        qualifierSizes,
+        qualifierCount: qualifierSizes.reduce((total, count) => total + Number(count || 0), 0),
+        bracketSize: zoneSizes.length >= 9 ? 16 : zoneSizes.length >= 4 ? 8 : 4,
+        byeCount: 0,
+        directAdvanceCount: 0,
+        zoneTemplates: buildZoneTemplates(zoneSizes, qualifierSizes),
+        qualifiedSummary: "Clasifican 2 por zona segun molde APA.",
+        bracketSummary: "La llave se arma con el molde APA correspondiente a la cantidad de parejas.",
+        note: "La app respeta los cruces APA cargados para este rango de parejas.",
+        bracketTitle: "Llave APA",
+      };
+    }
+  }
+
+  if (ruleSet === "fap") {
+    const rawZoneSizes = buildFapZoneSizes(totalPairs);
+    const rawQualifierSizes = buildFapQualifierSizes(totalPairs, rawZoneSizes.length);
+    const orderedZones = orderZoneSizesWithQualifiers(rawZoneSizes, rawQualifierSizes);
+    const zoneSizes = orderedZones.map((zone) => zone.size);
+    const qualifierSizes = orderedZones.map((zone) => zone.qualifiers);
+
+    if (zoneSizes.length) {
+      return {
+        zoneSizes,
+        qualifierSizes,
+        qualifierCount: qualifierSizes.reduce((total, count) => total + Number(count || 0), 0),
+        bracketSize: 16,
+        byeCount: 0,
+        directAdvanceCount: 0,
+        zoneTemplates: buildZoneTemplates(zoneSizes, qualifierSizes),
+        qualifiedSummary: "Clasifican segun molde FAP para esta cantidad de parejas.",
+        bracketSummary: "La llave se arma con el molde FAP correspondiente.",
+        note: "La app respeta los cruces FAP cargados para este rango de parejas.",
+        bracketTitle: "Llave FAP",
+      };
+    }
   }
 
   const presets = {
@@ -934,6 +1192,436 @@ function buildManualZones(recommendation = {}) {
   }));
 }
 
+function buildAutomaticZonePlanning(registrations = [], recommendation = {}) {
+  const zoneTemplates = Array.isArray(recommendation.zoneTemplates) ? recommendation.zoneTemplates : [];
+  let cursor = 0;
+
+  return {
+    confirmed: true,
+    updatedAtMillis: Date.now(),
+    zones: zoneTemplates.map((template, index) => {
+      const size = Number(template.size || 0);
+      const pairs = registrations.slice(cursor, cursor + size);
+      cursor += size;
+
+      return {
+        id: template.id || `zone-${index + 1}`,
+        label: template.name || `Zona ${String.fromCharCode(65 + index)}`,
+        matchSchedules: {},
+        registrationIds: pairs.map((registration) => registration.id),
+      };
+    }),
+  };
+}
+
+function buildPlanningMatchLabels(pairCount = 0) {
+  if (pairCount === 2) {
+    return ["1 vs 2"];
+  }
+
+  if (pairCount === 3) {
+    return ["1 vs 2", "1 vs 3", "2 vs 3"];
+  }
+
+  if (pairCount === 4) {
+    return ["1 vs 2", "3 vs 4", "G vs G", "P vs P"];
+  }
+
+  return [];
+}
+
+function getZoneQualifiersCount(ruleSet = "fap", pairCount = 0) {
+  if (ruleSet === "fap" && Number(pairCount || 0) === 4) {
+    return 3;
+  }
+
+  return Math.min(2, Number(pairCount || 0));
+}
+
+function getPlanningMatchPairNumbers(zone = {}, registrations = [], matchLabel = "") {
+  const directParts = String(matchLabel || "").match(/^(\d+)\s+vs\s+(\d+)$/i);
+
+  if (directParts) {
+    return [directParts[1], directParts[2]];
+  }
+
+  if (registrations.length !== 4 || !["G vs G", "P vs P"].includes(matchLabel)) {
+    return [];
+  }
+
+  const openingMatches = ["1 vs 2", "3 vs 4"].map((openingMatchLabel) => {
+    const openingParts = openingMatchLabel.match(/^(\d+)\s+vs\s+(\d+)$/i);
+    const openingParticipants = openingParts
+      ? [registrations[Number(openingParts[1]) - 1], registrations[Number(openingParts[2]) - 1]]
+      : [];
+    const winnerId = String(zone.matchSchedules?.[openingMatchLabel]?.result?.winnerRegistrationId || "");
+    const winnerIndex = openingParticipants.findIndex(
+      (participant) => String(participant?.id || "") === winnerId
+    );
+
+    if (!openingParts || winnerIndex < 0) {
+      return null;
+    }
+
+    return {
+      loser: openingParts[winnerIndex === 0 ? 2 : 1],
+      winner: openingParts[winnerIndex + 1],
+    };
+  });
+
+  if (openingMatches.some((entry) => !entry)) {
+    return [];
+  }
+
+  return matchLabel === "G vs G"
+    ? openingMatches.map((entry) => entry.winner)
+    : openingMatches.map((entry) => entry.loser);
+}
+
+function buildZoneStandings(zone = {}, zoneRegistrations = [], matchFormat = "third_set") {
+  const rowsById = zoneRegistrations.reduce((accumulator, registration) => {
+    const pairName = registration.pairLabel || registration.displayLabel || "Pareja";
+
+    accumulator[registration.id] = {
+      DG: 0,
+      DIF: 0,
+      name: pairName,
+      shortName: formatShortPairLabel(pairName),
+      PJ: 0,
+      PG: 0,
+      PP: 0,
+      registration,
+      SC: 0,
+      SF: 0,
+    };
+    return accumulator;
+  }, {});
+
+  buildPlanningMatchLabels(zoneRegistrations.length).forEach((matchLabel) => {
+    const pairNumbers = getPlanningMatchPairNumbers(zone, zoneRegistrations, matchLabel);
+    const [teamARegistration, teamBRegistration] = pairNumbers
+      .map((pairNumber) => zoneRegistrations[Number.parseInt(pairNumber, 10) - 1])
+      .filter(Boolean);
+
+    if (!teamARegistration || !teamBRegistration) {
+      return;
+    }
+
+    const result = zone.matchSchedules?.[matchLabel]?.result || {};
+    const sets = normalizeResultSets(result.sets, matchFormat);
+    const winnerId = String(result.winnerRegistrationId || "");
+
+    if (!winnerId || !hasAnyResultSetScore(sets)) {
+      return;
+    }
+
+    const loserId = winnerId === String(teamARegistration.id)
+      ? String(teamBRegistration.id)
+      : String(teamARegistration.id);
+    const winnerRow = rowsById[winnerId];
+    const loserRow = rowsById[loserId];
+
+    if (!winnerRow || !loserRow) {
+      return;
+    }
+
+    winnerRow.PJ += 1;
+    loserRow.PJ += 1;
+    winnerRow.PG += 1;
+    loserRow.PP += 1;
+
+    sets.forEach((set, setIndex) => {
+      const teamAScore = parseSetNumber(set.teamA);
+      const teamBScore = parseSetNumber(set.teamB);
+      const setWinnerSide = getSetWinnerSide(set);
+      const isSuperTieBreakSet = matchFormat === "super_tiebreak" && setIndex === 2;
+
+      if (teamAScore === null || teamBScore === null || !setWinnerSide) {
+        return;
+      }
+
+      const teamARow = rowsById[String(teamARegistration.id)];
+      const teamBRow = rowsById[String(teamBRegistration.id)];
+      const teamAWonSet = setWinnerSide === "teamA";
+
+      teamARow.SF += teamAWonSet ? 1 : 0;
+      teamARow.SC += teamAWonSet ? 0 : 1;
+      teamBRow.SF += teamAWonSet ? 0 : 1;
+      teamBRow.SC += teamAWonSet ? 1 : 0;
+
+      if (!isSuperTieBreakSet) {
+        teamARow.DG += teamAScore - teamBScore;
+        teamBRow.DG += teamBScore - teamAScore;
+      }
+    });
+  });
+
+  return Object.values(rowsById)
+    .map((row) => ({ ...row, DIF: row.SF - row.SC }))
+    .sort((first, second) => {
+      if (second.PG !== first.PG) return second.PG - first.PG;
+      if (second.PJ !== first.PJ) return second.PJ - first.PJ;
+      if (second.DIF !== first.DIF) return second.DIF - first.DIF;
+      if (second.DG !== first.DG) return second.DG - first.DG;
+      if (second.SF !== first.SF) return second.SF - first.SF;
+      return first.name.localeCompare(second.name);
+    });
+}
+
+function buildQualifiedPairsFromZonePlanning(zone = {}, zoneRegistrations = [], matchFormat = "third_set", ruleSet = "fap") {
+  const pairCount = zoneRegistrations.length;
+  const qualifierCount = getZoneQualifiersCount(ruleSet, pairCount);
+  const toQualifiedPair = (registration = null) =>
+    registration
+      ? {
+          id: registration.id,
+          label: registration.pairLabel || registration.displayLabel || "Pareja",
+          pairLabel: registration.pairLabel || registration.displayLabel || "Pareja",
+          registration,
+          shortName: formatShortPairLabel(registration.pairLabel || registration.displayLabel || "Pareja"),
+        }
+      : null;
+  const resolveMatchResult = (matchLabel = "") => {
+    const pairNumbers = getPlanningMatchPairNumbers(zone, zoneRegistrations, matchLabel);
+    const participants = pairNumbers
+      .map((pairNumber) => zoneRegistrations[Number.parseInt(pairNumber, 10) - 1])
+      .filter(Boolean);
+    const winnerId = String(zone.matchSchedules?.[matchLabel]?.result?.winnerRegistrationId || "");
+
+    if (participants.length !== 2 || !winnerId) {
+      return null;
+    }
+
+    const winner = participants.find((participant) => String(participant?.id || "") === winnerId);
+    const loser = participants.find((participant) => String(participant?.id || "") !== winnerId);
+
+    if (!winner || !loser) {
+      return null;
+    }
+
+    return { loser, winner };
+  };
+  const addUnique = (list, registration = null) => {
+    if (!registration || list.some((entry) => String(entry?.id || "") === String(registration.id || ""))) {
+      return list;
+    }
+
+    return [...list, toQualifiedPair(registration)].filter(Boolean);
+  };
+
+  if (pairCount === 2) {
+    const resolved = resolveMatchResult("1 vs 2");
+    let qualified = [];
+
+    if (resolved?.winner) qualified = addUnique(qualified, resolved.winner);
+    if (resolved?.loser && qualifierCount > 1) qualified = addUnique(qualified, resolved.loser);
+
+    return qualified.slice(0, qualifierCount);
+  }
+
+  if (pairCount === 4) {
+    const finalResolved = resolveMatchResult("G vs G");
+    const thirdResolved = resolveMatchResult("P vs P");
+    let qualified = [];
+
+    if (finalResolved?.winner) qualified = addUnique(qualified, finalResolved.winner);
+    if (finalResolved?.loser && qualifierCount > 1) qualified = addUnique(qualified, finalResolved.loser);
+    if (thirdResolved?.winner && qualifierCount > 2) qualified = addUnique(qualified, thirdResolved.winner);
+    if (thirdResolved?.loser && qualifierCount > 3) qualified = addUnique(qualified, thirdResolved.loser);
+
+    return qualified.slice(0, qualifierCount);
+  }
+
+  const expectedMatchCount = buildPlanningMatchLabels(pairCount).length;
+  const completedMatchCount = buildPlanningMatchLabels(pairCount).filter((matchLabel) => {
+    const schedule = zone.matchSchedules?.[matchLabel] || {};
+    const winnerId = String(schedule?.result?.winnerRegistrationId || "");
+    const hasScore = hasAnyResultSetScore(normalizeResultSets(schedule?.result?.sets, matchFormat));
+
+    return Boolean(winnerId && hasScore);
+  }).length;
+
+  if (expectedMatchCount && completedMatchCount < expectedMatchCount) {
+    return [];
+  }
+
+  return buildZoneStandings(zone, zoneRegistrations, matchFormat)
+    .filter((row) => row.PG + row.PP > 0)
+    .slice(0, qualifierCount)
+    .map((row) => toQualifiedPair(row.registration))
+    .filter(Boolean);
+}
+
+function orderZonesForBracketRuleSet(zones = [], ruleSet = "fap") {
+  const shouldUseOfficialOrder = ["apa", "fap"].includes(
+    String(ruleSet || "").trim().toLowerCase()
+  );
+
+  if (!shouldUseOfficialOrder) {
+    return Array.isArray(zones) ? zones : [];
+  }
+
+  return (Array.isArray(zones) ? zones : [])
+    .map((zone, index) => {
+      const size = Number(zone?.size || zone?.pairs?.length || 0);
+      const sizeRank = size === 4 ? 0 : size === 3 ? 1 : size === 2 ? 2 : 3;
+
+      return {
+        index,
+        sizeRank,
+        zone,
+      };
+    })
+    .sort((first, second) => {
+      if (first.sizeRank !== second.sizeRank) {
+        return first.sizeRank - second.sizeRank;
+      }
+
+      const firstSize = Number(first.zone?.size || first.zone?.pairs?.length || 0);
+      const secondSize = Number(second.zone?.size || second.zone?.pairs?.length || 0);
+
+      if (secondSize !== firstSize) {
+        return secondSize - firstSize;
+      }
+
+      return first.index - second.index;
+    })
+    .map(({ zone }, index) => ({
+      ...zone,
+      bracketSourceName: zone.name,
+      name: `Zona ${String.fromCharCode(65 + index)}`,
+    }));
+}
+
+function buildZonesPreviewFromZonePlanning({
+  matchFormat = "third_set",
+  registrationsById,
+  ruleSet = "fap",
+  tournamentDayOptions = [],
+  tournamentVenueOptions = [],
+  zonePlanning = {},
+} = {}) {
+  const planningZones = Array.isArray(zonePlanning?.zones) ? zonePlanning.zones : [];
+
+  const zones = planningZones
+    .map((zone, zoneIndex) => {
+      const registrations = (Array.isArray(zone.registrationIds) ? zone.registrationIds : [])
+        .map((registrationId) => registrationsById?.get(registrationId))
+        .filter(Boolean);
+      const pairCount = registrations.length;
+      const pairs = registrations.map((registration, registrationIndex) => ({
+        id: registration.id,
+        label: registration.pairLabel || `Pareja ${registrationIndex + 1}`,
+      }));
+      const baseZone = {
+        id: zone.id || `zone-${zoneIndex + 1}`,
+        name: zone.label || `Zona ${String.fromCharCode(65 + zoneIndex)}`,
+        pairs,
+        qualifiers: getZoneQualifiersCount(ruleSet, pairCount),
+        size: pairCount,
+      };
+      const qualifiedPairs = buildQualifiedPairsFromZonePlanning(zone, registrations, matchFormat, ruleSet);
+      const matches = buildZoneMatches(baseZone).map((match, matchIndex) => {
+        const matchLabel = buildPlanningMatchLabels(pairCount)[matchIndex] || match.matchupLabel;
+        const schedule = zone.matchSchedules?.[matchLabel] || {};
+        const venueLabel =
+          tournamentVenueOptions.find((venue) => venue.id === schedule.venueId)?.label ||
+          schedule.venueLabel ||
+          match.courtLabel;
+        const dayLabel = schedule.dayKey
+          ? formatScheduleDayDisplay(schedule.dayKey, tournamentDayOptions)
+          : "";
+        const pairNumbers = getPlanningMatchPairNumbers(zone, registrations, matchLabel);
+        const participants = pairNumbers
+          .map((pairNumber) => registrations[Number.parseInt(pairNumber, 10) - 1])
+          .filter(Boolean);
+        const winnerRegistrationId = String(schedule?.result?.winnerRegistrationId || "");
+        const winnerIndex = participants.findIndex(
+          (participant) => String(participant?.id || "") === winnerRegistrationId
+        );
+        const winner =
+          winnerIndex === 0 ? "teamA" : winnerIndex === 1 ? "teamB" : match.result?.winner || "";
+
+        return {
+          ...match,
+          courtLabel: venueLabel || match.courtLabel,
+          resultLabel: formatPlanningResultText(schedule),
+          scheduleLabel:
+            dayLabel && schedule.startTime
+              ? `${dayLabel} ${schedule.startTime}`
+              : dayLabel || schedule.startTime || match.scheduleLabel,
+          scheduledDayKey: schedule.dayKey || match.scheduledDayKey || "",
+          scheduledTime: schedule.startTime || match.scheduledTime || "",
+          venueId: schedule.venueId || match.venueId || "",
+          result: {
+            ...buildDefaultZoneResult(matchFormat),
+            ...(match.result || {}),
+            winner,
+            winnerSource: winner ? "manual" : match.result?.winnerSource || "",
+            sets: normalizeResultSets(schedule?.result?.sets || match.result?.sets, matchFormat),
+          },
+        };
+      });
+
+      return {
+        ...baseZone,
+        matches,
+        qualifiedPairs,
+      };
+    })
+    .filter((zone) => zone.size >= 2);
+
+  return decorateZonesWithMatches(orderZonesForBracketRuleSet(zones, ruleSet), matchFormat);
+}
+
+function formatPlanningResultText(schedule = {}) {
+  const resultText = String(schedule?.resultText || "").trim();
+
+  if (resultText) {
+    return resultText;
+  }
+
+  const sets = Array.isArray(schedule?.result?.sets) ? schedule.result.sets : [];
+  const setsText = sets
+    .filter((set) => set?.teamA || set?.teamB)
+    .map((set) => `${set?.teamA || "-"}-${set?.teamB || "-"}`)
+    .join(" ");
+
+  return setsText || "Pendiente";
+}
+
+function getSetWinnerSide(set = {}) {
+  const teamA = Number.parseInt(String(set?.teamA || ""), 10);
+  const teamB = Number.parseInt(String(set?.teamB || ""), 10);
+
+  if (!Number.isFinite(teamA) || !Number.isFinite(teamB) || teamA === teamB) {
+    return "";
+  }
+
+  return teamA > teamB ? "teamA" : "teamB";
+}
+
+function parseSetNumber(value = "") {
+  const numericValue = Number.parseInt(String(value || ""), 10);
+  return Number.isFinite(numericValue) ? numericValue : null;
+}
+
+function formatSignedValue(value = 0) {
+  const numericValue = Number(value || 0);
+  return numericValue > 0 ? `+${numericValue}` : String(numericValue);
+}
+
+function hasAnyResultSetScore(sets = []) {
+  return (Array.isArray(sets) ? sets : []).some((set) => set?.teamA || set?.teamB);
+}
+
+function buildPlanningResultTextFromSets(sets = []) {
+  return (Array.isArray(sets) ? sets : [])
+    .filter((set) => set?.teamA || set?.teamB)
+    .map((set) => `${set?.teamA || "-"}-${set?.teamB || "-"}`)
+    .join(" ");
+}
+
 function buildZoneMatches(zone = {}) {
   const pairs = Array.isArray(zone.pairs) ? zone.pairs : [];
   const size = Number(zone.size || pairs.length || 0);
@@ -1160,9 +1848,27 @@ function formatCompactSetInput(set = {}, allowDoubleDigits = false) {
 }
 
 function sanitizeSetInputValue(value = "", allowDoubleDigits = false) {
-  return String(value || "")
-    .replace(/[^\d/]/g, "")
-    .slice(0, allowDoubleDigits ? 5 : 3);
+  const cleanValue = String(value || "").replace(/[^\d/]/g, "");
+
+  if (!allowDoubleDigits) {
+    return cleanValue.slice(0, 3);
+  }
+
+  if (cleanValue.includes("/")) {
+    const [firstValue = "", secondValue = ""] = cleanValue.split("/");
+    const firstDigits = firstValue.replace(/\D/g, "").slice(0, 2);
+    const secondDigits = secondValue.replace(/\D/g, "").slice(0, 2);
+
+    return `${firstDigits}${firstDigits.length >= 2 || secondDigits ? "/" : ""}${secondDigits}`.slice(0, 5);
+  }
+
+  const digits = cleanValue.replace(/\D/g, "").slice(0, 4);
+
+  if (digits.length <= 2) {
+    return digits;
+  }
+
+  return `${digits.slice(0, 2)}/${digits.slice(2, 4)}`;
 }
 
 function normalizeZoneSeedLabel(value = "") {
@@ -1217,7 +1923,9 @@ function resolveZoneAdvanceEntry(match = {}, target = "winner") {
 
   if (!winnerKey || !["teamA", "teamB"].includes(winnerKey)) {
     return {
+      id: "",
       name: "",
+      seed: "",
       lines: [],
     };
   }
@@ -1226,7 +1934,9 @@ function resolveZoneAdvanceEntry(match = {}, target = "winner") {
     target === "winner" ? winnerKey : winnerKey === "teamA" ? "teamB" : "teamA";
 
   return {
+    id: match?.[`${resolvedTeamKey}Id`] || "",
     name: match?.[`${resolvedTeamKey}Name`] || "",
+    seed: match?.[`${resolvedTeamKey}Seed`] || "",
     lines: Array.isArray(match?.[`${resolvedTeamKey}Lines`]) ? match[`${resolvedTeamKey}Lines`] : [],
   };
 }
@@ -1245,11 +1955,11 @@ function applyZoneKnockoutProgressions(zone = {}) {
 
   matches[2] = {
     ...matches[2],
-    teamAId: "",
+    teamAId: firstMatchWinner.id,
     teamASeed: "Ganador 1",
     teamAName: firstMatchWinner.name,
     teamALines: firstMatchWinner.lines,
-    teamBId: "",
+    teamBId: secondMatchWinner.id,
     teamBSeed: "Ganador 2",
     teamBName: secondMatchWinner.name,
     teamBLines: secondMatchWinner.lines,
@@ -1257,11 +1967,11 @@ function applyZoneKnockoutProgressions(zone = {}) {
 
   matches[3] = {
     ...matches[3],
-    teamAId: "",
+    teamAId: firstMatchLoser.id,
     teamASeed: "Perdedor 1",
     teamAName: firstMatchLoser.name,
     teamALines: firstMatchLoser.lines,
-    teamBId: "",
+    teamBId: secondMatchLoser.id,
     teamBSeed: "Perdedor 2",
     teamBName: secondMatchLoser.name,
     teamBLines: secondMatchLoser.lines,
@@ -1279,32 +1989,32 @@ function decorateZonesWithMatches(zones = [], matchFormat = "third_set") {
       ...zone,
       matches: (Array.isArray(zone.matches) && zone.matches.length ? zone.matches : buildZoneMatches(zone)).map(
         (match, matchIndex) => {
-        const teamAPlaceholder = resolveZonePlaceholderMeta(match, "teamA");
-        const teamBPlaceholder = resolveZonePlaceholderMeta(match, "teamB");
+          const teamAPlaceholder = resolveZonePlaceholderMeta(match, "teamA");
+          const teamBPlaceholder = resolveZonePlaceholderMeta(match, "teamB");
 
-        return {
-          ...match,
-          title: match.title || `Partido ${matchIndex + 1}`,
-          roundLabel: match.roundLabel || "Zona",
-          teamAId: String(match.teamAId || ""),
-          teamBId: String(match.teamBId || ""),
-          teamASeed: teamAPlaceholder.seed,
-          teamBSeed: teamBPlaceholder.seed,
-          teamAName: teamAPlaceholder.name,
-          teamBName: teamBPlaceholder.name,
-          teamALines: teamAPlaceholder.lines,
-          teamBLines: teamBPlaceholder.lines,
-          courtLabel: match.courtLabel || "Cancha por asignar",
-          scheduleLabel: match.scheduleLabel || "Horario por asignar",
-          resultLabel: match.resultLabel || "Resultado pendiente",
-          result: {
-            ...buildDefaultZoneResult(matchFormat),
-            ...(match.result || {}),
-            sets: normalizeResultSets(match.result?.sets, matchFormat),
-          },
-        };
-      }
-    ),
+          return {
+            ...match,
+            title: match.title || `Partido ${matchIndex + 1}`,
+            roundLabel: match.roundLabel || "Zona",
+            teamAId: String(match.teamAId || ""),
+            teamBId: String(match.teamBId || ""),
+            teamASeed: teamAPlaceholder.seed,
+            teamBSeed: teamBPlaceholder.seed,
+            teamAName: teamAPlaceholder.name,
+            teamBName: teamBPlaceholder.name,
+            teamALines: teamAPlaceholder.lines,
+            teamBLines: teamBPlaceholder.lines,
+            courtLabel: match.courtLabel || "Cancha por asignar",
+            scheduleLabel: match.scheduleLabel || "Horario por asignar",
+            resultLabel: match.resultLabel || "Resultado pendiente",
+            result: {
+              ...buildDefaultZoneResult(matchFormat),
+              ...(match.result || {}),
+              sets: normalizeResultSets(match.result?.sets, matchFormat),
+            },
+          };
+        }
+      ),
     })
   );
 }
@@ -1487,6 +2197,16 @@ function buildQualifiedEntriesFromZones(zonesPreview = []) {
   return (Array.isArray(zonesPreview) ? zonesPreview : []).flatMap((zone, zoneIndex) => {
     const zoneLetter = String.fromCharCode(65 + zoneIndex);
     const qualifierCount = Number(zone.qualifiers || 2);
+    const qualifiedPairs = Array.isArray(zone.qualifiedPairs) ? zone.qualifiedPairs : [];
+
+    if (qualifiedPairs.length) {
+      return Array.from({ length: qualifierCount }, (_, qualifierIndex) =>
+        qualifiedPairs[qualifierIndex]
+          ? buildZoneQualifierEntry(zone, zoneLetter, qualifierIndex, qualifiedPairs[qualifierIndex])
+          : buildZoneQualifierPlaceholder(zone, zoneLetter, qualifierIndex)
+      );
+    }
+
     const resolvedEntries = resolveZoneQualifiedEntries(zone, zoneLetter);
 
     return Array.from({ length: qualifierCount }, (_, qualifierIndex) =>
@@ -1498,10 +2218,66 @@ function buildQualifiedEntriesFromZones(zonesPreview = []) {
 function syncBracketPreviewQualifiedEntries(
   bracketPreview = null,
   zonesPreview = [],
-  matchFormatResolver = null
+  matchFormatResolver = null,
+  ruleSet = "fap",
+  recommendation = null
 ) {
   if (!bracketPreview || !Array.isArray(bracketPreview?.rounds) || !bracketPreview.rounds.length) {
     return bracketPreview;
+  }
+
+  const normalizedRuleSet = String(ruleSet || bracketPreview?.ruleSet || "fap").trim().toLowerCase();
+  const isCustomRuleSetPreview =
+    normalizedRuleSet === "apa" ||
+    normalizedRuleSet === "fap" ||
+    bracketPreview?.ruleSet === "apa" ||
+    bracketPreview?.ruleSet === "fap";
+
+  if (isCustomRuleSetPreview) {
+    const nextCustomPreview =
+      normalizedRuleSet === "apa"
+        ? buildApaBracketPreview({ recommendation, zonesPreview })
+        : normalizedRuleSet === "fap"
+        ? buildFapBracketPreview({ recommendation, zonesPreview })
+        : null;
+
+    if (nextCustomPreview || bracketPreview?.ruleSet === "apa" || bracketPreview?.ruleSet === "fap") {
+      const previousMatchesById = new Map(
+        (bracketPreview.rounds || [])
+          .flatMap((round) => round.matches || [])
+          .map((match) => [match.id, match])
+          .filter(([id]) => Boolean(id))
+      );
+      const mergedCustomPreview = nextCustomPreview
+        ? {
+            ...nextCustomPreview,
+            rounds: (nextCustomPreview.rounds || []).map((round) => ({
+              ...round,
+              matches: (round.matches || []).map((match) => {
+                const previousMatch = previousMatchesById.get(match.id);
+
+                if (!previousMatch) {
+                  return match;
+                }
+
+                return {
+                  ...match,
+                  courtLabel: previousMatch.courtLabel || match.courtLabel,
+                  result: previousMatch.result || match.result,
+                  resultLabel: previousMatch.resultLabel || match.resultLabel,
+                  scheduledDayKey: previousMatch.scheduledDayKey || match.scheduledDayKey,
+                  scheduledTime: previousMatch.scheduledTime || match.scheduledTime,
+                  scheduleLabel: previousMatch.scheduleLabel || match.scheduleLabel,
+                };
+              }),
+            })),
+          }
+        : null;
+
+      return mergedCustomPreview
+        ? applyBracketProgressions(mergedCustomPreview, matchFormatResolver)
+        : bracketPreview;
+    }
   }
 
   const firstRound = bracketPreview.rounds[0];
@@ -1589,25 +2365,158 @@ function resolveBracketAdvanceEntry(match = {}, target = "winner") {
 }
 
 function isBracketPendingPlaceholder(value = "") {
-  return /^Ganador\s+/i.test(String(value || "").trim());
+  const normalized = String(value || "").trim();
+
+  return /^Ganador\s+/i.test(normalized) || /^P\d+\s*G$/i.test(normalized);
+}
+
+function isBracketSourceLinkedSlotPending(match = {}, teamKey = "teamA") {
+  const sourceMatchId = String(match?.[`${teamKey}SourceMatchId`] || "").trim();
+  const id = String(match?.[`${teamKey}Id`] || "").trim();
+  const name = String(match?.[`${teamKey}Name`] || "").trim();
+  const lines = Array.isArray(match?.[`${teamKey}Lines`]) ? match[`${teamKey}Lines`] : [];
+  const hasLines = lines.some((line) => String(line || "").trim());
+  const isPendingSourceId = Boolean(
+    sourceMatchId &&
+      (!id ||
+        id === `source-${sourceMatchId}` ||
+        id.toLowerCase().startsWith("source-"))
+  );
+  const hasRealId = Boolean(id && !isPendingSourceId);
+  const hasRealName = Boolean(name && !isBracketPendingPlaceholder(name));
+
+  return Boolean(sourceMatchId && !hasRealId && !hasRealName && !hasLines && !match?.[`${teamKey}IsBye`]);
+}
+
+function getBracketTeamSeedDisplay(match = {}, teamKey = "teamA") {
+  if (isBracketSourceLinkedSlotPending(match, teamKey)) {
+    return "";
+  }
+
+  const seed = String(match?.[`${teamKey}Seed`] || "").trim();
+
+  if (isBracketPendingPlaceholder(seed)) {
+    return "";
+  }
+
+  return seed;
 }
 
 function getBracketTeamDisplayLines(match = {}, teamKey = "teamA") {
   const linesKey = teamKey === "teamA" ? "teamALines" : "teamBLines";
   const nameKey = teamKey === "teamA" ? "teamAName" : "teamBName";
+  const seedKey = teamKey === "teamA" ? "teamASeed" : "teamBSeed";
   const lines = Array.isArray(match?.[linesKey]) ? match[linesKey] : [];
   const visibleLines = lines.filter((line) => String(line || "").trim());
   const name = String(match?.[nameKey] || "").trim();
+  const seed = String(match?.[seedKey] || "").trim();
+
+  if (isBracketSourceLinkedSlotPending(match, teamKey)) {
+    return [];
+  }
 
   if (visibleLines.length) {
     return visibleLines;
   }
 
-  if (!name || isBracketPendingPlaceholder(name)) {
-    return [];
+  if (!name && seed) {
+    return [seed];
   }
 
   return formatShortPairLines(name).filter((line) => String(line || "").trim());
+}
+
+function repairBracketPreviewSourceLinks(bracketPreview = {}) {
+  if (!bracketPreview || typeof bracketPreview !== "object" || !Array.isArray(bracketPreview.rounds)) {
+    return bracketPreview;
+  }
+
+  const rounds = bracketPreview.rounds.map((round) => ({
+    ...round,
+    matches: (round.matches || []).map((match) => ({ ...match })),
+  }));
+
+  for (let roundIndex = 1; roundIndex < rounds.length; roundIndex += 1) {
+    const round = rounds[roundIndex];
+    const previousRound = rounds[roundIndex - 1];
+    const roundTitle = String(round?.title || round?.roundTitle || "").trim().toLowerCase();
+    const isFinalRound = roundTitle === "final";
+
+    if (!isFinalRound || (round.matches || []).length !== 1 || (previousRound.matches || []).length < 2) {
+      continue;
+    }
+
+    const finalMatch = round.matches[0];
+    const previousMatches = previousRound.matches || [];
+    const previousMatchIds = previousMatches.map((match) => String(match?.id || ""));
+    const preferredTeamASource =
+      previousMatchIds.includes(getFapMatchId("P61"))
+        ? getFapMatchId("P61")
+        : previousMatchIds.includes("apa-semi-1")
+        ? "apa-semi-1"
+        : previousMatches[0]?.id || "";
+    const preferredTeamBSource =
+      previousMatchIds.includes(getFapMatchId("P62"))
+        ? getFapMatchId("P62")
+        : previousMatchIds.includes("apa-semi-2")
+        ? "apa-semi-2"
+        : previousMatches[1]?.id || "";
+
+    if (!finalMatch.teamASourceMatchId && preferredTeamASource) {
+      finalMatch.teamASourceMatchId = preferredTeamASource;
+    }
+    if (!finalMatch.teamBSourceMatchId && preferredTeamBSource) {
+      finalMatch.teamBSourceMatchId = preferredTeamBSource;
+    }
+  }
+
+  return {
+    ...bracketPreview,
+    rounds,
+  };
+}
+
+function buildZonePlanningSignature(zonePlanning = {}) {
+  const zones = Array.isArray(zonePlanning?.zones) ? zonePlanning.zones : [];
+
+  return JSON.stringify(
+    zones.map((zone, zoneIndex) => ({
+      id: String(zone?.id || `zone-${zoneIndex + 1}`),
+      label: String(zone?.label || ""),
+      matchSchedules: Object.keys(zone?.matchSchedules || {})
+        .sort()
+        .map((matchKey) => {
+          const schedule = zone.matchSchedules?.[matchKey] || {};
+          const result = schedule.result || {};
+
+          return {
+            key: matchKey,
+            resultText: String(schedule.resultText || result.score || ""),
+            sets: normalizeResultSets(result.sets || [], "third_set").map((set) => ({
+              teamA: String(set.teamA || ""),
+              teamB: String(set.teamB || ""),
+            })),
+            winnerRegistrationId: String(result.winnerRegistrationId || ""),
+          };
+        }),
+      registrationIds: (Array.isArray(zone?.registrationIds) ? zone.registrationIds : []).map(String),
+    }))
+  );
+}
+
+function buildZonesPreviewSignature(zonesPreview = []) {
+  return JSON.stringify(
+    (Array.isArray(zonesPreview) ? zonesPreview : []).map((zone, zoneIndex) => ({
+      id: String(zone?.id || `zone-${zoneIndex + 1}`),
+      name: String(zone?.name || zone?.label || ""),
+      qualifiedPairs: (Array.isArray(zone?.qualifiedPairs) ? zone.qualifiedPairs : []).map((pair, pairIndex) => ({
+        id: String(pair?.id || pair?.pairId || `pair-${pairIndex + 1}`),
+        seedLabel: String(pair?.seedLabel || pair?.seed || ""),
+      })),
+      qualifiers: Number(zone?.qualifiers || 0),
+      size: Number(zone?.size || 0),
+    }))
+  );
 }
 
 function applyBracketProgressions(bracketPreview = {}, matchFormatResolver = null) {
@@ -1615,7 +2524,8 @@ function applyBracketProgressions(bracketPreview = {}, matchFormatResolver = nul
     return null;
   }
 
-  const safeRounds = Array.isArray(bracketPreview?.rounds) ? bracketPreview.rounds : [];
+  const repairedBracketPreview = repairBracketPreviewSourceLinks(bracketPreview);
+  const safeRounds = Array.isArray(repairedBracketPreview?.rounds) ? repairedBracketPreview.rounds : [];
   const rounds = safeRounds.map((round) => ({
     ...round,
     matches: (round.matches || []).map((match) => ({
@@ -1635,40 +2545,74 @@ function applyBracketProgressions(bracketPreview = {}, matchFormatResolver = nul
     })),
   }));
 
+  const resolvedMatchesById = new Map();
+
   for (let roundIndex = 0; roundIndex < rounds.length - 1; roundIndex += 1) {
     const currentRound = rounds[roundIndex];
     const nextRound = rounds[roundIndex + 1];
 
+    (currentRound.matches || []).forEach((match) => {
+      if (match?.id) {
+        resolvedMatchesById.set(match.id, match);
+      }
+    });
+
     nextRound.matches = (nextRound.matches || []).map((match, matchIndex) => {
-      const sourceMatchA = currentRound.matches?.[matchIndex * 2];
-      const sourceMatchB = currentRound.matches?.[matchIndex * 2 + 1];
+      const usesExplicitSources = ["apa", "fap"].includes(
+        String(bracketPreview?.ruleSet || "").trim().toLowerCase()
+      );
+      const sourceMatchA = match.teamASourceMatchId
+        ? resolvedMatchesById.get(match.teamASourceMatchId)
+        : usesExplicitSources
+        ? null
+        : currentRound.matches?.[matchIndex * 2];
+      const sourceMatchB = match.teamBSourceMatchId
+        ? resolvedMatchesById.get(match.teamBSourceMatchId)
+        : usesExplicitSources
+        ? null
+        : currentRound.matches?.[matchIndex * 2 + 1];
       const winnerA = resolveBracketAdvanceEntry(sourceMatchA, "winner");
       const winnerB = resolveBracketAdvanceEntry(sourceMatchB, "winner");
-
+      const keepPendingSourceA = Boolean(match.teamASourceMatchId) && !winnerA;
+      const keepPendingSourceB = Boolean(match.teamBSourceMatchId) && !winnerB;
+      const keepCurrentTeamA = !match.teamASourceMatchId && !sourceMatchA;
+      const keepCurrentTeamB = !match.teamBSourceMatchId && !sourceMatchB;
       return {
         ...match,
         teamASeed:
+          keepCurrentTeamA
+            ? match.teamASeed || ""
+            :
+          keepPendingSourceA
+            ? ""
+            :
           winnerA?.seed ||
           (isBracketPendingPlaceholder(match.teamASeed) ? "" : match.teamASeed) ||
           "",
-        teamAId: winnerA?.id || "",
-        teamAName: winnerA?.name || "",
-        teamALines: winnerA?.lines || [],
-        teamAIsBye: Boolean(winnerA?.isBye),
+        teamAId: keepCurrentTeamA || keepPendingSourceA ? match.teamAId || "" : winnerA?.id || "",
+        teamAName: keepCurrentTeamA || keepPendingSourceA ? match.teamAName || "" : winnerA?.name || "",
+        teamALines: keepCurrentTeamA || keepPendingSourceA ? match.teamALines || [] : winnerA?.lines || [],
+        teamAIsBye: keepCurrentTeamA || keepPendingSourceA ? Boolean(match.teamAIsBye) : Boolean(winnerA?.isBye),
         teamBSeed:
+          keepCurrentTeamB
+            ? match.teamBSeed || ""
+            :
+          keepPendingSourceB
+            ? ""
+            :
           winnerB?.seed ||
           (isBracketPendingPlaceholder(match.teamBSeed) ? "" : match.teamBSeed) ||
           "",
-        teamBId: winnerB?.id || "",
-        teamBName: winnerB?.name || "",
-        teamBLines: winnerB?.lines || [],
-        teamBIsBye: Boolean(winnerB?.isBye),
+        teamBId: keepCurrentTeamB || keepPendingSourceB ? match.teamBId || "" : winnerB?.id || "",
+        teamBName: keepCurrentTeamB || keepPendingSourceB ? match.teamBName || "" : winnerB?.name || "",
+        teamBLines: keepCurrentTeamB || keepPendingSourceB ? match.teamBLines || [] : winnerB?.lines || [],
+        teamBIsBye: keepCurrentTeamB || keepPendingSourceB ? Boolean(match.teamBIsBye) : Boolean(winnerB?.isBye),
       };
     });
   }
 
   return {
-    ...bracketPreview,
+    ...repairedBracketPreview,
     rounds,
   };
 }
@@ -1738,14 +2682,1750 @@ function buildBracketSlots(entries = [], bracketSize = 2) {
   });
 }
 
+function buildByeEntry(seed = "bye") {
+  return {
+    id: `bye-${seed}`,
+    label: "BYE",
+    zoneName: "",
+    displayName: "BYE",
+    displayLines: [],
+    isBye: true,
+  };
+}
+
+function buildPendingSourceEntry(sourceMatchId = "", label = "Ganador") {
+  return {
+    id: `source-${sourceMatchId}`,
+    label,
+    seedLabel: label,
+    zoneName: "",
+    displayName: label,
+    displayLines: [],
+    sourceMatchId,
+  };
+}
+
+function buildApaEntryMap(zonesPreview = []) {
+  return buildQualifiedEntriesFromZones(zonesPreview).reduce((entriesBySeed, entry) => {
+    const seed = String(entry?.seedLabel || entry?.label || "").trim().toUpperCase();
+
+    if (seed) {
+      entriesBySeed[seed] = entry;
+    }
+
+    return entriesBySeed;
+  }, {});
+}
+
+function getApaSeedEntry(entriesBySeed = {}, seed = "") {
+  const normalizedSeed = String(seed || "").trim().toUpperCase();
+
+  return (
+    entriesBySeed[normalizedSeed] || {
+      id: `apa-placeholder-${normalizedSeed}`,
+      label: normalizedSeed,
+      seedLabel: normalizedSeed,
+      zoneName: "",
+      displayName: normalizedSeed,
+      displayLines: [],
+      pairLabel: "",
+    }
+  );
+}
+
+function buildBracketMatchFromEntries({
+  id,
+  roundTitle,
+  title,
+  teamA,
+  teamB,
+  teamASourceMatchId = "",
+  teamBSourceMatchId = "",
+  visualSlotIndex = null,
+  visualSlotPair = null,
+}) {
+  const autoWinner =
+    teamA?.isBye && !teamB?.isBye ? "teamB" : teamB?.isBye && !teamA?.isBye ? "teamA" : "";
+
+  return {
+    id,
+    title,
+    roundTitle,
+    teamAId: teamA?.isBye ? "" : String(teamA?.id || ""),
+    teamASeed: teamA?.seedLabel || teamA?.label || "",
+    teamAName: teamA?.displayName === "BYE" ? "" : teamA?.displayName || "",
+    teamALines: teamA?.displayLines || [],
+    teamAIsBye: Boolean(teamA?.isBye),
+    teamASourceMatchId,
+    teamBId: teamB?.isBye ? "" : String(teamB?.id || ""),
+    teamBSeed: teamB?.seedLabel || teamB?.label || "",
+    teamBName: teamB?.displayName === "BYE" ? "" : teamB?.displayName || "",
+    teamBLines: teamB?.displayLines || [],
+    teamBIsBye: Boolean(teamB?.isBye),
+    teamBSourceMatchId,
+    visualSlotIndex,
+    visualSlotPair,
+    resultLabel: autoWinner ? "Avanza por BYE" : "Resultado pendiente",
+    courtLabel: "Cancha pendiente",
+    scheduledDayKey: "",
+    scheduledTime: "",
+    scheduleLabel: "Horario pendiente",
+    result: {
+      ...buildDefaultBracketResult(),
+      winnerSource: autoWinner ? "auto" : "",
+      winner: autoWinner,
+    },
+  };
+}
+
+function buildApaMatch(id, roundTitle, title, teamASeed, teamBSeed, entriesBySeed = {}) {
+  return buildBracketMatchFromEntries({
+    id,
+    roundTitle,
+    title,
+    teamA: getApaSeedEntry(entriesBySeed, teamASeed),
+    teamB: getApaSeedEntry(entriesBySeed, teamBSeed),
+  });
+}
+
+function buildApaSourceMatch(id, roundTitle, title, teamASourceMatchId, teamBSeed, entriesBySeed = {}) {
+  return buildBracketMatchFromEntries({
+    id,
+    roundTitle,
+    title,
+    teamA: buildPendingSourceEntry(teamASourceMatchId, `Ganador ${title.replace(/^Semi\s*/i, "")}`),
+    teamB: getApaSeedEntry(entriesBySeed, teamBSeed),
+    teamASourceMatchId,
+  });
+}
+
+function buildApaSeedSourceMatch(id, roundTitle, title, teamASeed, teamBSourceMatchId, entriesBySeed = {}) {
+  return buildBracketMatchFromEntries({
+    id,
+    roundTitle,
+    title,
+    teamA: getApaSeedEntry(entriesBySeed, teamASeed),
+    teamB: buildPendingSourceEntry(teamBSourceMatchId, `Ganador ${title}`),
+    teamBSourceMatchId,
+  });
+}
+
+function buildApaDoubleSourceMatch(
+  id,
+  roundTitle,
+  title,
+  teamASourceMatchId,
+  teamBSourceMatchId
+) {
+  return buildBracketMatchFromEntries({
+    id,
+    roundTitle,
+    title,
+    teamA: buildPendingSourceEntry(teamASourceMatchId, `Ganador ${title} A`),
+    teamB: buildPendingSourceEntry(teamBSourceMatchId, `Ganador ${title} B`),
+    teamASourceMatchId,
+    teamBSourceMatchId,
+  });
+}
+
+function buildApaFinalRound() {
+  return {
+    id: "round-final",
+    title: "Final",
+    matches: [
+      buildBracketMatchFromEntries({
+        id: "apa-final-1",
+        roundTitle: "Final",
+        title: "Final",
+        teamA: buildPendingSourceEntry("apa-semi-1", "Ganador Semi 1"),
+        teamB: buildPendingSourceEntry("apa-semi-2", "Ganador Semi 2"),
+        teamASourceMatchId: "apa-semi-1",
+        teamBSourceMatchId: "apa-semi-2",
+      }),
+    ],
+  };
+}
+
+function buildApaSemisFromQuarterIds() {
+  return {
+    id: "round-semis",
+    title: "Semifinales",
+    matches: [
+      buildApaDoubleSourceMatch("apa-semi-1", "Semifinales", "Semi 1", "apa-qf-1", "apa-qf-2"),
+      buildApaDoubleSourceMatch("apa-semi-2", "Semifinales", "Semi 2", "apa-qf-3", "apa-qf-4"),
+    ],
+  };
+}
+
+function buildApaQuarterRoundFromSourcePairs(pairs = []) {
+  return {
+    id: "round-cuartos",
+    title: "Cuartos",
+    matches: pairs.map(([teamASourceMatchId, teamBSourceMatchId], index) =>
+      buildApaDoubleSourceMatch(
+        `apa-qf-${index + 1}`,
+        "Cuartos",
+        `Llave ${index + 1}`,
+        teamASourceMatchId,
+        teamBSourceMatchId
+      )
+    ),
+  };
+}
+
+function getFapMatchId(code = "") {
+  return `fap-${String(code || "").trim().toLowerCase()}`;
+}
+
+function buildFapMatch(code, roundTitle, teamASeed, teamBSeed, entriesBySeed = {}) {
+  return buildBracketMatchFromEntries({
+    id: getFapMatchId(code),
+    roundTitle,
+    title: code,
+    teamA: getApaSeedEntry(entriesBySeed, teamASeed),
+    teamB: getApaSeedEntry(entriesBySeed, teamBSeed),
+  });
+}
+
+function buildFapSeedSourceMatch(code, roundTitle, teamASeed, teamBSourceCode, entriesBySeed = {}) {
+  return buildBracketMatchFromEntries({
+    id: getFapMatchId(code),
+    roundTitle,
+    title: code,
+    teamA: getApaSeedEntry(entriesBySeed, teamASeed),
+    teamB: buildPendingSourceEntry(getFapMatchId(teamBSourceCode), `Ganador ${teamBSourceCode}`),
+    teamBSourceMatchId: getFapMatchId(teamBSourceCode),
+  });
+}
+
+function buildFapSourceSeedMatch(code, roundTitle, teamASourceCode, teamBSeed, entriesBySeed = {}) {
+  return buildBracketMatchFromEntries({
+    id: getFapMatchId(code),
+    roundTitle,
+    title: code,
+    teamA: buildPendingSourceEntry(getFapMatchId(teamASourceCode), `Ganador ${teamASourceCode}`),
+    teamB: getApaSeedEntry(entriesBySeed, teamBSeed),
+    teamASourceMatchId: getFapMatchId(teamASourceCode),
+  });
+}
+
+function buildFapDoubleSourceMatch(code, roundTitle, teamASourceCode, teamBSourceCode) {
+  return buildBracketMatchFromEntries({
+    id: getFapMatchId(code),
+    roundTitle,
+    title: code,
+    teamA: buildPendingSourceEntry(getFapMatchId(teamASourceCode), `Ganador ${teamASourceCode}`),
+    teamB: buildPendingSourceEntry(getFapMatchId(teamBSourceCode), `Ganador ${teamBSourceCode}`),
+    teamASourceMatchId: getFapMatchId(teamASourceCode),
+    teamBSourceMatchId: getFapMatchId(teamBSourceCode),
+  });
+}
+
+function buildFapFinalRound() {
+  return {
+    id: "round-final",
+    title: "Final",
+    matches: [
+      buildBracketMatchFromEntries({
+        id: getFapMatchId("P64"),
+        roundTitle: "Final",
+        title: "P64",
+        teamA: buildPendingSourceEntry(getFapMatchId("P61"), "Ganador P61"),
+        teamB: buildPendingSourceEntry(getFapMatchId("P62"), "Ganador P62"),
+        teamASourceMatchId: getFapMatchId("P61"),
+        teamBSourceMatchId: getFapMatchId("P62"),
+      }),
+    ],
+  };
+}
+
+function buildFapTemplatePreview(totalPairs, zonesPreview = [], rounds = []) {
+  return {
+    mode: "automatic",
+    ruleSet: "fap",
+    title: "Llave FAP",
+    summary: `Formato FAP: cruces oficiales para ${totalPairs} parejas.`,
+    recommendation: "Cruces FAP segun posiciones de zona.",
+    zonesLinked: zonesPreview.map((zone) => zone.name),
+    qualifierLabels: buildQualifiedEntriesFromZones(zonesPreview),
+    byeCount: 0,
+    rounds,
+  };
+}
+
+function buildFapSemisRound(entriesBySeed, leftA = "P57", leftB = "P58", rightA = "P59", rightB = "P60") {
+  return {
+    id: "round-semis",
+    title: "Semifinales",
+    matches: [
+      buildFapDoubleSourceMatch("P61", "Semifinales", leftA, leftB),
+      buildFapDoubleSourceMatch("P62", "Semifinales", rightA, rightB),
+    ],
+  };
+}
+
+function isFapSourceToken(value = "") {
+  return /^P\d+$/i.test(String(value || "").trim());
+}
+
+function buildFapDeclarativeMatch(spec = {}, roundTitle = "", entriesBySeed = {}) {
+  const code = String(spec.code || "").trim();
+  const teamA = String(spec.a || "").trim();
+  const teamB = String(spec.b || "").trim();
+  const teamASourceMatchId = isFapSourceToken(teamA) ? getFapMatchId(teamA) : "";
+  const teamBSourceMatchId = isFapSourceToken(teamB) ? getFapMatchId(teamB) : "";
+
+  return buildBracketMatchFromEntries({
+    id: getFapMatchId(code),
+    roundTitle,
+    title: code,
+    teamA: teamASourceMatchId
+      ? buildPendingSourceEntry(teamASourceMatchId, `Ganador ${teamA}`)
+      : getApaSeedEntry(entriesBySeed, teamA),
+    teamB: teamBSourceMatchId
+      ? buildPendingSourceEntry(teamBSourceMatchId, `Ganador ${teamB}`)
+      : getApaSeedEntry(entriesBySeed, teamB),
+    teamASourceMatchId,
+    teamBSourceMatchId,
+    visualSlotIndex:
+      Number.isFinite(Number(spec.visualSlotIndex)) ? Number(spec.visualSlotIndex) : null,
+    visualSlotPair: Array.isArray(spec.visualSlotPair) ? spec.visualSlotPair : null,
+  });
+}
+
+function getFapPreVisualSlotIndexes(totalPairs = 0, count = 0) {
+  const slotsByPairs = {
+    7: [1],
+    8: [1, 2],
+    9: [1, 2],
+    10: [1, 2, 3],
+    11: [0, 1, 2, 3],
+    13: [1],
+    14: [1, 6],
+    15: [1, 6],
+    16: [1, 5, 6],
+    17: [1, 2, 5, 6],
+    18: [1, 2, 5, 6],
+    19: [1, 2, 3, 5, 6],
+    20: [1, 2, 3, 4, 5, 6],
+    21: [1, 2, 3, 4, 5, 6],
+    22: [1, 2, 3, 4, 5, 6, 7],
+    23: [0, 1, 2, 3, 4, 5, 6, 7],
+    24: [0, 1, 2, 3, 4, 5, 6, 7],
+  };
+  const slots = slotsByPairs[Number(totalPairs || 0)];
+
+  if (Array.isArray(slots)) {
+    return slots;
+  }
+
+  return Array.from({ length: count }, (_, index) => index);
+}
+
+function getFapVisualSlotPair(key = "", matchIndex = 0) {
+  if (key === "quarters") {
+    return [matchIndex * 2, matchIndex * 2 + 1];
+  }
+
+  if (key === "semis") {
+    return [matchIndex * 2, matchIndex * 2 + 1];
+  }
+
+  return null;
+}
+
+function getFapPreRoundTitle(totalPairs = 0) {
+  const normalizedTotalPairs = Number(totalPairs || 0);
+
+  if (normalizedTotalPairs >= 7 && normalizedTotalPairs <= 11) {
+    return "Cuartos";
+  }
+
+  return "Octavos";
+}
+
+function buildFapRoundsFromSpecs(groups = {}, entriesBySeed = {}, totalPairs = 0) {
+  const preRoundTitle = getFapPreRoundTitle(totalPairs);
+  const roundOrder = [
+    ["pre", preRoundTitle, preRoundTitle === "Cuartos" ? "round-cuartos" : "round-octavos"],
+    ["integration", "Octavos", "round-octavos-integracion"],
+    ["quarters", "Cuartos", "round-cuartos"],
+    ["semis", "Semifinales", "round-semis"],
+    ["final", "Final", "round-final"],
+  ];
+
+  return roundOrder
+    .map(([key, title, id]) => {
+      const specs = Array.isArray(groups[key]) ? groups[key] : [];
+
+      if (!specs.length) {
+        return null;
+      }
+
+      return {
+        id,
+        title,
+        matches: specs.map((spec, matchIndex) => {
+          const preSlots = key === "pre" ? getFapPreVisualSlotIndexes(totalPairs, specs.length) : [];
+          const visualSlotIndex =
+            key === "pre" ? spec.visualSlotIndex ?? preSlots[matchIndex] ?? matchIndex : spec.visualSlotIndex;
+          const visualSlotPair = spec.visualSlotPair || getFapVisualSlotPair(key, matchIndex);
+
+          return buildFapDeclarativeMatch(
+            {
+              ...spec,
+              visualSlotIndex,
+              visualSlotPair,
+            },
+            title,
+            entriesBySeed
+          );
+        }),
+      };
+    })
+    .filter(Boolean);
+}
+
+const FAP_EXTRA_TEMPLATES = {
+  6: {
+    semis: [
+      { code: "P61", a: "1A", b: "2B" },
+      { code: "P62", a: "2A", b: "1B" },
+    ],
+    final: [{ code: "P64", a: "P61", b: "P62" }],
+  },
+  7: {
+    pre: [{ code: "P58", a: "3A", b: "2B" }],
+    semis: [
+      { code: "P61", a: "1A", b: "P58" },
+      { code: "P62", a: "2A", b: "1B" },
+    ],
+    final: [{ code: "P64", a: "P61", b: "P62" }],
+  },
+  8: {
+    pre: [
+      { code: "P58", a: "3A", b: "2B" },
+      { code: "P59", a: "2A", b: "3B" },
+    ],
+    semis: [
+      { code: "P61", a: "1A", b: "P58" },
+      { code: "P62", a: "P59", b: "1B" },
+    ],
+    final: [{ code: "P64", a: "P61", b: "P62" }],
+  },
+  9: {
+    pre: [
+      { code: "P58", a: "2B", b: "2C" },
+      { code: "P59", a: "1C", b: "2A" },
+    ],
+    semis: [
+      { code: "P61", a: "1A", b: "P58" },
+      { code: "P62", a: "P59", b: "1B" },
+    ],
+    final: [{ code: "P64", a: "P61", b: "P62" }],
+  },
+  10: {
+    pre: [
+      { code: "P58", a: "2B", b: "2C" },
+      { code: "P59", a: "1C", b: "2A" },
+      { code: "P60", a: "3A", b: "1B" },
+    ],
+    semis: [
+      { code: "P61", a: "1A", b: "P58" },
+      { code: "P62", a: "P59", b: "P60" },
+    ],
+    final: [{ code: "P64", a: "P61", b: "P62" }],
+  },
+  11: {
+    pre: [
+      { code: "P57", a: "1A", b: "3B" },
+      { code: "P58", a: "2B", b: "2C" },
+      { code: "P59", a: "1C", b: "2A" },
+      { code: "P60", a: "3A", b: "1B" },
+    ],
+    semis: [
+      { code: "P61", a: "P57", b: "P58" },
+      { code: "P62", a: "P59", b: "P60" },
+    ],
+    final: [{ code: "P64", a: "P61", b: "P62" }],
+  },
+  12: {
+    quarters: [
+      { code: "P57", a: "1A", b: "2B" },
+      { code: "P58", a: "2C", b: "1D" },
+      { code: "P59", a: "1C", b: "2D" },
+      { code: "P60", a: "2A", b: "1B" },
+    ],
+    semis: [
+      { code: "P61", a: "P57", b: "P58" },
+      { code: "P62", a: "P59", b: "P60" },
+    ],
+    final: [{ code: "P64", a: "P61", b: "P62" }],
+  },
+  13: {
+    pre: [{ code: "P50", a: "3A", b: "2B" }],
+    quarters: [
+      { code: "P57", a: "1A", b: "P50" },
+      { code: "P58", a: "2C", b: "1D" },
+      { code: "P59", a: "1C", b: "2D" },
+      { code: "P60", a: "2A", b: "1B" },
+    ],
+    semis: [
+      { code: "P61", a: "P57", b: "P58" },
+      { code: "P62", a: "P59", b: "P60" },
+    ],
+    final: [{ code: "P64", a: "P61", b: "P62" }],
+  },
+  14: {
+    pre: [
+      { code: "P50", a: "3A", b: "2B" },
+      { code: "P55", a: "2A", b: "3B" },
+    ],
+    quarters: [
+      { code: "P57", a: "1A", b: "P50" },
+      { code: "P58", a: "2C", b: "1D" },
+      { code: "P59", a: "1C", b: "2D" },
+      { code: "P60", a: "P55", b: "1B" },
+    ],
+    semis: [
+      { code: "P61", a: "P57", b: "P58" },
+      { code: "P62", a: "P59", b: "P60" },
+    ],
+    final: [{ code: "P64", a: "P61", b: "P62" }],
+  },
+  15: {
+    pre: [
+      { code: "P50", a: "2B", b: "2C" },
+      { code: "P55", a: "2D", b: "2A" },
+    ],
+    quarters: [
+      { code: "P57", a: "1A", b: "P50" },
+      { code: "P58", a: "1E", b: "1D" },
+      { code: "P59", a: "1C", b: "2E" },
+      { code: "P60", a: "P55", b: "1B" },
+    ],
+    semis: [
+      { code: "P61", a: "P57", b: "P58" },
+      { code: "P62", a: "P59", b: "P60" },
+    ],
+    final: [{ code: "P64", a: "P61", b: "P62" }],
+  },
+  16: {
+    pre: [
+      { code: "P50", a: "2B", b: "2C" },
+      { code: "P54", a: "3A", b: "2E" },
+      { code: "P55", a: "2D", b: "2A" },
+    ],
+    quarters: [
+      { code: "P57", a: "1A", b: "P50" },
+      { code: "P58", a: "1E", b: "1D" },
+      { code: "P59", a: "1C", b: "P54" },
+      { code: "P60", a: "P55", b: "1B" },
+    ],
+    semis: [
+      { code: "P61", a: "P57", b: "P58" },
+      { code: "P62", a: "P59", b: "P60" },
+    ],
+    final: [{ code: "P64", a: "P61", b: "P62" }],
+  },
+  17: {
+    pre: [
+      { code: "P50", a: "2B", b: "2C" },
+      { code: "P51", a: "1E", b: "3B" },
+      { code: "P54", a: "3A", b: "2E" },
+      { code: "P55", a: "2D", b: "2A" },
+    ],
+    quarters: [
+      { code: "P57", a: "1A", b: "P50" },
+      { code: "P58", a: "P51", b: "1D" },
+      { code: "P59", a: "1C", b: "P54" },
+      { code: "P60", a: "P55", b: "1B" },
+    ],
+    semis: [
+      { code: "P61", a: "P57", b: "P58" },
+      { code: "P62", a: "P59", b: "P60" },
+    ],
+    final: [{ code: "P64", a: "P61", b: "P62" }],
+  },
+  18: {
+    pre: [
+      { code: "P50", a: "2C", b: "2F" },
+      { code: "P51", a: "1E", b: "2B" },
+      { code: "P54", a: "2A", b: "1F" },
+      { code: "P55", a: "2E", b: "2D" },
+    ],
+    quarters: [
+      { code: "P57", a: "1A", b: "P50" },
+      { code: "P58", a: "P51", b: "1D" },
+      { code: "P59", a: "1C", b: "P54" },
+      { code: "P60", a: "P55", b: "1B" },
+    ],
+    semis: [
+      { code: "P61", a: "P57", b: "P58" },
+      { code: "P62", a: "P59", b: "P60" },
+    ],
+    final: [{ code: "P64", a: "P61", b: "P62" }],
+  },
+  19: {
+    pre: [
+      { code: "P50", a: "2C", b: "2F" },
+      { code: "P51", a: "1E", b: "2B" },
+      { code: "P52", a: "3A", b: "1D" },
+      { code: "P54", a: "2A", b: "1F" },
+      { code: "P55", a: "2E", b: "2D" },
+    ],
+    quarters: [
+      { code: "P57", a: "1A", b: "P50" },
+      { code: "P58", a: "P51", b: "P52" },
+      { code: "P59", a: "1C", b: "P54" },
+      { code: "P60", a: "P55", b: "1B" },
+    ],
+    semis: [
+      { code: "P61", a: "P57", b: "P58" },
+      { code: "P62", a: "P59", b: "P60" },
+    ],
+    final: [{ code: "P64", a: "P61", b: "P62" }],
+  },
+  20: {
+    pre: [
+      { code: "P50", a: "2C", b: "2F" },
+      { code: "P51", a: "1E", b: "2B" },
+      { code: "P52", a: "3A", b: "1D" },
+      { code: "P53", a: "1C", b: "3B" },
+      { code: "P54", a: "2A", b: "1F" },
+      { code: "P55", a: "2E", b: "2D" },
+    ],
+    quarters: [
+      { code: "P57", a: "1A", b: "P50" },
+      { code: "P58", a: "P51", b: "P52" },
+      { code: "P59", a: "P53", b: "P54" },
+      { code: "P60", a: "P55", b: "1B" },
+    ],
+    semis: [
+      { code: "P61", a: "P57", b: "P58" },
+      { code: "P62", a: "P59", b: "P60" },
+    ],
+    final: [{ code: "P64", a: "P61", b: "P62" }],
+  },
+  21: {
+    pre: [
+      { code: "P50", a: "2F", b: "2G" },
+      { code: "P51", a: "1E", b: "2C" },
+      { code: "P52", a: "2B", b: "1D" },
+      { code: "P53", a: "1C", b: "2A" },
+      { code: "P54", a: "2D", b: "1F" },
+      { code: "P55", a: "1G", b: "2E" },
+    ],
+    quarters: [
+      { code: "P57", a: "1A", b: "P50" },
+      { code: "P58", a: "P51", b: "P52" },
+      { code: "P59", a: "P53", b: "P54" },
+      { code: "P60", a: "P55", b: "1B" },
+    ],
+    semis: [
+      { code: "P61", a: "P57", b: "P58" },
+      { code: "P62", a: "P59", b: "P60" },
+    ],
+    final: [{ code: "P64", a: "P61", b: "P62" }],
+  },
+  22: {
+    pre: [
+      { code: "P50", a: "2F", b: "2G" },
+      { code: "P51", a: "1E", b: "2C" },
+      { code: "P52", a: "2B", b: "1D" },
+      { code: "P53", a: "1C", b: "2A" },
+      { code: "P54", a: "2D", b: "1F" },
+      { code: "P55", a: "1G", b: "2E" },
+      { code: "P56", a: "3A", b: "1B" },
+    ],
+    quarters: [
+      { code: "P57", a: "1A", b: "P50" },
+      { code: "P58", a: "P51", b: "P52" },
+      { code: "P59", a: "P53", b: "P54" },
+      { code: "P60", a: "P55", b: "P56" },
+    ],
+    semis: [
+      { code: "P61", a: "P57", b: "P58" },
+      { code: "P62", a: "P59", b: "P60" },
+    ],
+    final: [{ code: "P64", a: "P61", b: "P62" }],
+  },
+  23: {
+    pre: [
+      { code: "P49", a: "1A", b: "3B" },
+      { code: "P50", a: "2F", b: "2G" },
+      { code: "P51", a: "1E", b: "2C" },
+      { code: "P52", a: "2B", b: "1D" },
+      { code: "P53", a: "1C", b: "2A" },
+      { code: "P54", a: "2D", b: "1F" },
+      { code: "P55", a: "1G", b: "2E" },
+      { code: "P56", a: "3A", b: "1B" },
+    ],
+    quarters: [
+      { code: "P57", a: "P49", b: "P50" },
+      { code: "P58", a: "P51", b: "P52" },
+      { code: "P59", a: "P53", b: "P54" },
+      { code: "P60", a: "P55", b: "P56" },
+    ],
+    semis: [
+      { code: "P61", a: "P57", b: "P58" },
+      { code: "P62", a: "P59", b: "P60" },
+    ],
+    final: [{ code: "P64", a: "P61", b: "P62" }],
+  },
+  24: {
+    pre: [
+      { code: "P49", a: "1A", b: "2B" },
+      { code: "P50", a: "2G", b: "1H" },
+      { code: "P51", a: "1E", b: "2F" },
+      { code: "P52", a: "2C", b: "1D" },
+      { code: "P53", a: "1C", b: "2D" },
+      { code: "P54", a: "2E", b: "1F" },
+      { code: "P55", a: "1G", b: "2H" },
+      { code: "P56", a: "2A", b: "1B" },
+    ],
+    quarters: [
+      { code: "P57", a: "P49", b: "P50" },
+      { code: "P58", a: "P51", b: "P52" },
+      { code: "P59", a: "P53", b: "P54" },
+      { code: "P60", a: "P55", b: "P56" },
+    ],
+    semis: [
+      { code: "P61", a: "P57", b: "P58" },
+      { code: "P62", a: "P59", b: "P60" },
+    ],
+    final: [{ code: "P64", a: "P61", b: "P62" }],
+  },
+  25: {
+    pre: [
+      { code: "P34", a: "3A", b: "2B" },
+      { code: "P50", a: "2G", b: "1H" },
+      { code: "P51", a: "1E", b: "2F" },
+      { code: "P52", a: "2C", b: "1D" },
+      { code: "P53", a: "1C", b: "2D" },
+      { code: "P54", a: "2E", b: "1F" },
+      { code: "P55", a: "1G", b: "2H" },
+      { code: "P56", a: "2A", b: "1B" },
+    ],
+    integration: [{ code: "P49", a: "1A", b: "P34" }],
+    quarters: [
+      { code: "P57", a: "P49", b: "P50" },
+      { code: "P58", a: "P51", b: "P52" },
+      { code: "P59", a: "P53", b: "P54" },
+      { code: "P60", a: "P55", b: "P56" },
+    ],
+    semis: [
+      { code: "P61", a: "P57", b: "P58" },
+      { code: "P62", a: "P59", b: "P60" },
+    ],
+    final: [{ code: "P64", a: "P61", b: "P62" }],
+  },
+  26: {
+    pre: [
+      { code: "P34", a: "3A", b: "2B" },
+      { code: "P50", a: "2G", b: "1H" },
+      { code: "P51", a: "1E", b: "2F" },
+      { code: "P52", a: "2C", b: "1D" },
+      { code: "P53", a: "1C", b: "2D" },
+      { code: "P54", a: "2E", b: "1F" },
+      { code: "P55", a: "1G", b: "2H" },
+      { code: "P56", a: "2A", b: "3B" },
+    ],
+    integration: [{ code: "P49", a: "1A", b: "P34" }],
+    quarters: [
+      { code: "P57", a: "P49", b: "P50" },
+      { code: "P58", a: "P51", b: "P52" },
+      { code: "P59", a: "P53", b: "P54" },
+      { code: "P60", a: "P55", b: "P56" },
+    ],
+    semis: [
+      { code: "P61", a: "P57", b: "P58" },
+      { code: "P62", a: "P59", b: "P60" },
+    ],
+    final: [{ code: "P64", a: "P61", b: "P62" }],
+  },
+  27: {
+    pre: [
+      { code: "P34", a: "2B", b: "2C" },
+      { code: "P50", a: "1I", b: "1H" },
+      { code: "P51", a: "1E", b: "2G" },
+      { code: "P52", a: "2F", b: "1D" },
+      { code: "P53", a: "1C", b: "2E" },
+      { code: "P54", a: "2H", b: "1F" },
+      { code: "P55", a: "1G", b: "2I" },
+      { code: "P47", a: "2D", b: "2A" },
+    ],
+    integration: [
+      { code: "P49", a: "1A", b: "P34" },
+      { code: "P56", a: "P47", b: "1B" },
+    ],
+    quarters: [
+      { code: "P57", a: "P49", b: "P50" },
+      { code: "P58", a: "P51", b: "P52" },
+      { code: "P59", a: "P53", b: "P54" },
+      { code: "P60", a: "P55", b: "P56" },
+    ],
+    semis: [
+      { code: "P61", a: "P57", b: "P58" },
+      { code: "P62", a: "P59", b: "P60" },
+    ],
+    final: [{ code: "P64", a: "P61", b: "P62" }],
+  },
+  28: {
+    pre: [
+      { code: "P34", a: "2B", b: "2C" },
+      { code: "P50", a: "1I", b: "1H" },
+      { code: "P51", a: "1E", b: "2G" },
+      { code: "P52", a: "2F", b: "1D" },
+      { code: "P42", a: "3A", b: "2E" },
+      { code: "P54", a: "2H", b: "1F" },
+      { code: "P55", a: "1G", b: "2I" },
+      { code: "P47", a: "2D", b: "2A" },
+    ],
+    integration: [
+      { code: "P49", a: "1A", b: "P34" },
+      { code: "P53", a: "1C", b: "P42" },
+      { code: "P56", a: "P47", b: "1B" },
+    ],
+    quarters: [
+      { code: "P57", a: "P49", b: "P50" },
+      { code: "P58", a: "P51", b: "P52" },
+      { code: "P59", a: "P53", b: "P54" },
+      { code: "P60", a: "P55", b: "P56" },
+    ],
+    semis: [
+      { code: "P61", a: "P57", b: "P58" },
+      { code: "P62", a: "P59", b: "P60" },
+    ],
+    final: [{ code: "P64", a: "P61", b: "P62" }],
+  },
+  29: {
+    pre: [
+      { code: "P34", a: "2B", b: "2C" },
+      { code: "P50", a: "1I", b: "1H" },
+      { code: "P51", a: "1E", b: "2G" },
+      { code: "P39", a: "2F", b: "3B" },
+      { code: "P42", a: "3A", b: "2E" },
+      { code: "P54", a: "2H", b: "1F" },
+      { code: "P55", a: "1G", b: "2I" },
+      { code: "P47", a: "2D", b: "2A" },
+    ],
+    integration: [
+      { code: "P49", a: "1A", b: "P34" },
+      { code: "P52", a: "P39", b: "1D" },
+      { code: "P53", a: "1C", b: "P42" },
+      { code: "P56", a: "P47", b: "1B" },
+    ],
+    quarters: [
+      { code: "P57", a: "P49", b: "P50" },
+      { code: "P58", a: "P51", b: "P52" },
+      { code: "P59", a: "P53", b: "P54" },
+      { code: "P60", a: "P55", b: "P56" },
+    ],
+    semis: [
+      { code: "P61", a: "P57", b: "P58" },
+      { code: "P62", a: "P59", b: "P60" },
+    ],
+    final: [{ code: "P64", a: "P61", b: "P62" }],
+  },
+  30: {
+    pre: [
+      { code: "P34", a: "2C", b: "2F" },
+      { code: "P50", a: "1I", b: "1H" },
+      { code: "P51", a: "1E", b: "2J" },
+      { code: "P39", a: "2G", b: "2B" },
+      { code: "P42", a: "2A", b: "2H" },
+      { code: "P54", a: "2I", b: "1F" },
+      { code: "P55", a: "1G", b: "1J" },
+      { code: "P47", a: "2E", b: "2D" },
+    ],
+    integration: [
+      { code: "P49", a: "1A", b: "P34" },
+      { code: "P52", a: "P39", b: "1D" },
+      { code: "P53", a: "1C", b: "P42" },
+      { code: "P56", a: "P47", b: "1B" },
+    ],
+    quarters: [
+      { code: "P57", a: "P49", b: "P50" },
+      { code: "P58", a: "P51", b: "P52" },
+      { code: "P59", a: "P53", b: "P54" },
+      { code: "P60", a: "P55", b: "P56" },
+    ],
+    semis: [
+      { code: "P61", a: "P57", b: "P58" },
+      { code: "P62", a: "P59", b: "P60" },
+    ],
+    final: [{ code: "P64", a: "P61", b: "P62" }],
+  },
+  31: {
+    pre: [
+      { code: "P34", a: "2C", b: "2F" },
+      { code: "P50", a: "1I", b: "1H" },
+      { code: "P51", a: "1E", b: "2J" },
+      { code: "P39", a: "2G", b: "2B" },
+      { code: "P42", a: "2A", b: "2H" },
+      { code: "P43", a: "2I", b: "3A" },
+      { code: "P55", a: "1G", b: "1J" },
+      { code: "P47", a: "2E", b: "2D" },
+    ],
+    integration: [
+      { code: "P49", a: "1A", b: "P34" },
+      { code: "P52", a: "P39", b: "1D" },
+      { code: "P53", a: "1C", b: "P42" },
+      { code: "P54", a: "P43", b: "1F" },
+      { code: "P56", a: "P47", b: "1B" },
+    ],
+    quarters: [
+      { code: "P57", a: "P49", b: "P50" },
+      { code: "P58", a: "P51", b: "P52" },
+      { code: "P59", a: "P53", b: "P54" },
+      { code: "P60", a: "P55", b: "P56" },
+    ],
+    semis: [
+      { code: "P61", a: "P57", b: "P58" },
+      { code: "P62", a: "P59", b: "P60" },
+    ],
+    final: [{ code: "P64", a: "P61", b: "P62" }],
+  },
+  32: {
+    pre: [
+      { code: "P34", a: "2C", b: "2F" },
+      { code: "P50", a: "1I", b: "1H" },
+      { code: "P38", a: "3B", b: "2J" },
+      { code: "P39", a: "2G", b: "2B" },
+      { code: "P42", a: "2A", b: "2H" },
+      { code: "P43", a: "2I", b: "3A" },
+      { code: "P55", a: "1G", b: "1J" },
+      { code: "P47", a: "2E", b: "2D" },
+    ],
+    integration: [
+      { code: "P49", a: "1A", b: "P34" },
+      { code: "P51", a: "1E", b: "P38" },
+      { code: "P52", a: "P39", b: "1D" },
+      { code: "P53", a: "1C", b: "P42" },
+      { code: "P54", a: "P43", b: "1F" },
+      { code: "P56", a: "P47", b: "1B" },
+    ],
+    quarters: [
+      { code: "P57", a: "P49", b: "P50" },
+      { code: "P58", a: "P51", b: "P52" },
+      { code: "P59", a: "P53", b: "P54" },
+      { code: "P60", a: "P55", b: "P56" },
+    ],
+    semis: [
+      { code: "P61", a: "P57", b: "P58" },
+      { code: "P62", a: "P59", b: "P60" },
+    ],
+    final: [{ code: "P64", a: "P61", b: "P62" }],
+  },
+};
+
+function buildFapBracketPreview({ recommendation, zonesPreview = [] }) {
+  const totalPairs = (Array.isArray(zonesPreview) ? zonesPreview : []).reduce(
+    (total, zone) => total + Number(zone?.size || zone?.pairs?.length || 0),
+    0
+  );
+  const entriesBySeed = buildApaEntryMap(zonesPreview);
+  const finalRound = buildFapFinalRound();
+  const extraTemplate = FAP_EXTRA_TEMPLATES[totalPairs];
+
+  if (extraTemplate) {
+    return buildFapTemplatePreview(
+      totalPairs,
+      zonesPreview,
+      buildFapRoundsFromSpecs(extraTemplate, entriesBySeed, totalPairs)
+    );
+  }
+
+  if (totalPairs === 6) {
+    return buildFapTemplatePreview(totalPairs, zonesPreview, [
+      {
+        id: "round-semis",
+        title: "Semifinales",
+        matches: [
+          buildFapMatch("P61", "Semifinales", "1A", "2B", entriesBySeed),
+          buildFapMatch("P62", "Semifinales", "2A", "1B", entriesBySeed),
+        ],
+      },
+      finalRound,
+    ]);
+  }
+
+  if (totalPairs === 7) {
+    return buildFapTemplatePreview(totalPairs, zonesPreview, [
+      {
+        id: "round-cuartos",
+        title: "Cuartos",
+        matches: [buildFapMatch("P58", "Cuartos", "3A", "2B", entriesBySeed)],
+      },
+      {
+        id: "round-semis",
+        title: "Semifinales",
+        matches: [
+          buildFapSeedSourceMatch("P61", "Semifinales", "1A", "P58", entriesBySeed),
+          buildFapMatch("P62", "Semifinales", "2A", "1B", entriesBySeed),
+        ],
+      },
+      finalRound,
+    ]);
+  }
+
+  if (totalPairs === 8) {
+    return buildFapTemplatePreview(totalPairs, zonesPreview, [
+      {
+        id: "round-cuartos",
+        title: "Cuartos",
+        matches: [
+          buildFapMatch("P58", "Cuartos", "3A", "2B", entriesBySeed),
+          buildFapMatch("P59", "Cuartos", "2A", "3B", entriesBySeed),
+        ],
+      },
+      {
+        id: "round-semis",
+        title: "Semifinales",
+        matches: [
+          buildFapSeedSourceMatch("P61", "Semifinales", "1A", "P58", entriesBySeed),
+          buildFapSourceSeedMatch("P62", "Semifinales", "P59", "1B", entriesBySeed),
+        ],
+      },
+      finalRound,
+    ]);
+  }
+
+  if (totalPairs === 9) {
+    return buildFapTemplatePreview(totalPairs, zonesPreview, [
+      {
+        id: "round-cuartos",
+        title: "Cuartos",
+        matches: [
+          buildFapMatch("P58", "Cuartos", "2B", "2C", entriesBySeed),
+          buildFapMatch("P59", "Cuartos", "1C", "2A", entriesBySeed),
+        ],
+      },
+      {
+        id: "round-semis",
+        title: "Semifinales",
+        matches: [
+          buildFapSeedSourceMatch("P61", "Semifinales", "1A", "P58", entriesBySeed),
+          buildFapSourceSeedMatch("P62", "Semifinales", "P59", "1B", entriesBySeed),
+        ],
+      },
+      finalRound,
+    ]);
+  }
+
+  if (totalPairs === 10) {
+    return buildFapTemplatePreview(totalPairs, zonesPreview, [
+      {
+        id: "round-cuartos",
+        title: "Cuartos",
+        matches: [
+          buildFapMatch("P58", "Cuartos", "2B", "2C", entriesBySeed),
+          buildFapMatch("P59", "Cuartos", "1C", "2A", entriesBySeed),
+          buildFapMatch("P60", "Cuartos", "3A", "1B", entriesBySeed),
+        ],
+      },
+      {
+        id: "round-semis",
+        title: "Semifinales",
+        matches: [
+          buildFapSeedSourceMatch("P61", "Semifinales", "1A", "P58", entriesBySeed),
+          buildFapDoubleSourceMatch("P62", "Semifinales", "P59", "P60"),
+        ],
+      },
+      finalRound,
+    ]);
+  }
+
+  if (totalPairs === 11) {
+    return buildFapTemplatePreview(totalPairs, zonesPreview, [
+      {
+        id: "round-cuartos",
+        title: "Cuartos",
+        matches: [
+          buildFapMatch("P57", "Cuartos", "1A", "3B", entriesBySeed),
+          buildFapMatch("P58", "Cuartos", "2B", "2C", entriesBySeed),
+          buildFapMatch("P59", "Cuartos", "1C", "2A", entriesBySeed),
+          buildFapMatch("P60", "Cuartos", "3A", "1B", entriesBySeed),
+        ],
+      },
+      buildFapSemisRound(entriesBySeed),
+      finalRound,
+    ]);
+  }
+
+  if (totalPairs === 12) {
+    return buildFapTemplatePreview(totalPairs, zonesPreview, [
+      {
+        id: "round-cuartos",
+        title: "Cuartos",
+        matches: [
+          buildFapMatch("P57", "Cuartos", "1A", "2B", entriesBySeed),
+          buildFapMatch("P58", "Cuartos", "2C", "1D", entriesBySeed),
+          buildFapMatch("P59", "Cuartos", "1C", "2D", entriesBySeed),
+          buildFapMatch("P60", "Cuartos", "2A", "1B", entriesBySeed),
+        ],
+      },
+      buildFapSemisRound(entriesBySeed),
+      finalRound,
+    ]);
+  }
+
+  if (totalPairs === 14) {
+    return buildFapTemplatePreview(totalPairs, zonesPreview, [
+      {
+        id: "round-octavos",
+        title: "Octavos",
+        matches: [
+          buildFapMatch("P50", "Octavos", "3A", "2B", entriesBySeed),
+          buildFapMatch("P55", "Octavos", "2A", "3B", entriesBySeed),
+        ],
+      },
+      {
+        id: "round-cuartos",
+        title: "Cuartos",
+        matches: [
+          buildFapSeedSourceMatch("P57", "Cuartos", "1A", "P50", entriesBySeed),
+          buildFapMatch("P58", "Cuartos", "2C", "1D", entriesBySeed),
+          buildFapMatch("P59", "Cuartos", "1C", "2D", entriesBySeed),
+          buildFapSourceSeedMatch("P60", "Cuartos", "P55", "1B", entriesBySeed),
+        ],
+      },
+      buildFapSemisRound(entriesBySeed),
+      finalRound,
+    ]);
+  }
+
+  if (totalPairs === 15) {
+    return buildFapTemplatePreview(totalPairs, zonesPreview, [
+      {
+        id: "round-octavos",
+        title: "Octavos",
+        matches: [
+          buildFapMatch("P50", "Octavos", "2B", "2C", entriesBySeed),
+          buildFapMatch("P55", "Octavos", "2D", "2A", entriesBySeed),
+        ],
+      },
+      {
+        id: "round-cuartos",
+        title: "Cuartos",
+        matches: [
+          buildFapSeedSourceMatch("P57", "Cuartos", "1A", "P50", entriesBySeed),
+          buildFapMatch("P58", "Cuartos", "1E", "1D", entriesBySeed),
+          buildFapMatch("P59", "Cuartos", "1C", "2E", entriesBySeed),
+          buildFapSourceSeedMatch("P60", "Cuartos", "P55", "1B", entriesBySeed),
+        ],
+      },
+      buildFapSemisRound(entriesBySeed),
+      finalRound,
+    ]);
+  }
+
+  if (totalPairs === 16) {
+    return buildFapTemplatePreview(totalPairs, zonesPreview, [
+      {
+        id: "round-octavos",
+        title: "Octavos",
+        matches: [
+          buildFapMatch("P50", "Octavos", "2B", "2C", entriesBySeed),
+          buildFapMatch("P54", "Octavos", "3A", "2E", entriesBySeed),
+          buildFapMatch("P55", "Octavos", "2D", "2A", entriesBySeed),
+        ],
+      },
+      {
+        id: "round-cuartos",
+        title: "Cuartos",
+        matches: [
+          buildFapSeedSourceMatch("P57", "Cuartos", "1A", "P50", entriesBySeed),
+          buildFapMatch("P58", "Cuartos", "1E", "1D", entriesBySeed),
+          buildFapSeedSourceMatch("P59", "Cuartos", "1C", "P54", entriesBySeed),
+          buildFapSourceSeedMatch("P60", "Cuartos", "P55", "1B", entriesBySeed),
+        ],
+      },
+      buildFapSemisRound(entriesBySeed),
+      finalRound,
+    ]);
+  }
+
+  if (totalPairs === 17) {
+    return buildFapTemplatePreview(totalPairs, zonesPreview, [
+      {
+        id: "round-octavos",
+        title: "Octavos",
+        matches: [
+          buildFapMatch("P50", "Octavos", "2B", "2C", entriesBySeed),
+          buildFapMatch("P51", "Octavos", "1E", "3B", entriesBySeed),
+          buildFapMatch("P54", "Octavos", "3A", "2E", entriesBySeed),
+          buildFapMatch("P55", "Octavos", "2D", "2A", entriesBySeed),
+        ],
+      },
+      {
+        id: "round-cuartos",
+        title: "Cuartos",
+        matches: [
+          buildFapSeedSourceMatch("P57", "Cuartos", "1A", "P50", entriesBySeed),
+          buildFapSourceSeedMatch("P58", "Cuartos", "P51", "1D", entriesBySeed),
+          buildFapSeedSourceMatch("P59", "Cuartos", "1C", "P54", entriesBySeed),
+          buildFapSourceSeedMatch("P60", "Cuartos", "P55", "1B", entriesBySeed),
+        ],
+      },
+      buildFapSemisRound(entriesBySeed),
+      finalRound,
+    ]);
+  }
+
+  if (totalPairs === 18) {
+    return buildFapTemplatePreview(totalPairs, zonesPreview, [
+      {
+        id: "round-octavos",
+        title: "Octavos",
+        matches: [
+          buildFapMatch("P50", "Octavos", "2C", "2F", entriesBySeed),
+          buildFapMatch("P51", "Octavos", "1E", "2B", entriesBySeed),
+          buildFapMatch("P54", "Octavos", "2A", "1F", entriesBySeed),
+          buildFapMatch("P55", "Octavos", "2E", "2D", entriesBySeed),
+        ],
+      },
+      {
+        id: "round-cuartos",
+        title: "Cuartos",
+        matches: [
+          buildFapSeedSourceMatch("P57", "Cuartos", "1A", "P50", entriesBySeed),
+          buildFapSourceSeedMatch("P58", "Cuartos", "P51", "1D", entriesBySeed),
+          buildFapSeedSourceMatch("P59", "Cuartos", "1C", "P54", entriesBySeed),
+          buildFapSourceSeedMatch("P60", "Cuartos", "P55", "1B", entriesBySeed),
+        ],
+      },
+      buildFapSemisRound(entriesBySeed),
+      finalRound,
+    ]);
+  }
+
+  if (totalPairs === 19) {
+    return buildFapTemplatePreview(totalPairs, zonesPreview, [
+      {
+        id: "round-octavos",
+        title: "Octavos",
+        matches: [
+          buildFapMatch("P50", "Octavos", "2C", "2F", entriesBySeed),
+          buildFapMatch("P51", "Octavos", "1E", "2B", entriesBySeed),
+          buildFapMatch("P52", "Octavos", "3A", "1D", entriesBySeed),
+          buildFapMatch("P54", "Octavos", "2A", "1F", entriesBySeed),
+          buildFapMatch("P55", "Octavos", "2E", "2D", entriesBySeed),
+        ],
+      },
+      {
+        id: "round-cuartos",
+        title: "Cuartos",
+        matches: [
+          buildFapSeedSourceMatch("P57", "Cuartos", "1A", "P50", entriesBySeed),
+          buildFapDoubleSourceMatch("P58", "Cuartos", "P51", "P52"),
+          buildFapSeedSourceMatch("P59", "Cuartos", "1C", "P54", entriesBySeed),
+          buildFapSourceSeedMatch("P60", "Cuartos", "P55", "1B", entriesBySeed),
+        ],
+      },
+      buildFapSemisRound(entriesBySeed),
+      finalRound,
+    ]);
+  }
+
+  if (totalPairs === 20) {
+    return buildFapTemplatePreview(totalPairs, zonesPreview, [
+      {
+        id: "round-octavos",
+        title: "Octavos",
+        matches: [
+          buildFapMatch("P50", "Octavos", "2C", "2F", entriesBySeed),
+          buildFapMatch("P51", "Octavos", "1E", "2B", entriesBySeed),
+          buildFapMatch("P52", "Octavos", "3A", "1D", entriesBySeed),
+          buildFapMatch("P53", "Octavos", "1C", "3B", entriesBySeed),
+          buildFapMatch("P54", "Octavos", "2A", "1F", entriesBySeed),
+          buildFapMatch("P55", "Octavos", "2E", "2D", entriesBySeed),
+        ],
+      },
+      {
+        id: "round-cuartos",
+        title: "Cuartos",
+        matches: [
+          buildFapSeedSourceMatch("P57", "Cuartos", "1A", "P50", entriesBySeed),
+          buildFapDoubleSourceMatch("P58", "Cuartos", "P51", "P52"),
+          buildFapDoubleSourceMatch("P59", "Cuartos", "P53", "P54"),
+          buildFapSourceSeedMatch("P60", "Cuartos", "P55", "1B", entriesBySeed),
+        ],
+      },
+      buildFapSemisRound(entriesBySeed),
+      finalRound,
+    ]);
+  }
+
+  if (totalPairs === 21) {
+    return buildFapTemplatePreview(totalPairs, zonesPreview, [
+      {
+        id: "round-octavos",
+        title: "Octavos",
+        matches: [
+          buildFapMatch("P50", "Octavos", "2F", "2G", entriesBySeed),
+          buildFapMatch("P51", "Octavos", "1E", "2C", entriesBySeed),
+          buildFapMatch("P52", "Octavos", "2B", "1D", entriesBySeed),
+          buildFapMatch("P53", "Octavos", "1C", "2A", entriesBySeed),
+          buildFapMatch("P54", "Octavos", "2D", "1F", entriesBySeed),
+          buildFapMatch("P55", "Octavos", "1G", "2E", entriesBySeed),
+        ],
+      },
+      {
+        id: "round-cuartos",
+        title: "Cuartos",
+        matches: [
+          buildFapSeedSourceMatch("P57", "Cuartos", "1A", "P50", entriesBySeed),
+          buildFapDoubleSourceMatch("P58", "Cuartos", "P51", "P52"),
+          buildFapDoubleSourceMatch("P59", "Cuartos", "P53", "P54"),
+          buildFapSourceSeedMatch("P60", "Cuartos", "P55", "1B", entriesBySeed),
+        ],
+      },
+      buildFapSemisRound(entriesBySeed),
+      finalRound,
+    ]);
+  }
+
+  return null;
+}
+
+function buildApaBracketPreview({ recommendation, zonesPreview = [] }) {
+  const totalPairs = (Array.isArray(zonesPreview) ? zonesPreview : []).reduce(
+    (total, zone) => total + Number(zone?.size || zone?.pairs?.length || 0),
+    0
+  );
+  const entriesBySeed = buildApaEntryMap(zonesPreview);
+  const finalRound = buildApaFinalRound();
+
+  if (totalPairs >= 6 && totalPairs <= 8) {
+    return {
+      mode: "automatic",
+      ruleSet: "apa",
+      title: "Semifinales APA",
+      summary: "Formato APA: semifinales directas con 2 clasificados por zona.",
+      recommendation: "Cruces APA segun posiciones de zona.",
+      zonesLinked: zonesPreview.map((zone) => zone.name),
+      qualifierLabels: buildQualifiedEntriesFromZones(zonesPreview),
+      byeCount: 0,
+      rounds: [
+        {
+          id: "round-semis",
+          title: "Semifinales",
+          matches: [
+            buildApaMatch("apa-semi-1", "Semifinales", "Semifinal 1", "1A", "2B", entriesBySeed),
+            buildApaMatch("apa-semi-2", "Semifinales", "Semifinal 2", "2A", "1B", entriesBySeed),
+          ],
+        },
+        finalRound,
+      ],
+    };
+  }
+
+  if (totalPairs >= 9 && totalPairs <= 11) {
+    return {
+      mode: "automatic",
+      ruleSet: "apa",
+      title: "Cruces APA",
+      summary: "Formato APA: cruces previos y semifinales.",
+      recommendation: "Cruces APA segun posiciones de zona.",
+      zonesLinked: zonesPreview.map((zone) => zone.name),
+      qualifierLabels: buildQualifiedEntriesFromZones(zonesPreview),
+      byeCount: 0,
+      rounds: [
+        {
+          id: "round-cruces",
+          title: "Cruces",
+          matches: [
+            buildApaMatch("apa-cruce-1", "Cruces", "Cruce 1", "2B", "2C", entriesBySeed),
+            buildApaMatch("apa-cruce-2", "Cruces", "Cruce 2", "1C", "2A", entriesBySeed),
+          ],
+        },
+        {
+          id: "round-semis",
+          title: "Semifinales",
+          matches: [
+            buildApaSourceMatch("apa-semi-1", "Semifinales", "Semi 1", "apa-cruce-1", "1A", entriesBySeed),
+            buildApaSourceMatch("apa-semi-2", "Semifinales", "Semi 2", "apa-cruce-2", "1B", entriesBySeed),
+          ],
+        },
+        finalRound,
+      ],
+    };
+  }
+
+  if (totalPairs >= 12 && totalPairs <= 14) {
+    return {
+      mode: "automatic",
+      ruleSet: "apa",
+      title: "Cuartos APA",
+      summary: "Formato APA: cuartos de final con zonas A a D.",
+      recommendation: "Cruces APA segun posiciones de zona.",
+      zonesLinked: zonesPreview.map((zone) => zone.name),
+      qualifierLabels: buildQualifiedEntriesFromZones(zonesPreview),
+      byeCount: 0,
+      rounds: [
+        {
+          id: "round-cuartos",
+          title: "Cuartos",
+          matches: [
+            buildApaMatch("apa-qf-1", "Cuartos", "Llave 1", "1A", "2C", entriesBySeed),
+            buildApaMatch("apa-qf-2", "Cuartos", "Llave 2", "2B", "1D", entriesBySeed),
+            buildApaMatch("apa-qf-3", "Cuartos", "Llave 3", "1C", "2A", entriesBySeed),
+            buildApaMatch("apa-qf-4", "Cuartos", "Llave 4", "2D", "1B", entriesBySeed),
+          ],
+        },
+        {
+          id: "round-semis",
+          title: "Semifinales",
+          matches: [
+            buildBracketMatchFromEntries({
+              id: "apa-semi-1",
+              roundTitle: "Semifinales",
+              title: "Semi 1",
+              teamA: buildPendingSourceEntry("apa-qf-1", "Ganador Llave 1"),
+              teamB: buildPendingSourceEntry("apa-qf-2", "Ganador Llave 2"),
+              teamASourceMatchId: "apa-qf-1",
+              teamBSourceMatchId: "apa-qf-2",
+            }),
+            buildBracketMatchFromEntries({
+              id: "apa-semi-2",
+              roundTitle: "Semifinales",
+              title: "Semi 2",
+              teamA: buildPendingSourceEntry("apa-qf-3", "Ganador Llave 3"),
+              teamB: buildPendingSourceEntry("apa-qf-4", "Ganador Llave 4"),
+              teamASourceMatchId: "apa-qf-3",
+              teamBSourceMatchId: "apa-qf-4",
+            }),
+          ],
+        },
+        finalRound,
+      ],
+    };
+  }
+
+  if (totalPairs >= 15 && totalPairs <= 17) {
+    return {
+      mode: "automatic",
+      ruleSet: "apa",
+      title: "Llave APA",
+      summary: "Formato APA: cruces previos y cuartos.",
+      recommendation: "Cruces APA segun posiciones de zona.",
+      zonesLinked: zonesPreview.map((zone) => zone.name),
+      qualifierLabels: buildQualifiedEntriesFromZones(zonesPreview),
+      byeCount: 0,
+      rounds: [
+        {
+          id: "round-cruces",
+          title: "Cruces",
+          matches: [
+            buildApaMatch("apa-cruce-1", "Cruces", "Cruce 1", "2B", "2C", entriesBySeed),
+            buildApaMatch("apa-cruce-4", "Cruces", "Cruce 4", "2A", "2D", entriesBySeed),
+          ],
+        },
+        {
+          id: "round-cuartos",
+          title: "Cuartos",
+          matches: [
+            buildApaSourceMatch("apa-qf-1", "Cuartos", "Llave 1", "apa-cruce-1", "1A", entriesBySeed),
+            buildApaMatch("apa-qf-2", "Cuartos", "Llave 2", "1E", "1D", entriesBySeed),
+            buildApaMatch("apa-qf-3", "Cuartos", "Llave 3", "1C", "2E", entriesBySeed),
+            buildApaSourceMatch("apa-qf-4", "Cuartos", "Llave 4", "apa-cruce-4", "1B", entriesBySeed),
+          ],
+        },
+        {
+          id: "round-semis",
+          title: "Semifinales",
+          matches: [
+            buildBracketMatchFromEntries({
+              id: "apa-semi-1",
+              roundTitle: "Semifinales",
+              title: "Semi 1",
+              teamA: buildPendingSourceEntry("apa-qf-1", "Ganador Llave 1"),
+              teamB: buildPendingSourceEntry("apa-qf-2", "Ganador Llave 2"),
+              teamASourceMatchId: "apa-qf-1",
+              teamBSourceMatchId: "apa-qf-2",
+            }),
+            buildBracketMatchFromEntries({
+              id: "apa-semi-2",
+              roundTitle: "Semifinales",
+              title: "Semi 2",
+              teamA: buildPendingSourceEntry("apa-qf-3", "Ganador Llave 3"),
+              teamB: buildPendingSourceEntry("apa-qf-4", "Ganador Llave 4"),
+              teamASourceMatchId: "apa-qf-3",
+              teamBSourceMatchId: "apa-qf-4",
+            }),
+          ],
+        },
+        finalRound,
+      ],
+    };
+  }
+
+  if (totalPairs >= 18 && totalPairs <= 20) {
+    return {
+      mode: "automatic",
+      ruleSet: "apa",
+      title: "Llave APA",
+      summary: "Formato APA: cuatro cruces previos y cuartos.",
+      recommendation: "Cruces APA segun posiciones de zona.",
+      zonesLinked: zonesPreview.map((zone) => zone.name),
+      qualifierLabels: buildQualifiedEntriesFromZones(zonesPreview),
+      byeCount: 0,
+      rounds: [
+        {
+          id: "round-cruces",
+          title: "Cruces",
+          matches: [
+            buildApaMatch("apa-cruce-1", "Cruces", "Cruce 1", "2F", "2C", entriesBySeed),
+            buildApaMatch("apa-cruce-2", "Cruces", "Cruce 2", "1E", "2B", entriesBySeed),
+            buildApaMatch("apa-cruce-3", "Cruces", "Cruce 3", "2A", "1F", entriesBySeed),
+            buildApaMatch("apa-cruce-4", "Cruces", "Cruce 4", "2E", "2D", entriesBySeed),
+          ],
+        },
+        {
+          id: "round-cuartos",
+          title: "Cuartos",
+          matches: [
+            buildApaSourceMatch("apa-qf-1", "Cuartos", "Llave 1", "apa-cruce-1", "1A", entriesBySeed),
+            buildApaSourceMatch("apa-qf-2", "Cuartos", "Llave 2", "apa-cruce-2", "1D", entriesBySeed),
+            buildApaSourceMatch("apa-qf-3", "Cuartos", "Llave 3", "apa-cruce-3", "1C", entriesBySeed),
+            buildApaSourceMatch("apa-qf-4", "Cuartos", "Llave 4", "apa-cruce-4", "1B", entriesBySeed),
+          ],
+        },
+        {
+          id: "round-semis",
+          title: "Semifinales",
+          matches: [
+            buildBracketMatchFromEntries({
+              id: "apa-semi-1",
+              roundTitle: "Semifinales",
+              title: "Semi 1",
+              teamA: buildPendingSourceEntry("apa-qf-1", "Ganador Llave 1"),
+              teamB: buildPendingSourceEntry("apa-qf-2", "Ganador Llave 2"),
+              teamASourceMatchId: "apa-qf-1",
+              teamBSourceMatchId: "apa-qf-2",
+            }),
+            buildBracketMatchFromEntries({
+              id: "apa-semi-2",
+              roundTitle: "Semifinales",
+              title: "Semi 2",
+              teamA: buildPendingSourceEntry("apa-qf-3", "Ganador Llave 3"),
+              teamB: buildPendingSourceEntry("apa-qf-4", "Ganador Llave 4"),
+              teamASourceMatchId: "apa-qf-3",
+              teamBSourceMatchId: "apa-qf-4",
+            }),
+          ],
+        },
+        finalRound,
+      ],
+    };
+  }
+
+  if (totalPairs >= 21 && totalPairs <= 23) {
+    return {
+      mode: "automatic",
+      ruleSet: "apa",
+      title: "Llave APA",
+      summary: "Formato APA: 6 cruces previos y cuartos.",
+      recommendation: "Cruces APA segun posiciones de zona.",
+      zonesLinked: zonesPreview.map((zone) => zone.name),
+      qualifierLabels: buildQualifiedEntriesFromZones(zonesPreview),
+      byeCount: 0,
+      rounds: [
+        {
+          id: "round-cruces",
+          title: "Cruces",
+          matches: [
+            buildApaMatch("apa-cruce-1", "Cruces", "Cruce 1", "2F", "2G", entriesBySeed),
+            buildApaMatch("apa-cruce-2", "Cruces", "Cruce 2", "1E", "2C", entriesBySeed),
+            buildApaMatch("apa-cruce-3", "Cruces", "Cruce 3", "2B", "1D", entriesBySeed),
+            buildApaMatch("apa-cruce-4", "Cruces", "Cruce 4", "1C", "2A", entriesBySeed),
+            buildApaMatch("apa-cruce-5", "Cruces", "Cruce 5", "2D", "1F", entriesBySeed),
+            buildApaMatch("apa-cruce-6", "Cruces", "Cruce 6", "1G", "2E", entriesBySeed),
+          ],
+        },
+        {
+          id: "round-cuartos",
+          title: "Cuartos",
+          matches: [
+            buildApaSeedSourceMatch("apa-qf-1", "Cuartos", "Llave 1", "1A", "apa-cruce-1", entriesBySeed),
+            buildApaDoubleSourceMatch("apa-qf-2", "Cuartos", "Llave 2", "apa-cruce-2", "apa-cruce-3"),
+            buildApaDoubleSourceMatch("apa-qf-3", "Cuartos", "Llave 3", "apa-cruce-4", "apa-cruce-5"),
+            buildApaSourceMatch("apa-qf-4", "Cuartos", "Llave 4", "apa-cruce-6", "1B", entriesBySeed),
+          ],
+        },
+        buildApaSemisFromQuarterIds(),
+        finalRound,
+      ],
+    };
+  }
+
+  if (totalPairs >= 24 && totalPairs <= 26) {
+    return {
+      mode: "automatic",
+      ruleSet: "apa",
+      title: "Llave APA",
+      summary: "Formato APA: 7 cruces previos y cuartos.",
+      recommendation: "Cruces APA segun posiciones de zona.",
+      zonesLinked: zonesPreview.map((zone) => zone.name),
+      qualifierLabels: buildQualifiedEntriesFromZones(zonesPreview),
+      byeCount: 0,
+      rounds: [
+        {
+          id: "round-cruces",
+          title: "Cruces",
+          matches: [
+            buildApaMatch("apa-cruce-1", "Cruces", "Cruce 1", "2F", "2G", entriesBySeed),
+            buildApaMatch("apa-cruce-2", "Cruces", "Cruce 2", "1E", "2C", entriesBySeed),
+            buildApaMatch("apa-cruce-3", "Cruces", "Cruce 3", "2B", "1D", entriesBySeed),
+            buildApaMatch("apa-cruce-4", "Cruces", "Cruce 4", "1C", "2A", entriesBySeed),
+            buildApaMatch("apa-cruce-5", "Cruces", "Cruce 5", "2D", "1F", entriesBySeed),
+            buildApaMatch("apa-cruce-6", "Cruces", "Cruce 6", "1G", "2E", entriesBySeed),
+            buildApaMatch("apa-cruce-7", "Cruces", "Cruce 7", "1H", "2H", entriesBySeed),
+          ],
+        },
+        {
+          id: "round-cuartos",
+          title: "Cuartos",
+          matches: [
+            buildApaSeedSourceMatch("apa-qf-1", "Cuartos", "Llave 1", "1A", "apa-cruce-1", entriesBySeed),
+            buildApaDoubleSourceMatch("apa-qf-2", "Cuartos", "Llave 2", "apa-cruce-2", "apa-cruce-3"),
+            buildApaDoubleSourceMatch("apa-qf-3", "Cuartos", "Llave 3", "apa-cruce-4", "apa-cruce-5"),
+            buildApaDoubleSourceMatch("apa-qf-4", "Cuartos", "Llave 4", "apa-cruce-6", "apa-cruce-7"),
+          ],
+        },
+        buildApaSemisFromQuarterIds(),
+        finalRound,
+      ],
+    };
+  }
+
+  if (totalPairs >= 27 && totalPairs <= 29) {
+    return {
+      mode: "automatic",
+      ruleSet: "apa",
+      title: "Llave APA",
+      summary: "Formato APA: integracion en octavos respetando orden visual.",
+      recommendation: "Cruces APA segun posiciones de zona.",
+      zonesLinked: zonesPreview.map((zone) => zone.name),
+      qualifierLabels: buildQualifiedEntriesFromZones(zonesPreview),
+      byeCount: 0,
+      rounds: [
+        {
+          id: "round-cruces",
+          title: "Cruces",
+          matches: [
+            buildApaMatch("apa-cruce-1", "Cruces", "Cruce 1", "2B", "2C", entriesBySeed),
+            buildApaMatch("apa-cruce-8", "Cruces", "Cruce 8", "2D", "2A", entriesBySeed),
+          ],
+        },
+        {
+          id: "round-octavos",
+          title: "Octavos",
+          matches: [
+            buildApaSeedSourceMatch("apa-r16-1", "Octavos", "Llave 1", "1A", "apa-cruce-1", entriesBySeed),
+            buildApaMatch("apa-r16-2", "Octavos", "Llave 2", "1I", "1H", entriesBySeed),
+            buildApaMatch("apa-r16-3", "Octavos", "Llave 3", "1E", "2G", entriesBySeed),
+            buildApaMatch("apa-r16-4", "Octavos", "Llave 4", "2F", "1D", entriesBySeed),
+            buildApaMatch("apa-r16-5", "Octavos", "Llave 5", "1C", "2E", entriesBySeed),
+            buildApaMatch("apa-r16-6", "Octavos", "Llave 6", "2H", "1F", entriesBySeed),
+            buildApaMatch("apa-r16-7", "Octavos", "Llave 7", "1G", "2I", entriesBySeed),
+            buildApaSourceMatch("apa-r16-8", "Octavos", "Llave 8", "apa-cruce-8", "1B", entriesBySeed),
+          ],
+        },
+        buildApaQuarterRoundFromSourcePairs([
+          ["apa-r16-1", "apa-r16-2"],
+          ["apa-r16-3", "apa-r16-4"],
+          ["apa-r16-5", "apa-r16-6"],
+          ["apa-r16-7", "apa-r16-8"],
+        ]),
+        buildApaSemisFromQuarterIds(),
+        finalRound,
+      ],
+    };
+  }
+
+  if (totalPairs >= 30 && totalPairs <= 32) {
+    return {
+      mode: "automatic",
+      ruleSet: "apa",
+      title: "Llave APA",
+      summary: "Formato APA: integracion en octavos respetando orden visual.",
+      recommendation: "Cruces APA segun posiciones de zona.",
+      zonesLinked: zonesPreview.map((zone) => zone.name),
+      qualifierLabels: buildQualifiedEntriesFromZones(zonesPreview),
+      byeCount: 0,
+      rounds: [
+        {
+          id: "round-cruces",
+          title: "Cruces",
+          matches: [
+            buildApaMatch("apa-cruce-1", "Cruces", "Cruce 1", "2C", "2F", entriesBySeed),
+            buildApaMatch("apa-cruce-4", "Cruces", "Cruce 4", "2G", "2B", entriesBySeed),
+            buildApaMatch("apa-cruce-5", "Cruces", "Cruce 5", "2A", "2H", entriesBySeed),
+            buildApaMatch("apa-cruce-8", "Cruces", "Cruce 8", "2E", "2D", entriesBySeed),
+          ],
+        },
+        {
+          id: "round-octavos",
+          title: "Octavos",
+          matches: [
+            buildApaSeedSourceMatch("apa-r16-1", "Octavos", "Llave 1", "1A", "apa-cruce-1", entriesBySeed),
+            buildApaMatch("apa-r16-2", "Octavos", "Llave 2", "1I", "1H", entriesBySeed),
+            buildApaMatch("apa-r16-3", "Octavos", "Llave 3", "1E", "2J", entriesBySeed),
+            buildApaSourceMatch("apa-r16-4", "Octavos", "Llave 4", "apa-cruce-4", "1D", entriesBySeed),
+            buildApaSeedSourceMatch("apa-r16-5", "Octavos", "Llave 5", "1C", "apa-cruce-5", entriesBySeed),
+            buildApaMatch("apa-r16-6", "Octavos", "Llave 6", "2I", "2F", entriesBySeed),
+            buildApaMatch("apa-r16-7", "Octavos", "Llave 7", "1G", "1D", entriesBySeed),
+            buildApaSourceMatch("apa-r16-8", "Octavos", "Llave 8", "apa-cruce-8", "1B", entriesBySeed),
+          ],
+        },
+        buildApaQuarterRoundFromSourcePairs([
+          ["apa-r16-1", "apa-r16-2"],
+          ["apa-r16-3", "apa-r16-4"],
+          ["apa-r16-5", "apa-r16-6"],
+          ["apa-r16-7", "apa-r16-8"],
+        ]),
+        buildApaSemisFromQuarterIds(),
+        finalRound,
+      ],
+    };
+  }
+
+  return null;
+}
+
 function buildBracketPreview({
   mode = "automatic",
   manualBracketMode = "automatic",
   recommendation,
   zonesPreview = [],
+  ruleSet = "fap",
 }) {
+  const normalizedRuleSet = String(ruleSet || "fap").trim().toLowerCase();
+  const officialZonesPreview = ["apa", "fap"].includes(normalizedRuleSet)
+    ? orderZonesForBracketRuleSet(zonesPreview, normalizedRuleSet)
+    : zonesPreview;
+
+  if (normalizedRuleSet === "fap") {
+    const fapPreview = buildFapBracketPreview({ recommendation, zonesPreview: officialZonesPreview });
+
+    if (fapPreview) {
+      return fapPreview;
+    }
+  }
+
+  if (normalizedRuleSet === "apa") {
+    const apaPreview = buildApaBracketPreview({ recommendation, zonesPreview: officialZonesPreview });
+
+    if (apaPreview) {
+      return apaPreview;
+    }
+  }
+
   const isManualBracket = mode === "semiautomatic" || (mode === "manual" && manualBracketMode === "manual");
-  const qualifierEntries = buildQualifiedEntriesFromZones(zonesPreview);
+  const qualifierEntries = buildQualifiedEntriesFromZones(officialZonesPreview);
 
   const recommendedBracketSize = Number(recommendation?.bracketSize || 0);
   const bracketSize = Math.max(
@@ -1818,7 +4498,7 @@ function buildBracketPreview({
     summary: recommendation.bracketSummary,
     recommendation:
       "Cruce sugerido: los 1ros de zona deben cruzarse con 2dos de otra zona. Si queda un lugar vacio, la app asigna BYE automaticamente.",
-    zonesLinked: zonesPreview.map((zone) => zone.name),
+    zonesLinked: officialZonesPreview.map((zone) => zone.name),
     qualifierLabels: qualifierEntries,
     byeCount: entries.filter((entry) => entry.isBye).length,
     rounds,
@@ -1831,25 +4511,84 @@ function buildBracketBoardLayout(bracketPreview = null) {
   }
 
   const positionedRounds = [];
+  const positionedMatchesById = new Map();
+  const getSlotY = (slotIndex = 0) =>
+    BRACKET_HEADER_HEIGHT + Math.max(Number(slotIndex || 0), 0) * (BRACKET_CARD_HEIGHT + BRACKET_FIRST_ROUND_GAP);
+  const getSlotCenterY = (slotIndex = 0) => getSlotY(slotIndex) + BRACKET_CARD_HEIGHT / 2;
+  const getPairY = (slotPair = []) => {
+    if (!Array.isArray(slotPair) || slotPair.length < 2) {
+      return null;
+    }
+
+    const firstSlot = Number(slotPair[0]);
+    const secondSlot = Number(slotPair[1]);
+
+    if (!Number.isFinite(firstSlot) || !Number.isFinite(secondSlot)) {
+      return null;
+    }
+
+    return (getSlotCenterY(firstSlot) + getSlotCenterY(secondSlot)) / 2 - BRACKET_CARD_HEIGHT / 2;
+  };
+  const hasBracketTeamContent = (match = {}, side = "A") => {
+    const prefix = side === "A" ? "teamA" : "teamB";
+    const lines = Array.isArray(match[`${prefix}Lines`]) ? match[`${prefix}Lines`] : [];
+
+    return Boolean(
+      match[`${prefix}Id`] ||
+        match[`${prefix}Seed`] ||
+        match[`${prefix}Name`] ||
+        match[`${prefix}IsBye`] ||
+        lines.some((line) => String(line || "").trim())
+    );
+  };
 
   bracketPreview.rounds.forEach((round, roundIndex) => {
     const roundX = roundIndex * BRACKET_COLUMN_STEP;
     const matches = (round.matches || []).map((match, matchIndex) => {
-      let y = BRACKET_HEADER_HEIGHT;
+      const fallbackY =
+        BRACKET_HEADER_HEIGHT + matchIndex * (BRACKET_CARD_HEIGHT + BRACKET_FIRST_ROUND_GAP);
+      let y = fallbackY;
+      const visualSlotPairY = getPairY(match.visualSlotPair);
 
       if (roundIndex === 0) {
-        y += matchIndex * (BRACKET_CARD_HEIGHT + BRACKET_FIRST_ROUND_GAP);
+        y = Number.isFinite(Number(match.visualSlotIndex))
+          ? getSlotY(Number(match.visualSlotIndex))
+          : fallbackY;
       } else {
         const previousMatches = positionedRounds[roundIndex - 1]?.matches || [];
-        const sourceMatchA = previousMatches[matchIndex * 2];
-        const sourceMatchB = previousMatches[matchIndex * 2 + 1];
+        const explicitSourceA = match.teamASourceMatchId
+          ? positionedMatchesById.get(match.teamASourceMatchId)
+          : null;
+        const explicitSourceB = match.teamBSourceMatchId
+          ? positionedMatchesById.get(match.teamBSourceMatchId)
+          : null;
+        const sourceMatchA =
+          explicitSourceA ||
+          (!match.teamASourceMatchId && !hasBracketTeamContent(match, "A")
+            ? previousMatches[matchIndex * 2]
+            : null);
+        const sourceMatchB =
+          explicitSourceB ||
+          (!match.teamBSourceMatchId && !hasBracketTeamContent(match, "B")
+            ? previousMatches[matchIndex * 2 + 1]
+            : null);
 
         if (sourceMatchA && sourceMatchB) {
           const sourceCenterA = sourceMatchA.y + BRACKET_CARD_HEIGHT / 2;
           const sourceCenterB = sourceMatchB.y + BRACKET_CARD_HEIGHT / 2;
           y = (sourceCenterA + sourceCenterB) / 2 - BRACKET_CARD_HEIGHT / 2;
+        } else if (sourceMatchA && visualSlotPairY !== null) {
+          y = visualSlotPairY;
         } else if (sourceMatchA) {
           y = sourceMatchA.y;
+        } else if (sourceMatchB && visualSlotPairY !== null) {
+          y = visualSlotPairY;
+        } else if (sourceMatchB) {
+          y = sourceMatchB.y;
+        } else if (visualSlotPairY !== null) {
+          y = visualSlotPairY;
+        } else {
+          y = fallbackY;
         }
       }
 
@@ -1865,7 +4604,34 @@ function buildBracketBoardLayout(bracketPreview = null) {
       x: roundX,
       matches,
     });
+    matches.forEach((match) => {
+      if (match?.id) {
+        positionedMatchesById.set(match.id, match);
+      }
+    });
   });
+
+  for (let roundIndex = 1; roundIndex < positionedRounds.length; roundIndex += 1) {
+    const currentMatches = positionedRounds[roundIndex]?.matches || [];
+
+    currentMatches.forEach((match) => {
+      const targetCenterY = match.y + BRACKET_CARD_HEIGHT / 2;
+      const sourceMatchA = match.teamASourceMatchId
+        ? positionedMatchesById.get(match.teamASourceMatchId)
+        : null;
+      const sourceMatchB = match.teamBSourceMatchId
+        ? positionedMatchesById.get(match.teamBSourceMatchId)
+        : null;
+
+      if (sourceMatchA && !sourceMatchB) {
+        sourceMatchA.y = targetCenterY - BRACKET_CARD_HEIGHT;
+      }
+
+      if (!sourceMatchA && sourceMatchB) {
+        sourceMatchB.y = targetCenterY;
+      }
+    });
+  }
 
   const connectors = [];
 
@@ -1874,14 +4640,30 @@ function buildBracketBoardLayout(bracketPreview = null) {
     const currentMatches = positionedRounds[roundIndex]?.matches || [];
 
     currentMatches.forEach((match, matchIndex) => {
-      const sourceMatchA = previousMatches[matchIndex * 2];
-      const sourceMatchB = previousMatches[matchIndex * 2 + 1];
+      const explicitSourceA = match.teamASourceMatchId
+        ? positionedMatchesById.get(match.teamASourceMatchId)
+        : null;
+      const explicitSourceB = match.teamBSourceMatchId
+        ? positionedMatchesById.get(match.teamBSourceMatchId)
+        : null;
+      const sourceMatchA =
+        explicitSourceA ||
+        (!match.teamASourceMatchId && !hasBracketTeamContent(match, "A")
+          ? previousMatches[matchIndex * 2]
+          : null);
+      const sourceMatchB =
+        explicitSourceB ||
+        (!match.teamBSourceMatchId && !hasBracketTeamContent(match, "B")
+          ? previousMatches[matchIndex * 2 + 1]
+          : null);
 
-      if (!sourceMatchA) {
+      const singleSourceMatch = sourceMatchA || sourceMatchB;
+
+      if (!singleSourceMatch) {
         return;
       }
 
-      const startX = sourceMatchA.x + BRACKET_CARD_WIDTH;
+      const startX = singleSourceMatch.x + BRACKET_CARD_WIDTH;
       const endX = match.x;
       const connectorGap = Math.max(endX - startX, 0);
       const midX = startX + connectorGap / 2;
@@ -1920,7 +4702,7 @@ function buildBracketBoardLayout(bracketPreview = null) {
             id: `${match.id}-right`,
             type: "horizontal",
             x: midX,
-            y: sourcePairCenterY,
+            y: currentCenterY,
             width: endX - midX,
           }
         );
@@ -1928,13 +4710,50 @@ function buildBracketBoardLayout(bracketPreview = null) {
         return;
       }
 
-      connectors.push({
-        id: `${match.id}-solo`,
-        type: "horizontal",
-        x: startX,
-        y: currentCenterY,
-        width: endX - startX,
-      });
+      const sourceCenterY = singleSourceMatch.y + BRACKET_CARD_HEIGHT / 2;
+      const sourceIsUpperBranch = Boolean(sourceMatchA);
+      const branchGap = Math.max(
+        Math.abs(sourceCenterY - currentCenterY),
+        BRACKET_CARD_HEIGHT / 2
+      );
+      const phantomCenterY = sourceIsUpperBranch
+        ? currentCenterY + branchGap
+        : currentCenterY - branchGap;
+      const topY = Math.min(sourceCenterY, phantomCenterY);
+      const verticalHeight = Math.abs(phantomCenterY - sourceCenterY);
+      const singleForkX = midX;
+      const phantomStartX = Math.max(singleSourceMatch.x, startX - 22);
+
+      connectors.push(
+        {
+          id: `${match.id}-solo-left`,
+          type: "horizontal",
+          x: startX,
+          y: sourceCenterY,
+          width: singleForkX - startX,
+        },
+        {
+          id: `${match.id}-solo-phantom-left`,
+          type: "horizontal",
+          x: phantomStartX,
+          y: phantomCenterY,
+          width: singleForkX - phantomStartX,
+        },
+        {
+          id: `${match.id}-solo-vertical`,
+          type: "vertical",
+          x: singleForkX,
+          y: topY,
+          height: verticalHeight,
+        },
+        {
+          id: `${match.id}-solo-right`,
+          type: "horizontal",
+          x: singleForkX,
+          y: currentCenterY,
+          width: endX - singleForkX,
+        }
+      );
     });
   }
 
@@ -2021,10 +4840,12 @@ export default function TournamentFixtureScreen({ navigation, route }) {
   const { width: windowWidth } = useWindowDimensions();
   const tournamentId = route?.params?.tournamentId || "";
   const isBracketFullscreenStandalone = route?.params?.bracketFullscreenStandalone === true;
+  const initialBracketPreview = route?.params?.bracketPreview || null;
   const [tournament, setTournament] = useState(null);
   const [registrations, setRegistrations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [savingKey, setSavingKey] = useState("");
+  const [zonePlanningSavingKey, setZonePlanningSavingKey] = useState("");
   const [activeSection, setActiveSection] = useState("configuration");
   const [feedback, setFeedback] = useState({
     visible: false,
@@ -2051,6 +4872,9 @@ export default function TournamentFixtureScreen({ navigation, route }) {
   const canEditFixture = isOrganizer;
 
   const fixtureSetup = tournament?.fixtureSetup || {};
+  const tournamentRuleSet = String(tournament?.tournamentRuleSet || tournament?.ruleSet || "fap")
+    .trim()
+    .toLowerCase();
   const playerFixtureLastViewedSections = useMemo(
     () => userData?.tournamentFixtureLastViewedSections || {},
     [userData?.tournamentFixtureLastViewedSections]
@@ -2081,6 +4905,13 @@ export default function TournamentFixtureScreen({ navigation, route }) {
     field: "",
   });
   const [zoneMatchTimePickerTarget, setZoneMatchTimePickerTarget] = useState(null);
+  const [zonePlanningDayPickerTarget, setZonePlanningDayPickerTarget] = useState(null);
+  const [zonePlanningTimePickerTarget, setZonePlanningTimePickerTarget] = useState(null);
+  const [zonePlanningResultEditor, setZonePlanningResultEditor] = useState(null);
+  const [bracketResultEditor, setBracketResultEditor] = useState(null);
+  const [bracketProgramEditor, setBracketProgramEditor] = useState(null);
+  const [zonePlanningStandingsModalZoneId, setZonePlanningStandingsModalZoneId] = useState("");
+  const [zonePlanningDraft, setZonePlanningDraft] = useState(null);
   const [bracketMatchPickerState, setBracketMatchPickerState] = useState({
     roundId: "",
     matchId: "",
@@ -2091,7 +4922,10 @@ export default function TournamentFixtureScreen({ navigation, route }) {
   const [scheduleVenueDrafts, setScheduleVenueDrafts] = useState({});
   const [manualZonesDraft, setManualZonesDraft] = useState([]);
   const [zoneDraft, setZoneDraft] = useState([]);
-  const [bracketDraft, setBracketDraft] = useState(null);
+  const [bracketDraft, setBracketDraft] = useState(initialBracketPreview);
+  const [zoneShareModalVisible, setZoneShareModalVisible] = useState(false);
+  const [zoneShareInProgress, setZoneShareInProgress] = useState(false);
+  const [zoneShareIncludeBracket, setZoneShareIncludeBracket] = useState(false);
   const [selectedAvailablePairId, setSelectedAvailablePairId] = useState("");
   const [expandedZoneIds, setExpandedZoneIds] = useState([]);
   const zoneSetInputRefs = useRef({});
@@ -2101,6 +4935,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
   const bracketSaveTimeoutRef = useRef(null);
   const bracketSaveGenerationRef = useRef(0);
   const bracketShareViewRef = useRef(null);
+  const zoneShareViewRefs = useRef({});
   const workingBracketPreviewRef = useRef(null);
   const pendingFixtureSetupRef = useRef(fixtureSetup);
   const bracketScale = useRef(new Animated.Value(BRACKET_DEFAULT_OVERVIEW_ZOOM)).current;
@@ -2116,6 +4951,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
   const [bracketZoomScale, setBracketZoomScale] = useState(BRACKET_DEFAULT_OVERVIEW_ZOOM);
   const [isBracketPinching, setIsBracketPinching] = useState(false);
   const [bracketFullscreenVisible, setBracketFullscreenVisible] = useState(false);
+  const [bracketOpening, setBracketOpening] = useState(false);
   const [bracketSwapMode, setBracketSwapMode] = useState(false);
   const [bracketActionsMenuVisible, setBracketActionsMenuVisible] = useState(false);
   const [bracketSwapSelection, setBracketSwapSelection] = useState(null);
@@ -2167,14 +5003,17 @@ export default function TournamentFixtureScreen({ navigation, route }) {
   }, [animateBracketZoom, bracketPanX, bracketPanY]);
 
   const openBracketFullscreen = useCallback(() => {
+    const previewForFullscreen = workingBracketPreviewRef.current || currentBracketPreview || null;
+
     resetBracketZoom();
     setBracketMatchPickerState({ roundId: "", matchId: "", field: "" });
     setBracketMatchTimePickerTarget(null);
     bracketStandaloneLaunchHandledRef.current = true;
     navigation.navigate("TournamentBracketFullscreen", {
+      bracketPreview: previewForFullscreen,
       tournamentId,
     });
-  }, [navigation, resetBracketZoom, tournamentId]);
+  }, [currentBracketPreview, navigation, resetBracketZoom, tournamentId]);
 
   const handleBracketTouchStart = useCallback(
     (event) => {
@@ -2318,12 +5157,12 @@ export default function TournamentFixtureScreen({ navigation, route }) {
           (event?.nativeEvent?.touches || []).length >= 2,
         onMoveShouldSetPanResponder: (event, gestureState) =>
           (event?.nativeEvent?.touches || []).length >= 2 ||
-          Math.abs(gestureState.dx) > 1 ||
-          Math.abs(gestureState.dy) > 1,
+          Math.abs(gestureState.dx) > 8 ||
+          Math.abs(gestureState.dy) > 8,
         onMoveShouldSetPanResponderCapture: (event, gestureState) =>
           (event?.nativeEvent?.touches || []).length >= 2 ||
-          Math.abs(gestureState.dx) > 1 ||
-          Math.abs(gestureState.dy) > 1,
+          Math.abs(gestureState.dx) > 8 ||
+          Math.abs(gestureState.dy) > 8,
         onPanResponderGrant: handleBracketResponderGrant,
         onPanResponderMove: (event, gestureState) => {
           const touches = event?.nativeEvent?.touches || [];
@@ -2357,12 +5196,12 @@ export default function TournamentFixtureScreen({ navigation, route }) {
           (event?.nativeEvent?.touches || []).length >= 2,
         onMoveShouldSetPanResponder: (event, gestureState) =>
           (event?.nativeEvent?.touches || []).length >= 2 ||
-          Math.abs(gestureState.dx) > 1 ||
-          Math.abs(gestureState.dy) > 1,
+          Math.abs(gestureState.dx) > 8 ||
+          Math.abs(gestureState.dy) > 8,
         onMoveShouldSetPanResponderCapture: (event, gestureState) =>
           (event?.nativeEvent?.touches || []).length >= 2 ||
-          Math.abs(gestureState.dx) > 1 ||
-          Math.abs(gestureState.dy) > 1,
+          Math.abs(gestureState.dx) > 8 ||
+          Math.abs(gestureState.dy) > 8,
         onPanResponderGrant: handleBracketResponderGrant,
         onPanResponderMove: (event, gestureState) => {
           const touches = event?.nativeEvent?.touches || [];
@@ -2433,9 +5272,9 @@ export default function TournamentFixtureScreen({ navigation, route }) {
   );
 
   useEffect(() => {
-    const nextMode = fixtureSetup.mode || tournament?.buildMode || "automatic";
-    const nextPathType = fixtureSetup.pathType || "strict";
-    const nextManualBracketMode = fixtureSetup.manualBracketMode || "automatic";
+    const nextMode = "automatic";
+    const nextPathType = "strict";
+    const nextManualBracketMode = "automatic";
     const nextMatchFormat = normalizeMatchFormatConfig(fixtureSetup.matchFormat);
 
     setSelectedMode((current) => (current === nextMode ? current : nextMode));
@@ -2488,10 +5327,6 @@ export default function TournamentFixtureScreen({ navigation, route }) {
   }, [
     fixtureSetup.matchFormat,
     fixtureSetup.matchDurationMinutes,
-    fixtureSetup.manualBracketMode,
-    fixtureSetup.mode,
-    fixtureSetup.pathType,
-    tournament?.buildMode,
   ]);
 
   useEffect(() => {
@@ -2502,8 +5337,8 @@ export default function TournamentFixtureScreen({ navigation, route }) {
         )
       : [];
 
-    setManualZonesDraft(nextZonesDraft);
-    setZoneDraft(nextZonesDraft);
+    setManualZonesDraft((current) => (areJsonEqual(current, nextZonesDraft) ? current : nextZonesDraft));
+    setZoneDraft((current) => (areJsonEqual(current, nextZonesDraft) ? current : nextZonesDraft));
     workingZonesPreviewRef.current = nextZonesDraft;
   }, [fixtureSetup.matchFormat, fixtureSetup.zonesPreview]);
 
@@ -2512,17 +5347,26 @@ export default function TournamentFixtureScreen({ navigation, route }) {
     const nextBracketDraft = normalizeBracketPreview(fixtureSetup?.bracketPreview, (round) =>
         resolveBracketRoundMatchFormat(nextMatchFormat, round?.title || round?.roundTitle || "")
       );
-    setBracketDraft(nextBracketDraft);
-    workingBracketPreviewRef.current = nextBracketDraft;
-  }, [fixtureSetup.bracketPreview, fixtureSetup.matchFormat]);
+
+    if (!nextBracketDraft) {
+      workingBracketPreviewRef.current =
+        workingBracketPreviewRef.current || initialBracketPreview || null;
+      return;
+    }
+
+    setBracketDraft((current) => (areJsonEqual(current, nextBracketDraft) ? current : nextBracketDraft));
+    workingBracketPreviewRef.current = nextBracketDraft || workingBracketPreviewRef.current;
+  }, [fixtureSetup.bracketPreview, fixtureSetup.matchFormat, initialBracketPreview]);
 
   useEffect(() => {
-    setZoneVenueSchedules(
-      normalizeZoneVenueSchedules(
-        fixtureSetup.zoneVenueSchedules,
-        tournamentDayOptions,
-        tournamentVenueOptions
-      )
+    const nextZoneVenueSchedules = normalizeZoneVenueSchedules(
+      fixtureSetup.zoneVenueSchedules,
+      tournamentDayOptions,
+      tournamentVenueOptions
+    );
+
+    setZoneVenueSchedules((current) =>
+      areJsonEqual(current, nextZoneVenueSchedules) ? current : nextZoneVenueSchedules
     );
   }, [fixtureSetup.zoneVenueSchedules, tournamentDayOptions, tournamentVenueOptions]);
 
@@ -2571,17 +5415,19 @@ export default function TournamentFixtureScreen({ navigation, route }) {
         };
       });
 
-      return nextDrafts;
+      return areJsonEqual(current, nextDrafts) ? current : nextDrafts;
     });
   }, [tournamentDayOptions, tournamentVenueOptions, zoneVenueSchedules]);
 
   useEffect(() => {
     const zoneIds = (Array.isArray(zonesPreview) ? zonesPreview : []).map((zone) => zone.id);
-    setExpandedZoneIds((current) =>
-      current.filter((zoneId) => zoneIds.includes(zoneId)).length
+    setExpandedZoneIds((current) => {
+      const nextExpandedZoneIds = current.filter((zoneId) => zoneIds.includes(zoneId)).length
         ? current.filter((zoneId) => zoneIds.includes(zoneId))
-        : zoneIds.slice(0, 1)
-    );
+        : zoneIds.slice(0, 1);
+
+      return areJsonEqual(current, nextExpandedZoneIds) ? current : nextExpandedZoneIds;
+    });
   }, [fixtureSetup.zonesPreview]);
 
   useEffect(() => {
@@ -2596,8 +5442,8 @@ export default function TournamentFixtureScreen({ navigation, route }) {
   }, []);
 
   const confirmedRegistrations = useMemo(
-    () => registrations.filter((registration) => isRegistrationConfirmed(registration)),
-    [registrations]
+    () => registrations.filter((registration) => isRegistrationConfirmed(registration, tournament)),
+    [registrations, tournament]
   );
   const confirmedPairCount = confirmedRegistrations.length;
   const currentMatchFormat = useMemo(
@@ -2633,7 +5479,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
   );
   const tournamentDayOptions = useMemo(() => buildTournamentDayOptions(tournament || {}), [tournament]);
   const visibleSectionKeys = useMemo(
-    () => (canEditFixture ? FIXTURE_SECTION_KEYS : ["zones", "bracket"]),
+    () => (canEditFixture ? FIXTURE_SECTION_KEYS : ["newzones", "bracket"]),
     [canEditFixture]
   );
   const tournamentVenueOptions = useMemo(() => {
@@ -2654,7 +5500,20 @@ export default function TournamentFixtureScreen({ navigation, route }) {
 
         return {
           id: venueId,
+          label: venueName,
           name: venueName,
+          canchas:
+            Array.isArray(venue?.canchas) && venue.canchas.length
+              ? venue.canchas
+              : Array.isArray(linkedComplex?.canchas)
+              ? linkedComplex.canchas
+              : [],
+          courts:
+            Array.isArray(venue?.courts) && venue.courts.length
+              ? venue.courts
+              : Array.isArray(linkedComplex?.courts)
+              ? linkedComplex.courts
+              : [],
           totalCanchas:
             Number(venue?.totalCanchas || 0) ||
             Number(linkedComplex?.totalCanchas || 0) ||
@@ -2688,9 +5547,6 @@ export default function TournamentFixtureScreen({ navigation, route }) {
   }, [zoneMatchPickerState, zonesPreview, tournamentDayOptions]);
   const configurationHasUnsavedChanges = useMemo(() => {
     const savedMatchFormat = normalizeMatchFormatConfig(fixtureSetup.matchFormat);
-    const savedMode = fixtureSetup.mode || tournament?.buildMode || "automatic";
-    const savedPathType = fixtureSetup.pathType || "strict";
-    const savedManualBracketMode = fixtureSetup.manualBracketMode || "automatic";
     const savedRapidMode =
       savedMatchFormat.zones === "single_set" && savedMatchFormat.bracket === "single_set"
         ? "single_set"
@@ -2705,9 +5561,6 @@ export default function TournamentFixtureScreen({ navigation, route }) {
     );
 
     return (
-      selectedMode !== savedMode ||
-      selectedPathType !== savedPathType ||
-      selectedManualBracketMode !== savedManualBracketMode ||
       selectedRapidMode !== savedRapidMode ||
       selectedRapidModePoints !== savedRapidPoints ||
       selectedZoneMatchFormat !== savedMatchFormat.zones ||
@@ -2718,23 +5571,16 @@ export default function TournamentFixtureScreen({ navigation, route }) {
       selectedMatchDuration !== savedMatchDuration
     );
   }, [
-    fixtureSetup.manualBracketMode,
     fixtureSetup.matchDurationMinutes,
     fixtureSetup.matchFormat,
-    fixtureSetup.mode,
-    fixtureSetup.pathType,
     selectedBracketFinalOverride,
     selectedBracketMatchFormat,
     selectedBracketSuperTieBreakPoints,
-    selectedManualBracketMode,
     selectedMatchDuration,
-    selectedMode,
-    selectedPathType,
     selectedRapidMode,
     selectedRapidModePoints,
     selectedZoneMatchFormat,
     selectedZoneSuperTieBreakPoints,
-    tournament?.buildMode,
   ]);
 
   useEffect(() => {
@@ -2763,23 +5609,6 @@ export default function TournamentFixtureScreen({ navigation, route }) {
       resetBracketZoom();
     }
   }, [activeSection, bracketFullscreenVisible, resetBracketZoom]);
-
-  useEffect(() => {
-    if (isBracketFullscreenStandalone) {
-      return;
-    }
-
-    if (activeSection !== "bracket") {
-      bracketStandaloneLaunchHandledRef.current = false;
-      return;
-    }
-
-    if (bracketStandaloneLaunchHandledRef.current) {
-      return;
-    }
-
-    openBracketFullscreen();
-  }, [activeSection, isBracketFullscreenStandalone, openBracketFullscreen]);
 
   const resolveCurrentBracketRoundFormat = useCallback(
     (round = {}) =>
@@ -2876,8 +5705,8 @@ export default function TournamentFixtureScreen({ navigation, route }) {
     [scheduleVenueTimePickerTarget, updateScheduleVenueDraft]
   );
   const recommendation = useMemo(
-    () => resolveFixtureRecommendation(confirmedPairCount, selectedPathType),
-    [confirmedPairCount, selectedPathType]
+    () => resolveFixtureRecommendation(confirmedPairCount, selectedPathType, tournamentRuleSet),
+    [confirmedPairCount, selectedPathType, tournamentRuleSet]
   );
   const zonesPreview = useMemo(
     () =>
@@ -2926,6 +5755,248 @@ export default function TournamentFixtureScreen({ navigation, route }) {
   const registrationsById = useMemo(
     () => new Map(confirmedRegistrations.map((registration) => [registration.id, registration])),
     [confirmedRegistrations]
+  );
+  const committedZonePlanning = useMemo(
+    () => fixtureSetup?.zonePlanning || tournament?.zonePlanning || {},
+    [fixtureSetup?.zonePlanning, tournament?.zonePlanning]
+  );
+  const activeZonePlanning = useMemo(
+    () => zonePlanningDraft || committedZonePlanning,
+    [committedZonePlanning, zonePlanningDraft]
+  );
+  const activeZonePlanningSignature = useMemo(
+    () => buildZonePlanningSignature(activeZonePlanning),
+    [activeZonePlanning]
+  );
+  const bracketZonePlanningSignature = useMemo(
+    () =>
+      String(
+        bracketDraft?.zonePlanningSignature ||
+          fixtureSetup?.bracketPreview?.zonePlanningSignature ||
+          ""
+      ),
+    [bracketDraft?.zonePlanningSignature, fixtureSetup?.bracketPreview?.zonePlanningSignature]
+  );
+  const bracketNeedsZoneRefresh = useMemo(
+    () =>
+      Boolean(bracketBoard) &&
+      Boolean(bracketZonePlanningSignature) &&
+      bracketZonePlanningSignature !== activeZonePlanningSignature,
+    [activeZonePlanningSignature, bracketBoard, bracketZonePlanningSignature]
+  );
+  const hasZonePlanningUnsavedChanges = useMemo(
+    () => Boolean(zonePlanningDraft) && !areJsonEqual(zonePlanningDraft, committedZonePlanning),
+    [committedZonePlanning, zonePlanningDraft]
+  );
+  const newZonePlanningZones = useMemo(() => {
+    const planningSource = activeZonePlanning || {};
+    const planningZones = Array.isArray(planningSource?.zones) ? planningSource.zones : [];
+    const dayOrderByKey = new Map(tournamentDayOptions.map((day, index) => [day.key, index]));
+    const bracketLettersByZoneId = new Map(
+      orderZonesForBracketRuleSet(
+        planningZones.map((zone, zoneIndex) => {
+          const registrationIds = Array.isArray(zone.registrationIds) ? zone.registrationIds : [];
+
+          return {
+            id: zone.id || `zone-${zoneIndex + 1}`,
+            name: zone.label || `Zona ${String.fromCharCode(65 + zoneIndex)}`,
+            pairs: registrationIds.map((registrationId) => ({ id: registrationId })),
+            size: registrationIds.length,
+          };
+        }),
+        tournamentRuleSet
+      ).map((zone, index) => [String(zone.id || ""), String.fromCharCode(65 + index)])
+    );
+
+    return planningZones.map((zone, zoneIndex) => {
+      const zoneId = zone.id || `zone-${zoneIndex + 1}`;
+      const bracketLetter = bracketLettersByZoneId.get(String(zoneId)) || String.fromCharCode(65 + zoneIndex);
+      const zoneRegistrations = (Array.isArray(zone.registrationIds) ? zone.registrationIds : [])
+        .map((registrationId) => registrationsById.get(registrationId))
+        .filter(Boolean);
+      const matchLabels = buildPlanningMatchLabels(zoneRegistrations.length);
+      const zoneStandings = buildZoneStandings(zone, zoneRegistrations, currentMatchFormat.zones);
+      const qualifiersCount = getZoneQualifiersCount(tournamentRuleSet, zoneRegistrations.length);
+      const resolvedQualifiers = buildQualifiedPairsFromZonePlanning(
+        zone,
+        zoneRegistrations,
+        currentMatchFormat.zones,
+        tournamentRuleSet
+      );
+      const qualifiers = Array.from({ length: qualifiersCount }, (_, index) =>
+        resolvedQualifiers[index]
+          ? {
+              ...resolvedQualifiers[index],
+              seedLabel: `${index + 1}${bracketLetter}`,
+            }
+          : null
+      );
+      const matchRows = matchLabels
+        .map((matchLabel, matchIndex) => {
+          const schedule = zone.matchSchedules?.[matchLabel] || {};
+          const defaultDayKey = tournamentDayOptions[0]?.key || "";
+          const defaultVenueId = tournamentVenueOptions.length === 1 ? tournamentVenueOptions[0].id : "";
+          const effectiveDayKey = schedule.dayKey || defaultDayKey;
+          const effectiveVenueId = schedule.venueId || zone.legacyVenueId || defaultVenueId;
+          const effectiveVenue = tournamentVenueOptions.find((venue) => venue.id === effectiveVenueId);
+          const pairNumbers = getPlanningMatchPairNumbers(zone, zoneRegistrations, matchLabel);
+          const winnerRegistrationId = String(schedule?.result?.winnerRegistrationId || "");
+          const winnerPairNumber =
+            pairNumbers.find((pairNumber) => {
+              const registration = zoneRegistrations[Number.parseInt(pairNumber, 10) - 1];
+              return String(registration?.id || "") === winnerRegistrationId;
+            }) || "";
+          const venueLabel =
+            effectiveVenue?.label ||
+            effectiveVenue?.name ||
+            schedule.venueLabel ||
+            (tournamentVenueOptions.length ? "Elegir" : "Sin sede");
+
+          return {
+            dayLabel: effectiveDayKey
+              ? formatScheduleWeekdayDisplay(effectiveDayKey, tournamentDayOptions)
+              : "Dia",
+            dayKey: effectiveDayKey,
+            key: matchLabel,
+            label: pairNumbers.length === 2 ? `${pairNumbers[0]} vs ${pairNumbers[1]}` : matchLabel,
+            orderIndex: matchIndex,
+            pairNumbers,
+            resultLabel: formatPlanningResultText(schedule),
+            startTime: schedule.startTime || "",
+            timeLabel: schedule.startTime || "Hora",
+            venueId: effectiveVenueId,
+            venueLabel,
+            winnerPairNumber,
+          };
+        })
+        .sort((firstMatch, secondMatch) => {
+          const firstDayOrder = dayOrderByKey.has(firstMatch.dayKey)
+            ? dayOrderByKey.get(firstMatch.dayKey)
+            : Number.MAX_SAFE_INTEGER;
+          const secondDayOrder = dayOrderByKey.has(secondMatch.dayKey)
+            ? dayOrderByKey.get(secondMatch.dayKey)
+            : Number.MAX_SAFE_INTEGER;
+
+          if (firstDayOrder !== secondDayOrder) {
+            return firstDayOrder - secondDayOrder;
+          }
+
+          const firstTimeOrder = isValidTimeString(firstMatch.startTime)
+            ? parseTimeToMinutes(firstMatch.startTime)
+            : Number.MAX_SAFE_INTEGER;
+          const secondTimeOrder = isValidTimeString(secondMatch.startTime)
+            ? parseTimeToMinutes(secondMatch.startTime)
+            : Number.MAX_SAFE_INTEGER;
+
+          if (firstTimeOrder !== secondTimeOrder) {
+            return firstTimeOrder - secondTimeOrder;
+          }
+
+          return firstMatch.orderIndex - secondMatch.orderIndex;
+        });
+
+      return {
+        bracketLetter,
+        id: zoneId,
+        label: zone.label || `Zona ${String.fromCharCode(65 + zoneIndex)}`,
+        matchRows,
+        qualifiers,
+        registrations: zoneRegistrations.map((registration, registrationIndex) => ({
+          id: registration.id,
+          label: formatShortPairLabel(registration.pairLabel || `Pareja ${registrationIndex + 1}`),
+          number: registrationIndex + 1,
+        })),
+        standings: zoneStandings,
+      };
+    });
+  }, [
+    activeZonePlanning,
+    currentMatchFormat.zones,
+    registrationsById,
+    tournamentDayOptions,
+    tournamentRuleSet,
+    tournamentVenueOptions,
+  ]);
+  const buildZonesPreviewForPlanning = useCallback(
+    (zonePlanning) =>
+      buildZonesPreviewFromZonePlanning({
+        matchFormat: currentMatchFormat.zones,
+        registrationsById,
+        ruleSet: tournamentRuleSet,
+        tournamentDayOptions,
+        tournamentVenueOptions,
+        zonePlanning,
+      }),
+    [
+      currentMatchFormat.zones,
+      registrationsById,
+      tournamentDayOptions,
+      tournamentRuleSet,
+      tournamentVenueOptions,
+    ]
+  );
+  const newZonesPreviewForBracket = useMemo(
+    () => buildZonesPreviewForPlanning(activeZonePlanning),
+    [activeZonePlanning, buildZonesPreviewForPlanning]
+  );
+  const zoneShareChunks = useMemo(() => {
+    const chunks = [];
+
+    for (let index = 0; index < newZonePlanningZones.length; index += 3) {
+      chunks.push(newZonePlanningZones.slice(index, index + 3));
+    }
+
+    return chunks;
+  }, [newZonePlanningZones]);
+  const zoneShareCategoryLabel = useMemo(
+    () => tournament?.compositionConfig?.label || tournament?.compositionLabel || "",
+    [tournament?.compositionConfig?.label, tournament?.compositionLabel]
+  );
+  const zoneShareOrganizerLogoUrl = useMemo(
+    () =>
+      tournament?.organizerLogoUrl ||
+      ((tournament?.organizerId === userData?.uid || tournament?.createdBy === userData?.uid)
+        ? userData?.organizerLogoUrl
+        : "") ||
+      "",
+    [
+      tournament?.createdBy,
+      tournament?.organizerId,
+      tournament?.organizerLogoUrl,
+      userData?.organizerLogoUrl,
+      userData?.uid,
+    ]
+  );
+  const bracketZonesPreviewChanged = useMemo(() => {
+    if (!bracketBoard) {
+      return false;
+    }
+
+    const savedZonesPreview = fixtureSetup?.zonesPreview || [];
+
+    if (!Array.isArray(savedZonesPreview) || !savedZonesPreview.length) {
+      return false;
+    }
+
+    return buildZonesPreviewSignature(savedZonesPreview) !== buildZonesPreviewSignature(newZonesPreviewForBracket);
+  }, [bracketBoard, fixtureSetup?.zonesPreview, newZonesPreviewForBracket]);
+  const shouldShowBracketZoneWarning = useMemo(
+    () =>
+      canEditFixture &&
+      Boolean(bracketBoard) &&
+      (hasZonePlanningUnsavedChanges || bracketNeedsZoneRefresh || bracketZonesPreviewChanged),
+    [
+      bracketBoard,
+      bracketNeedsZoneRefresh,
+      bracketZonesPreviewChanged,
+      canEditFixture,
+      hasZonePlanningUnsavedChanges,
+    ]
+  );
+  const zonePlanningStandingsModalZone = useMemo(
+    () =>
+      newZonePlanningZones.find((zone) => zone.id === zonePlanningStandingsModalZoneId) || null,
+    [newZonePlanningZones, zonePlanningStandingsModalZoneId]
   );
   const bracketVenueSchedulesForDisplay = useMemo(
     () =>
@@ -2981,7 +6052,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
       ) || null,
     [currentUserId, registrations]
   );
-  const highlightedPairId = String(currentPlayerRegistration?.id || "").trim();
+  const highlightedPairId = !canEditFixture ? String(currentPlayerRegistration?.id || "").trim() : "";
   const highlightedZoneId = useMemo(() => {
     if (!highlightedPairId) {
       return "";
@@ -3055,11 +6126,134 @@ export default function TournamentFixtureScreen({ navigation, route }) {
     }
 
     const parsedCourt = splitCourtLabelPartsSafe(currentMatch.courtLabel);
+    const currentCourtLabel = String(currentMatch.courtLabel || "").trim();
     const venueId = String(currentMatch.venueId || "").trim();
+    const bracketSchedules = zoneVenueSchedules.filter((entry) => entry.useForBracket);
+    const scheduledVenueIds = Array.from(
+      new Set(bracketSchedules.map((entry) => String(entry.venueId || "").trim()).filter(Boolean))
+    );
+    const venueIdMatches = venueId
+      ? tournamentVenueOptions.filter((entry) => String(entry.id || "") === venueId)
+      : [];
+    const selectableVenues = venueIdMatches.length
+      ? venueIdMatches
+      : scheduledVenueIds.length
+      ? scheduledVenueIds
+          .map((entryVenueId) =>
+            tournamentVenueOptions.find((entry) => String(entry.id || "") === entryVenueId)
+          )
+          .filter(Boolean)
+      : tournamentVenueOptions;
+    const options = selectableVenues.flatMap((venue) => {
+      const currentVenueId = String(venue?.id || "").trim();
+      const scheduleCourtCount = Math.max(
+        ...bracketSchedules
+          .filter((entry) => String(entry.venueId || "").trim() === currentVenueId)
+          .map((entry) => Number(entry.courts || 0)),
+        0
+      );
+      const courtCount = Math.max(scheduleCourtCount || Number(venue?.totalCanchas || 0) || 1, 1);
+      const venueName =
+        bracketSchedules.find((entry) => String(entry.venueId || "").trim() === currentVenueId)?.venueName ||
+        venue?.name ||
+        venue?.label ||
+        "";
+
+      return buildCourtPickerOptions(venue, venueName, courtCount);
+    });
+
+    return {
+      currentCourtName: parsedCourt.courtName,
+      currentCourtLabel,
+      matchId: currentMatch.id,
+      options,
+      roundId: currentRound.id,
+    };
+  }, [
+    bracketMatchPickerState,
+    currentBracketPreview,
+    tournamentVenueOptions,
+    zoneVenueSchedules,
+  ]);
+  const getBracketSelectableVenues = useCallback(
+    (preferredVenueId = "") => {
+      const cleanPreferredVenueId = String(preferredVenueId || "").trim();
+      const bracketSchedules = zoneVenueSchedules.filter((entry) => entry.useForBracket);
+      const scheduledVenueIds = Array.from(
+        new Set(bracketSchedules.map((entry) => String(entry.venueId || "").trim()).filter(Boolean))
+      );
+      const venueIdMatches = cleanPreferredVenueId
+        ? tournamentVenueOptions.filter((entry) => String(entry.id || "") === cleanPreferredVenueId)
+        : [];
+
+      return venueIdMatches.length
+        ? venueIdMatches
+        : scheduledVenueIds.length
+        ? scheduledVenueIds
+            .map((entryVenueId) =>
+              tournamentVenueOptions.find((entry) => String(entry.id || "") === entryVenueId)
+            )
+            .filter(Boolean)
+        : tournamentVenueOptions;
+    },
+    [tournamentVenueOptions, zoneVenueSchedules]
+  );
+  const getBracketCourtOptionsForVenue = useCallback(
+    (venueId = "") => {
+      const cleanVenueId = String(venueId || "").trim();
+      const bracketSchedules = zoneVenueSchedules.filter((entry) => entry.useForBracket);
+      const selectableVenues = getBracketSelectableVenues(cleanVenueId);
+      const targetVenues = cleanVenueId
+        ? selectableVenues.filter((venue) => String(venue?.id || "").trim() === cleanVenueId)
+        : selectableVenues;
+
+      return targetVenues.flatMap((venue) => {
+        const currentVenueId = String(venue?.id || "").trim();
+        const scheduleCourtCount = Math.max(
+          ...bracketSchedules
+            .filter((entry) => String(entry.venueId || "").trim() === currentVenueId)
+            .map((entry) => Number(entry.courts || 0)),
+          0
+        );
+        const courtCount = Math.max(scheduleCourtCount || Number(venue?.totalCanchas || 0) || 1, 1);
+        const venueName =
+          bracketSchedules.find((entry) => String(entry.venueId || "").trim() === currentVenueId)?.venueName ||
+          venue?.name ||
+          venue?.label ||
+          "";
+
+        return buildCourtPickerOptions(venue, venueName, courtCount);
+      });
+    },
+    [getBracketSelectableVenues, zoneVenueSchedules]
+  );
+  const activeZoneCourtPicker = useMemo(() => {
+    if (
+      zoneMatchPickerState.field !== "courtLabel" ||
+      !zoneMatchPickerState.zoneId ||
+      !zoneMatchPickerState.matchId
+    ) {
+      return null;
+    }
+
+    const currentZone = (zonesPreview || []).find(
+      (zone) => zone.id === zoneMatchPickerState.zoneId
+    );
+    const currentMatch = (currentZone?.matches || []).find(
+      (match) => match.id === zoneMatchPickerState.matchId
+    );
+
+    if (!currentZone || !currentMatch) {
+      return null;
+    }
+
+    const parsedCourt = splitCourtLabelPartsSafe(currentMatch.courtLabel);
+    const venueId = String(currentMatch.venueId || "").trim();
+    const schedulesForZones = zoneVenueSchedules.filter(
+      (entry) => entry.useForZones && (!venueId || entry.venueId === venueId)
+    );
     const scheduleCourtCount = Math.max(
-      ...zoneVenueSchedules
-        .filter((entry) => entry.useForBracket && (!venueId || entry.venueId === venueId))
-        .map((entry) => Number(entry.courts || 0)),
+      ...schedulesForZones.map((entry) => Number(entry.courts || 0)),
       0
     );
     const venue = tournamentVenueOptions.find((entry) => String(entry.id || "") === venueId);
@@ -3067,25 +6261,20 @@ export default function TournamentFixtureScreen({ navigation, route }) {
     const venueName =
       parsedCourt.venueName ||
       venue?.name ||
-      zoneVenueSchedules.find((entry) => entry.useForBracket && (!venueId || entry.venueId === venueId))?.venueName ||
+      schedulesForZones[0]?.venueName ||
+      tournamentVenueOptions[0]?.name ||
       "";
 
     return {
       currentCourtName: parsedCourt.courtName,
       matchId: currentMatch.id,
-      options: Array.from({ length: courtCount }, (_, index) => {
-        const courtName = `Cancha ${index + 1}`;
-        return {
-          label: courtName,
-          value: venueName ? `${venueName} · ${courtName}` : courtName,
-        };
-      }),
-      roundId: currentRound.id,
+      options: buildCourtPickerOptions(venue, venueName, courtCount),
+      zoneId: currentZone.id,
     };
   }, [
-    bracketMatchPickerState,
-    currentBracketPreview,
     tournamentVenueOptions,
+    zoneMatchPickerState,
+    zonesPreview,
     zoneVenueSchedules,
   ]);
 
@@ -3132,13 +6321,20 @@ export default function TournamentFixtureScreen({ navigation, route }) {
 
       pendingFixtureSetupRef.current = nextSetup;
 
+      const tournamentUpdatePayload = {
+        buildMode: selectedMode,
+        fixtureSetup: nextSetup,
+      };
+
+      if (nextSetup.zonePlanning !== undefined || tournament?.zonePlanning !== undefined) {
+        tournamentUpdatePayload.zonePlanning =
+          nextSetup.zonePlanning !== undefined ? nextSetup.zonePlanning : tournament?.zonePlanning || null;
+      }
+
       const updatedTournament = await updateTournament(
         tournament.id,
         currentOrganizer,
-        {
-          buildMode: selectedMode,
-          fixtureSetup: nextSetup,
-        },
+        tournamentUpdatePayload,
         tournament
       );
 
@@ -3206,10 +6402,6 @@ export default function TournamentFixtureScreen({ navigation, route }) {
       setScheduleVenueTimePickerTarget(null);
       setActiveSection(normalizedSection);
 
-      if (normalizedSection === "bracket" && !isBracketFullscreenStandalone) {
-        openBracketFullscreen();
-      }
-
       if (canEditFixture) {
         if (!tournament?.id || fixtureSetup.lastViewedSection === normalizedSection) {
           return;
@@ -3217,15 +6409,25 @@ export default function TournamentFixtureScreen({ navigation, route }) {
 
         try {
           const latestFixtureSetup = pendingFixtureSetupRef.current || fixtureSetup;
+          const nextFixtureSetup = {
+            ...latestFixtureSetup,
+            lastViewedSection: normalizedSection,
+          };
+          const sectionUpdatePayload = {
+            fixtureSetup: nextFixtureSetup,
+          };
+
+          if (nextFixtureSetup.zonePlanning !== undefined || tournament?.zonePlanning !== undefined) {
+            sectionUpdatePayload.zonePlanning =
+              nextFixtureSetup.zonePlanning !== undefined
+                ? nextFixtureSetup.zonePlanning
+                : tournament?.zonePlanning || null;
+          }
+
           await updateTournament(
             tournament.id,
             currentOrganizer,
-            {
-              fixtureSetup: {
-                ...latestFixtureSetup,
-                lastViewedSection: normalizedSection,
-              },
-            },
+            sectionUpdatePayload,
             tournament
           );
 
@@ -3233,10 +6435,11 @@ export default function TournamentFixtureScreen({ navigation, route }) {
             current
               ? {
                   ...current,
-                  fixtureSetup: {
-                    ...(current.fixtureSetup || {}),
-                    lastViewedSection: normalizedSection,
-                  },
+                  fixtureSetup: nextFixtureSetup,
+                  zonePlanning:
+                    nextFixtureSetup.zonePlanning !== undefined
+                      ? nextFixtureSetup.zonePlanning
+                      : current.zonePlanning,
                 }
               : current
           );
@@ -3270,10 +6473,33 @@ export default function TournamentFixtureScreen({ navigation, route }) {
       tournament,
       tournamentId,
       updateProfile,
-      isBracketFullscreenStandalone,
-      openBracketFullscreen,
     ]
   );
+
+  const handlePressBracketSection = useCallback(async () => {
+    if (bracketOpening) {
+      return;
+    }
+
+    setBracketOpening(true);
+
+    try {
+      await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+      await handleChangeActiveSection("bracket");
+
+      if (hasCreatedBracket) {
+        openBracketFullscreen();
+        await new Promise((resolve) => setTimeout(resolve, 180));
+      }
+    } finally {
+      setBracketOpening(false);
+    }
+  }, [
+    bracketOpening,
+    handleChangeActiveSection,
+    hasCreatedBracket,
+    openBracketFullscreen,
+  ]);
 
   const scheduleBracketSave = useCallback(
     (nextBracketPreview) => {
@@ -3294,6 +6520,42 @@ export default function TournamentFixtureScreen({ navigation, route }) {
     [saveFixtureSetup]
   );
 
+  const syncBracketFromZonePlanning = useCallback(
+    (nextPlanning) => {
+      const baseBracketPreview = workingBracketPreviewRef.current || currentBracketPreview;
+
+      if (!baseBracketPreview) {
+        return null;
+      }
+
+      const nextZonesPreview = buildZonesPreviewForPlanning(nextPlanning);
+      const syncedBracketPreview = syncBracketPreviewQualifiedEntries(
+        baseBracketPreview,
+        nextZonesPreview,
+        resolveCurrentBracketRoundFormat,
+        tournamentRuleSet,
+        recommendation
+      );
+
+      if (!syncedBracketPreview) {
+        return null;
+      }
+
+      setBracketDraft(syncedBracketPreview);
+      workingBracketPreviewRef.current = syncedBracketPreview;
+      scheduleBracketSave(syncedBracketPreview);
+      return syncedBracketPreview;
+    },
+    [
+      buildZonesPreviewForPlanning,
+      currentBracketPreview,
+      recommendation,
+      resolveCurrentBracketRoundFormat,
+      scheduleBracketSave,
+      tournamentRuleSet,
+    ]
+  );
+
   const scheduleZonesSave = useCallback(
     (nextZonesPreview) => {
       if (zoneSaveTimeoutRef.current) {
@@ -3312,7 +6574,9 @@ export default function TournamentFixtureScreen({ navigation, route }) {
           const syncedBracketPreview = syncBracketPreviewQualifiedEntries(
             currentBracketPreview,
             nextZonesPreview,
-            resolveCurrentBracketRoundFormat
+            resolveCurrentBracketRoundFormat,
+            tournamentRuleSet,
+            recommendation
           );
 
           setBracketDraft(syncedBracketPreview);
@@ -3320,7 +6584,14 @@ export default function TournamentFixtureScreen({ navigation, route }) {
         }
       }, 450);
     },
-    [currentBracketPreview, resolveCurrentBracketRoundFormat, saveFixtureSetup, scheduleBracketSave]
+    [
+      currentBracketPreview,
+      recommendation,
+      resolveCurrentBracketRoundFormat,
+      saveFixtureSetup,
+      scheduleBracketSave,
+      tournamentRuleSet,
+    ]
   );
 
   const handleCreateConfiguration = () => {
@@ -3750,12 +7021,393 @@ export default function TournamentFixtureScreen({ navigation, route }) {
     });
   };
 
+  const handleCreateNewAutoZones = async () => {
+    if (!tournament?.id) {
+      return;
+    }
+
+    if (confirmedPairCount < 6) {
+      setFeedback({
+        visible: true,
+        title: "Faltan parejas confirmadas",
+        message: "Se necesitan al menos 6 parejas confirmadas para crear zonas automaticas.",
+        tone: "warning",
+      });
+      return;
+    }
+
+    try {
+      setSavingKey("zones");
+      const nextZonePlanning = buildAutomaticZonePlanning(confirmedRegistrations, recommendation);
+      const latestFixtureSetup = pendingFixtureSetupRef.current || fixtureSetup || {};
+      const nextFixtureSetup = {
+        ...latestFixtureSetup,
+        lastViewedSection: "newzones",
+        zonePlanning: nextZonePlanning,
+      };
+
+      await updateTournament(
+        tournament.id,
+        currentOrganizer,
+        {
+          fixtureSetup: nextFixtureSetup,
+          zonePlanning: nextZonePlanning,
+        },
+        tournament
+      );
+      setTournament((current) =>
+        current
+          ? {
+              ...current,
+              fixtureSetup: {
+                ...(current.fixtureSetup || {}),
+                ...nextFixtureSetup,
+              },
+              zonePlanning: nextZonePlanning,
+            }
+          : current
+      );
+      pendingFixtureSetupRef.current = nextFixtureSetup;
+      setZonePlanningDraft(null);
+      setActiveSection("newzones");
+      setFeedback({
+        visible: true,
+        title: "Zonas automaticas creadas",
+        message: "Las zonas automaticas ya quedaron reflejadas en Nuevas zonas.",
+        tone: "success",
+      });
+    } catch (error) {
+      setFeedback({
+        visible: true,
+        title: "No pudimos crear las zonas",
+        message: error?.message || "Intenta nuevamente en unos instantes.",
+        tone: "danger",
+      });
+    } finally {
+      setSavingKey("");
+    }
+  };
+
+  const handleCreateNewAutoZonesPress = () => {
+    if (!newZonePlanningZones.length) {
+      handleCreateNewAutoZones();
+      return;
+    }
+
+    setConfirmFixtureAction({
+      title: "Volver a crear zonas automaticas",
+      message:
+        "Ya hay zonas en Nuevas zonas. Si continuas, se reemplazara ese armado automatico/manual guardado.",
+      confirmLabel: "Continuar",
+      onConfirm: handleCreateNewAutoZones,
+    });
+  };
+
+  const persistZonePlanningUpdate = async (nextPlanning, options = {}) => {
+    if (!tournament?.id || !nextPlanning) {
+      return;
+    }
+
+    const shouldPersistFixtureSetup = Boolean(options.persistFixtureSetup);
+    const latestFixtureSetup = pendingFixtureSetupRef.current || fixtureSetup || {};
+    const nextFixtureSetup = {
+      ...latestFixtureSetup,
+      lastViewedSection: "newzones",
+      zonePlanning: nextPlanning,
+    };
+
+    const updatedTournament = await updateTournament(
+      tournament.id,
+      currentOrganizer,
+      shouldPersistFixtureSetup
+        ? {
+            fixtureSetup: nextFixtureSetup,
+            zonePlanning: nextPlanning,
+          }
+        : { zonePlanning: nextPlanning },
+      tournament
+    );
+
+    setTournament((current) =>
+      current
+        ? {
+            ...current,
+            ...updatedTournament,
+            fixtureSetup: {
+              ...(current.fixtureSetup || {}),
+              ...nextFixtureSetup,
+            },
+            zonePlanning: nextPlanning,
+          }
+        : updatedTournament
+    );
+    pendingFixtureSetupRef.current = nextFixtureSetup;
+  };
+
+  const updateZonePlanningMatchSchedule = (zoneId, matchKey, partialSchedule = {}) => {
+    const planningSource = activeZonePlanning || {};
+    const nextPlanning = removeUndefinedFields({
+      confirmed: Boolean(planningSource?.confirmed),
+      updatedAtMillis: Date.now(),
+      zones: (Array.isArray(planningSource?.zones) ? planningSource.zones : []).map((zone) =>
+        zone.id !== zoneId
+          ? zone
+          : {
+              ...zone,
+              matchSchedules: {
+                ...(zone.matchSchedules || {}),
+                [matchKey]: {
+                  ...(zone.matchSchedules?.[matchKey] || {}),
+                  ...partialSchedule,
+                },
+              },
+            }
+      ),
+    });
+
+    setZonePlanningDraft(nextPlanning);
+  };
+
+  const handleSaveZonePlanningChanges = async () => {
+    if (!zonePlanningDraft || !hasZonePlanningUnsavedChanges) {
+      return;
+    }
+
+    const planningToSave = zonePlanningDraft;
+
+    try {
+      setSavingKey("newzones");
+      await persistZonePlanningUpdate(planningToSave, { persistFixtureSetup: true });
+      syncBracketFromZonePlanning(planningToSave);
+      setZonePlanningDraft(null);
+      setFeedback({
+        visible: true,
+        title: "Zonas guardadas",
+        message: "Los cambios de Nuevas zonas quedaron guardados y sincronizados con Llaves.",
+        tone: "success",
+      });
+    } catch (error) {
+      console.log("[TournamentFixture] zonePlanning update error", {
+        code: error?.code,
+        message: error?.message,
+        name: error?.name,
+      });
+      setFeedback({
+        visible: true,
+        title: "No pudimos guardar las zonas",
+        message: error?.message || "Intenta nuevamente en unos instantes.",
+        tone: "danger",
+      });
+    } finally {
+      setSavingKey("");
+    }
+  };
+
+  const openZonePlanningDayPicker = (zoneId, matchKey, currentDayKey = "") => {
+    if (!tournamentDayOptions.length) {
+      return;
+    }
+
+    setZonePlanningDayPickerTarget({
+      currentDayKey,
+      matchKey,
+      zoneId,
+    });
+  };
+
+  const closeZonePlanningDayPicker = () => {
+    setZonePlanningDayPickerTarget(null);
+  };
+
+  const selectZonePlanningMatchDay = (dayKey = "") => {
+    if (!zonePlanningDayPickerTarget?.zoneId || !zonePlanningDayPickerTarget?.matchKey || !dayKey) {
+      return;
+    }
+
+    updateZonePlanningMatchSchedule(
+      zonePlanningDayPickerTarget.zoneId,
+      zonePlanningDayPickerTarget.matchKey,
+      { dayKey }
+    );
+    closeZonePlanningDayPicker();
+  };
+
+  const cycleZonePlanningMatchVenue = (zoneId, matchKey, currentVenueId = "") => {
+    if (!tournamentVenueOptions.length) {
+      return;
+    }
+
+    const currentIndex = tournamentVenueOptions.findIndex((venue) => venue.id === currentVenueId);
+    const nextVenue = tournamentVenueOptions[(currentIndex + 1) % tournamentVenueOptions.length];
+
+    if (nextVenue?.id) {
+      updateZonePlanningMatchSchedule(zoneId, matchKey, {
+        venueId: nextVenue.id,
+        venueLabel: nextVenue.label || nextVenue.name || "",
+      });
+    }
+  };
+
+  const handleZonePlanningTimePickerChange = (_, selectedDate) => {
+    if (zonePlanningTimePickerTarget?.zoneId && zonePlanningTimePickerTarget?.matchKey && selectedDate) {
+      const nextHours = formatTwoDigits(selectedDate.getHours());
+      const nextMinutes = formatTwoDigits(selectedDate.getMinutes());
+      updateZonePlanningMatchSchedule(
+        zonePlanningTimePickerTarget.zoneId,
+        zonePlanningTimePickerTarget.matchKey,
+        { startTime: `${nextHours}:${nextMinutes}` }
+      );
+    }
+
+    if (Platform.OS !== "ios") {
+      setZonePlanningTimePickerTarget(null);
+    }
+  };
+
+  const openZonePlanningResultEditor = (zoneId, matchKey) => {
+    const planningSource = activeZonePlanning || {};
+    const targetZone = (Array.isArray(planningSource?.zones) ? planningSource.zones : []).find(
+      (zone) => zone.id === zoneId
+    );
+
+    if (!targetZone) {
+      return;
+    }
+
+    const zoneRegistrations = (Array.isArray(targetZone.registrationIds) ? targetZone.registrationIds : [])
+      .map((registrationId) => registrationsById.get(registrationId))
+      .filter(Boolean);
+    const pairNumbers = getPlanningMatchPairNumbers(targetZone, zoneRegistrations, matchKey);
+    const participants = pairNumbers
+      .map((pairNumber) => {
+        const registration = zoneRegistrations[Number.parseInt(pairNumber, 10) - 1];
+
+        if (!registration) {
+          return null;
+        }
+
+        return {
+          id: registration.id,
+          label: formatShortPairLabel(registration.pairLabel || `Pareja ${pairNumber}`),
+          number: pairNumber,
+        };
+      })
+      .filter(Boolean);
+    const schedule = targetZone.matchSchedules?.[matchKey] || {};
+
+    setZonePlanningResultEditor({
+      matchKey,
+      participants,
+      sets: normalizeResultSets(schedule?.result?.sets, currentMatchFormat.zones),
+      winnerRegistrationId: String(schedule?.result?.winnerRegistrationId || ""),
+      zoneId,
+    });
+  };
+
+  const closeZonePlanningResultEditor = () => {
+    setZonePlanningResultEditor(null);
+  };
+
+  const updateZonePlanningResultSetScore = (setIndex, value) => {
+    setZonePlanningResultEditor((current) => {
+      if (!current) {
+        return current;
+      }
+
+      const allowDoubleDigits = shouldAllowDoubleDigitSetScore(
+        currentMatchFormat.zones,
+        setIndex,
+        currentMatchFormat.zonesSuperTieBreakPoints
+      );
+      const parsedSet = parseCompactSetInput(value, allowDoubleDigits);
+
+      return {
+        ...current,
+        sets: normalizeResultSets(current.sets, currentMatchFormat.zones).map((set, index) =>
+          index === setIndex
+            ? {
+                ...set,
+                ...parsedSet,
+                inputValue: sanitizeSetInputValue(value, allowDoubleDigits),
+              }
+            : set
+        ),
+      };
+    });
+  };
+
+  const saveZonePlanningResultEditor = () => {
+    if (!zonePlanningResultEditor?.zoneId || !zonePlanningResultEditor?.matchKey) {
+      closeZonePlanningResultEditor();
+      return;
+    }
+
+    const sets = normalizeResultSets(zonePlanningResultEditor.sets, currentMatchFormat.zones);
+    const hasScore = hasAnyResultSetScore(sets);
+    const winner = (zonePlanningResultEditor.participants || []).find(
+      (participant) => String(participant.id) === String(zonePlanningResultEditor.winnerRegistrationId)
+    );
+
+    if ((hasScore || zonePlanningResultEditor.winnerRegistrationId) && !winner) {
+      setFeedback({
+        visible: true,
+        title: "Falta seleccionar ganador",
+        message: "Para guardar un resultado cargado, selecciona la pareja ganadora.",
+        tone: "danger",
+      });
+      return;
+    }
+
+    if (hasScore || winner) {
+      const firstTwoSetsAreComplete = [0, 1].every((index) => Boolean(getSetWinnerSide(sets[index])));
+      const thirdSetHasScore = Boolean(sets[2]?.teamA || sets[2]?.teamB);
+      const thirdSetIsComplete = !thirdSetHasScore || Boolean(getSetWinnerSide(sets[2]));
+
+      if (!firstTwoSetsAreComplete || !thirdSetIsComplete) {
+        setFeedback({
+          visible: true,
+          title: "Resultado incompleto",
+          message:
+            currentMatchFormat.zones === "super_tiebreak"
+              ? "SET 1, SET 2 y SUPER TIE BREAK, si se carga, deben tener ganador."
+              : "SET 1 y SET 2 deben tener ganador. Si cargas SET 3, tambien debe tener ganador.",
+          tone: "danger",
+        });
+        return;
+      }
+    }
+
+    const resultText = buildPlanningResultTextFromSets(sets);
+    updateZonePlanningMatchSchedule(zonePlanningResultEditor.zoneId, zonePlanningResultEditor.matchKey, {
+      result: {
+        score: resultText,
+        sets,
+        winnerLabel: winner?.label || "",
+        winnerRegistrationId: winner?.id || "",
+      },
+      resultText,
+    });
+    closeZonePlanningResultEditor();
+  };
+
   const handleCreateBracket = () => {
-    if (!Array.isArray(zonesPreview) || !zonesPreview.length) {
+    if (hasZonePlanningUnsavedChanges) {
+      setFeedback({
+        visible: true,
+        title: "Guarda las zonas",
+        message: "Hay cambios sin guardar en Nuevas zonas. Guardalos antes de crear o actualizar llaves.",
+        tone: "warning",
+      });
+      return;
+    }
+
+    const zonesForBracket = newZonesPreviewForBracket;
+
+    if (!Array.isArray(zonesForBracket) || !zonesForBracket.length) {
       setFeedback({
         visible: true,
         title: "Primero crea las zonas",
-        message: "Antes de trabajar las llaves debes tener zonas visibles dentro del fixture.",
+        message: "Usa ARMADO AUTOMATICO o ARMADO MANUAL dentro de Nuevas zonas.",
         tone: "warning",
       });
       return;
@@ -3775,7 +7427,8 @@ export default function TournamentFixtureScreen({ navigation, route }) {
       mode: selectedMode,
       manualBracketMode: selectedManualBracketMode,
       recommendation,
-      zonesPreview,
+      zonesPreview: zonesForBracket,
+      ruleSet: tournamentRuleSet,
     }), resolveCurrentBracketRoundFormat);
     const draftBracketSchedules = normalizeZoneVenueSchedules(
       tournamentVenueOptions
@@ -3815,7 +7468,10 @@ export default function TournamentFixtureScreen({ navigation, route }) {
       effectiveVenueSchedules.some((entry) => entry.useForBracket)
         ? assignSchedulesToBracketMatches(baseBracketPreview, effectiveVenueSchedules)
         : { nextBracketPreview: baseBracketPreview, unassignedCount: 0 };
-    const bracketPreview = scheduledBracketResult.nextBracketPreview;
+    const bracketPreview = {
+      ...scheduledBracketResult.nextBracketPreview,
+      zonePlanningSignature: buildZonePlanningSignature(activeZonePlanning),
+    };
     const bracketCreationStats = (bracketPreview?.rounds || []).reduce(
       (stats, round) => {
         (round.matches || []).forEach((match) => {
@@ -3857,15 +7513,63 @@ export default function TournamentFixtureScreen({ navigation, route }) {
     );
     console.log("[TournamentFixture] Crear llaves", {
       tournamentId,
+      ruleSet: tournamentRuleSet,
+      zonesForBracket: zonesForBracket.map((zone) => ({
+        bracketSourceName: zone.bracketSourceName || zone.name,
+        id: zone.id,
+        name: zone.name,
+        qualifiedPairs: (zone.qualifiedPairs || []).map((pair) => pair.label || pair.pairLabel || pair.id),
+        qualifiers: zone.qualifiers,
+        size: zone.size,
+      })),
+      qualifierLabels: buildQualifiedEntriesFromZones(zonesForBracket).map((entry) => ({
+        id: entry.id,
+        seed: entry.seedLabel || entry.label,
+        name: entry.displayName,
+      })),
+      rounds: (bracketPreview?.rounds || []).map((round) => ({
+        matches: (round.matches || []).length,
+        title: round.title,
+      })),
       schedulesForBracket: effectiveVenueSchedules.filter((entry) => entry.useForBracket).length,
       durationMinutes: currentZoneMatchDurationMinutes,
       ...bracketCreationStats,
     });
+    if (!bracketCreationStats.total) {
+      setFeedback({
+        visible: true,
+        title: "No se crearon las llaves",
+        message:
+          "La app no pudo generar cruces con las zonas actuales. Revisa que las zonas tengan resultados/clasificados y vuelve a intentarlo.",
+        tone: "danger",
+      });
+      return;
+    }
     if (effectiveVenueSchedules !== zoneVenueSchedules) {
       setZoneVenueSchedules(effectiveVenueSchedules);
     }
     setBracketDraft(bracketPreview);
     workingBracketPreviewRef.current = bracketPreview;
+    pendingFixtureSetupRef.current = {
+      ...(pendingFixtureSetupRef.current || fixtureSetup),
+      bracketPreview,
+      bracketStatus: bracketPreview.mode === "manual" ? "manual_ready" : "automatic_ready",
+      lastViewedSection: "bracket",
+      zonesPreview: zonesForBracket,
+      zoneVenueSchedules: effectiveVenueSchedules,
+    };
+    setTournament((current) =>
+      current
+        ? {
+            ...current,
+            buildMode: selectedMode,
+            fixtureSetup: {
+              ...(current.fixtureSetup || {}),
+              ...(pendingFixtureSetupRef.current || {}),
+            },
+          }
+        : current
+    );
 
     saveFixtureSetup(
       {
@@ -3874,15 +7578,15 @@ export default function TournamentFixtureScreen({ navigation, route }) {
         bracketSaveGeneration: bracketSaveGenerationRef.current,
         bracketStatus: bracketPreview.mode === "manual" ? "manual_ready" : "automatic_ready",
         bracketPreview,
+        lastViewedSection: "bracket",
+        zonesPreview: zonesForBracket,
         zoneVenueSchedules: effectiveVenueSchedules,
       },
       bracketPreview.mode === "manual"
-        ? "La recomendacion de llaves quedo lista para ser completada manualmente."
-        : scheduledBracketResult.unassignedCount > 0
-        ? `Llaves creadas: ${bracketCreationStats.scheduled} programado(s), ${bracketCreationStats.byes} BYE sin horario y ${bracketCreationStats.pending} pendiente(s).`
-        : `Llaves creadas: ${bracketCreationStats.scheduled} programado(s), ${bracketCreationStats.byes} BYE sin horario.`
+        ? `Llaves creadas: ${bracketCreationStats.total} partido(s). Quedaron listas para completar manualmente.`
+        : `Llaves creadas: ${bracketCreationStats.total} partido(s). ${bracketCreationStats.scheduled} programado(s), ${bracketCreationStats.pending} pendiente(s) y ${bracketCreationStats.byes} BYE.`
     );
-    handleChangeActiveSection("bracket");
+    setActiveSection("bracket");
   };
 
   const handleCreateBracketPress = () => {
@@ -3938,6 +7642,258 @@ export default function TournamentFixtureScreen({ navigation, route }) {
     setBracketDraft(nextBracketPreview);
     workingBracketPreviewRef.current = nextBracketPreview;
     scheduleBracketSave(nextBracketPreview);
+  };
+
+  const openBracketResultEditor = (roundId, matchId, renderedRound = null, renderedMatch = null) => {
+    const baseBracketPreview = workingBracketPreviewRef.current || currentBracketPreview || {};
+    const targetRound =
+      (baseBracketPreview?.rounds || []).find((round) => round.id === roundId) ||
+      renderedRound;
+    const targetMatch =
+      (targetRound?.matches || []).find((match) => match.id === matchId) ||
+      renderedMatch;
+
+    if (!targetRound || !targetMatch) {
+      setFeedback({
+        visible: true,
+        title: "No pudimos abrir el resultado",
+        message: "No se encontro este partido en las llaves actuales.",
+        tone: "danger",
+      });
+      return;
+    }
+
+    if (targetMatch.teamAIsBye || targetMatch.teamBIsBye) {
+      return;
+    }
+
+    const roundFormat = resolveCurrentBracketRoundFormat(targetRound);
+
+    setBracketResultEditor({
+      canClearCrossing: Boolean(targetMatch.teamASourceMatchId || targetMatch.teamBSourceMatchId),
+      matchId,
+      roundId,
+      roundTitle: targetRound.title || targetRound.roundTitle || "Llave",
+      sets: normalizeResultSets(targetMatch.result?.sets, roundFormat),
+      teamASeed: getBracketTeamSeedDisplay(targetMatch, "teamA") || "A",
+      teamAName:
+        getBracketTeamDisplayLines(targetMatch, "teamA").join(" / ") ||
+        getBracketTeamSeedDisplay(targetMatch, "teamA") ||
+        "Pareja A",
+      teamBSeed: getBracketTeamSeedDisplay(targetMatch, "teamB") || "B",
+      teamBName:
+        getBracketTeamDisplayLines(targetMatch, "teamB").join(" / ") ||
+        getBracketTeamSeedDisplay(targetMatch, "teamB") ||
+        "Pareja B",
+      winner: String(targetMatch.result?.winner || ""),
+    });
+  };
+
+  const closeBracketResultEditor = () => {
+    setBracketResultEditor(null);
+  };
+
+  const updateBracketEditorMatch = (matchUpdater) => {
+    if (!bracketResultEditor?.roundId || !bracketResultEditor?.matchId) {
+      closeBracketResultEditor();
+      return;
+    }
+
+    const baseBracketPreview = workingBracketPreviewRef.current || currentBracketPreview || {};
+    const nextBracketPreview = applyBracketProgressions(
+      {
+        ...baseBracketPreview,
+        rounds: (baseBracketPreview?.rounds || []).map((round) =>
+          round.id !== bracketResultEditor.roundId
+            ? round
+            : {
+                ...round,
+                matches: (round.matches || []).map((match) =>
+                  match.id === bracketResultEditor.matchId
+                    ? matchUpdater(match, round)
+                    : match
+                ),
+              }
+        ),
+      },
+      resolveCurrentBracketRoundFormat
+    );
+
+    setBracketDraft(nextBracketPreview);
+    workingBracketPreviewRef.current = nextBracketPreview;
+    scheduleBracketSave(nextBracketPreview);
+    closeBracketResultEditor();
+  };
+
+  const clearBracketEditorResult = () => {
+    updateBracketEditorMatch((match, round) => ({
+      ...match,
+      result: buildDefaultBracketResult(resolveCurrentBracketRoundFormat(round)),
+      resultLabel: "Resultado pendiente",
+    }));
+  };
+
+  const clearBracketEditorCrossing = () => {
+    if (!bracketResultEditor?.canClearCrossing) {
+      setFeedback({
+        visible: true,
+        title: "No se puede limpiar el cruce",
+        message:
+          "Este cruce contiene parejas que vienen directo de Nuevas zonas. Solo se puede limpiar un cruce que espera ganadores de llaves anteriores.",
+        tone: "danger",
+      });
+      return;
+    }
+
+    updateBracketEditorMatch((match, round) => ({
+      ...match,
+      ...(match.teamASourceMatchId
+        ? {
+            teamAId: "",
+            teamASeed: "",
+            teamAName: "",
+            teamALines: [],
+            teamAIsBye: false,
+          }
+        : null),
+      ...(match.teamBSourceMatchId
+        ? {
+            teamBId: "",
+            teamBSeed: "",
+            teamBName: "",
+            teamBLines: [],
+            teamBIsBye: false,
+          }
+        : null),
+      result: buildDefaultBracketResult(resolveCurrentBracketRoundFormat(round)),
+      resultLabel: "Resultado pendiente",
+    }));
+  };
+
+  const updateBracketResultEditorSetScore = (setIndex, value) => {
+    const baseBracketPreview = workingBracketPreviewRef.current || currentBracketPreview || {};
+    const targetRound = (baseBracketPreview?.rounds || []).find(
+      (round) => round.id === bracketResultEditor?.roundId
+    );
+    const roundFormat = resolveCurrentBracketRoundFormat(targetRound);
+    const allowDoubleDigits = shouldAllowDoubleDigitSetScore(
+      roundFormat,
+      setIndex,
+      currentMatchFormat.bracketSuperTieBreakPoints
+    );
+    const parsedSet = parseCompactSetInput(value, allowDoubleDigits);
+    const sanitizedValue = String(value || "").replace(/[^\d/]/g, "");
+    const digitsCount = sanitizedValue.replace(/\D/g, "").length;
+    const shouldAdvanceField =
+      setIndex < 2 &&
+      Boolean(parsedSet.teamA && parsedSet.teamB) &&
+      (sanitizedValue.includes("/") || digitsCount >= (allowDoubleDigits ? 4 : 2));
+
+    setBracketResultEditor((current) => {
+      if (!current) {
+        return current;
+      }
+
+      return {
+        ...current,
+        sets: normalizeResultSets(current.sets, roundFormat).map((set, index) =>
+          index === setIndex
+            ? {
+                ...set,
+                ...parsedSet,
+                inputValue: sanitizeSetInputValue(value, allowDoubleDigits),
+              }
+            : set
+        ),
+      };
+    });
+
+    if (shouldAdvanceField) {
+      focusBracketResultField(`bracket-result-editor-${setIndex + 1}`);
+    }
+  };
+
+  const saveBracketResultEditor = () => {
+    if (!bracketResultEditor?.roundId || !bracketResultEditor?.matchId) {
+      closeBracketResultEditor();
+      return;
+    }
+
+    const baseBracketPreview = workingBracketPreviewRef.current || currentBracketPreview || {};
+    const targetRound = (baseBracketPreview?.rounds || []).find(
+      (round) => round.id === bracketResultEditor.roundId
+    );
+    const roundFormat = resolveCurrentBracketRoundFormat(targetRound);
+    const sets = normalizeResultSets(bracketResultEditor.sets, roundFormat);
+    const hasScore = hasAnyResultSetScore(sets);
+
+    if ((hasScore || bracketResultEditor.winner) && !bracketResultEditor.winner) {
+      setFeedback({
+        visible: true,
+        title: "Falta seleccionar ganador",
+        message: "Para guardar un resultado cargado, selecciona la pareja ganadora.",
+        tone: "danger",
+      });
+      return;
+    }
+
+    if (hasScore || bracketResultEditor.winner) {
+      const firstTwoSetsAreComplete = [0, 1].every((index) => Boolean(getSetWinnerSide(sets[index])));
+      const thirdSetHasScore = Boolean(sets[2]?.teamA || sets[2]?.teamB);
+      const thirdSetIsComplete = !thirdSetHasScore || Boolean(getSetWinnerSide(sets[2]));
+
+      if (!firstTwoSetsAreComplete || !thirdSetIsComplete) {
+        setFeedback({
+          visible: true,
+          title: "Resultado incompleto",
+          message:
+            roundFormat === "super_tiebreak"
+              ? "SET 1, SET 2 y SUPER TIE BREAK, si se carga, deben tener ganador."
+              : "SET 1 y SET 2 deben tener ganador. Si cargas SET 3, tambien debe tener ganador.",
+          tone: "danger",
+        });
+        return;
+      }
+    }
+
+    const nextBracketPreview = applyBracketProgressions(
+      {
+        ...baseBracketPreview,
+        rounds: (baseBracketPreview?.rounds || []).map((round) =>
+          round.id !== bracketResultEditor.roundId
+            ? round
+            : {
+                ...round,
+                matches: (round.matches || []).map((match) =>
+                  match.id !== bracketResultEditor.matchId
+                    ? match
+                    : {
+                        ...match,
+                        result: {
+                          ...(match.result || buildDefaultBracketResult(resolveCurrentBracketRoundFormat(round))),
+                          sets,
+                          winner: bracketResultEditor.winner,
+                          winnerSource: bracketResultEditor.winner ? "manual" : "",
+                        },
+                        resultLabel: hasScore
+                          ? "Resultado cargado"
+                          : bracketResultEditor.winner
+                          ? `Ganador marcado: ${
+                              bracketResultEditor.winner === "teamA" ? match.teamASeed : match.teamBSeed
+                            }`
+                          : "Resultado pendiente",
+                      }
+                ),
+              }
+        ),
+      },
+      resolveCurrentBracketRoundFormat
+    );
+
+    setBracketDraft(nextBracketPreview);
+    workingBracketPreviewRef.current = nextBracketPreview;
+    scheduleBracketSave(nextBracketPreview);
+    closeBracketResultEditor();
   };
 
   const handleBracketSetChange = (roundId, matchId, setIndex, value) => {
@@ -4468,6 +8424,34 @@ export default function TournamentFixtureScreen({ navigation, route }) {
     setZoneMatchPickerState({ zoneId: "", matchId: "", field: "" });
   };
 
+  const handleUpdateZoneMatchCourt = (zoneId, matchId, courtLabel) => {
+    const baseZonesPreview =
+      Array.isArray(workingZonesPreviewRef.current) && workingZonesPreviewRef.current.length
+        ? workingZonesPreviewRef.current
+        : zonesPreview || [];
+    const nextZonesPreview = baseZonesPreview.map((zone) => {
+      if (zone.id !== zoneId) {
+        return zone;
+      }
+
+      return {
+        ...zone,
+        matches: (zone.matches || []).map((match) =>
+          match.id !== matchId
+            ? match
+            : {
+                ...match,
+                courtLabel: String(courtLabel || ""),
+              }
+        ),
+      };
+    });
+
+    applyWorkingZonesPreview(nextZonesPreview);
+    scheduleZonesSave(nextZonesPreview);
+    setZoneMatchPickerState({ zoneId: "", matchId: "", field: "" });
+  };
+
   const handleZoneMatchTimePickerChange = useCallback(
     (_, selectedDate) => {
       if (zoneMatchTimePickerTarget?.zoneId && zoneMatchTimePickerTarget?.matchId && selectedDate) {
@@ -4536,8 +8520,28 @@ export default function TournamentFixtureScreen({ navigation, route }) {
     setBracketMatchPickerState({ roundId: "", matchId: "", field: "" });
   };
 
-  const handleUpdateBracketMatchCourt = (roundId, matchId, courtLabel) => {
+  const handleUpdateBracketMatchCourt = (roundId, matchId, courtSelection) => {
     const baseBracketPreview = workingBracketPreviewRef.current || currentBracketPreview || {};
+    const courtLabel =
+      typeof courtSelection === "string"
+        ? courtSelection
+        : String(courtSelection?.value || "");
+    const parsedCourt = splitCourtLabelPartsSafe(courtLabel);
+    const selectedVenueId =
+      typeof courtSelection === "string"
+        ? ""
+        : String(courtSelection?.venueId || "").trim();
+    const selectedVenueName =
+      typeof courtSelection === "string"
+        ? parsedCourt.venueName
+        : String(courtSelection?.venueName || parsedCourt.venueName || "").trim();
+    const fallbackVenue = tournamentVenueOptions.find(
+      (venue) =>
+        String(venue.id || "").trim() === selectedVenueId ||
+        String(venue.name || venue.label || "").trim().toLowerCase() ===
+          selectedVenueName.trim().toLowerCase()
+    );
+    const nextVenueId = selectedVenueId || String(fallbackVenue?.id || "").trim();
     const nextBracketPreview = {
       ...baseBracketPreview,
       rounds: (baseBracketPreview?.rounds || []).map((round) =>
@@ -4551,6 +8555,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                   : {
                       ...match,
                       courtLabel: String(courtLabel || ""),
+                      venueId: nextVenueId || String(match.venueId || ""),
                     }
               ),
             }
@@ -4669,6 +8674,409 @@ export default function TournamentFixtureScreen({ navigation, route }) {
         tone: "error",
         visible: true,
       });
+    }
+  };
+
+  const buildZonesPdfHtml = useCallback((bracketImageDataUrl = "") => {
+    const tournamentTitle = escapeHtml(tournament?.name || "Torneo");
+    const tournamentSubtitle = escapeHtml([zoneShareCategoryLabel, "Zonas"].filter(Boolean).join(" · "));
+    const organizerLogoHtml = zoneShareOrganizerLogoUrl
+      ? `<img class="organizer-logo" src="${escapeHtml(zoneShareOrganizerLogoUrl)}" />`
+      : "";
+    const chunksHtml = zoneShareChunks
+      .map((chunk, chunkIndex) => {
+        const zonesHtml = chunk
+          .map((zone) => {
+            const pairsHtml = zone.registrations
+              .map(
+                (registration) => `
+                  <div class="pair-row">
+                    <span class="pair-number">${escapeHtml(registration.number)}</span>
+                    <span class="pair-name">${escapeHtml(registration.label)}</span>
+                  </div>
+                `
+              )
+              .join("");
+            const matchesHtml = zone.matchRows
+              .map(
+                (match) => `
+                  <tr>
+                    <td>${escapeHtml(match.resultLabel)}</td>
+                    <td>${escapeHtml(match.label)}</td>
+                    <td>${escapeHtml(match.dayLabel)}</td>
+                    <td>${escapeHtml(match.timeLabel)}</td>
+                    <td>${escapeHtml(match.venueLabel)}</td>
+                  </tr>
+                `
+              )
+              .join("");
+            const qualifiersHtml = zone.qualifiers
+              .map(
+                (qualifier, qualifierIndex) =>
+                  `<span>${qualifierIndex + 1}&deg; ${
+                    qualifier ? escapeHtml(qualifier.shortName) : "Pendiente"
+                  }</span>`
+              )
+              .join("");
+
+            return `
+              <section class="zone-card">
+                <h2>${escapeHtml(zone.label)}</h2>
+                <div class="pairs">${pairsHtml}</div>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>RESULT.</th>
+                      <th>PAREJAS</th>
+                      <th>DIA</th>
+                      <th>HORA</th>
+                      <th>LUGAR</th>
+                    </tr>
+                  </thead>
+                  <tbody>${matchesHtml}</tbody>
+                </table>
+                <div class="qualifiers">${qualifiersHtml}</div>
+              </section>
+            `;
+          })
+          .join("");
+
+        return `
+          <div class="page ${chunkIndex > 0 ? "page-break" : ""}">
+            <header>
+              ${organizerLogoHtml}
+              <div class="header-copy">
+                <h1>${tournamentTitle}</h1>
+                <p>${tournamentSubtitle}</p>
+              </div>
+            </header>
+            ${zonesHtml}
+          </div>
+        `;
+      })
+      .join("");
+    const bracketHtml = bracketImageDataUrl
+      ? `
+        <div class="page page-break bracket-page">
+          <header>
+            ${organizerLogoHtml}
+            <div class="header-copy">
+              <h1>${tournamentTitle}</h1>
+              <p>${escapeHtml([zoneShareCategoryLabel, "Llaves"].filter(Boolean).join(" · "))}</p>
+            </div>
+          </header>
+          <img class="bracket-image" src="${bracketImageDataUrl}" />
+        </div>
+      `
+      : "";
+
+    return `
+      <!doctype html>
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <style>
+            @page { margin: 22px; }
+            * { box-sizing: border-box; }
+            body {
+              background: #F4F8F1;
+              color: #1D2B22;
+              font-family: Arial, Helvetica, sans-serif;
+              margin: 0;
+            }
+            .page {
+              min-height: 100%;
+              padding: 8px;
+            }
+            .page-break {
+              page-break-before: always;
+            }
+            header {
+              align-items: center;
+              display: flex;
+              gap: 12px;
+              justify-content: center;
+              margin-bottom: 14px;
+              text-align: center;
+            }
+            .organizer-logo {
+              border-radius: 999px;
+              height: 48px;
+              object-fit: cover;
+              width: 48px;
+            }
+            .header-copy {
+              text-align: left;
+            }
+            h1 {
+              color: #103A29;
+              font-size: 24px;
+              font-weight: 900;
+              margin: 0;
+            }
+            header p {
+              color: #66766D;
+              font-size: 12px;
+              font-weight: 700;
+              margin: 4px 0 0;
+            }
+            .zone-card {
+              background: #FFFFFF;
+              border: 1px solid #DDE8E0;
+              border-radius: 14px;
+              margin-bottom: 9px;
+              padding: 10px;
+            }
+            h2 {
+              background: #E1F4F0;
+              border: 1px solid #9FD6CF;
+              border-radius: 999px;
+              color: #1F6D69;
+              display: block;
+              font-size: 16px;
+              font-weight: 900;
+              margin: 0 auto 7px;
+              padding: 5px 16px;
+              text-align: center;
+              text-transform: uppercase;
+              width: 150px;
+            }
+            .pairs {
+              margin-bottom: 7px;
+            }
+            .pair-row {
+              align-items: center;
+              display: flex;
+              gap: 8px;
+              margin-bottom: 3px;
+            }
+            .pair-number {
+              background: #E1F4F0;
+              border: 1px solid #9FD6CF;
+              border-radius: 999px;
+              color: #1F6D69;
+              display: inline-block;
+              font-size: 11px;
+              font-weight: 900;
+              height: 22px;
+              line-height: 20px;
+              text-align: center;
+              width: 22px;
+            }
+            .pair-name {
+              font-size: 12px;
+              font-weight: 800;
+            }
+            table {
+              border-collapse: collapse;
+              overflow: hidden;
+              table-layout: fixed;
+              width: 100%;
+            }
+            th {
+              background: #E1F4F0;
+              border: 1px solid #CFE6E1;
+              color: #1F6D69;
+              font-size: 9px;
+              font-weight: 900;
+              padding: 5px 4px;
+              text-align: center;
+            }
+            td {
+              border: 1px solid #E6ECE8;
+              font-size: 9px;
+              font-weight: 700;
+              padding: 5px 4px;
+              text-align: center;
+              vertical-align: middle;
+              word-break: break-word;
+            }
+            th:nth-child(1), td:nth-child(1) { width: 21%; }
+            th:nth-child(2), td:nth-child(2) { width: 18%; }
+            th:nth-child(3), td:nth-child(3) { width: 16%; }
+            th:nth-child(4), td:nth-child(4) { width: 14%; }
+            th:nth-child(5), td:nth-child(5) { width: 31%; }
+            .qualifiers {
+              background: #F7FAF8;
+              border: 1px solid #DDE8E0;
+              border-radius: 10px;
+              display: flex;
+              gap: 12px;
+              justify-content: center;
+              margin-top: 7px;
+              padding: 6px;
+            }
+            .qualifiers span {
+              font-size: 11px;
+              font-weight: 900;
+            }
+            .bracket-page {
+              align-items: center;
+              display: flex;
+              flex-direction: column;
+              justify-content: flex-start;
+            }
+            .bracket-image {
+              height: auto;
+              max-height: 670px;
+              max-width: 100%;
+              object-fit: contain;
+              width: 100%;
+            }
+          </style>
+        </head>
+        <body>${chunksHtml}${bracketHtml}</body>
+      </html>
+    `;
+  }, [tournament?.name, zoneShareCategoryLabel, zoneShareChunks, zoneShareOrganizerLogoUrl]);
+
+  const handleShareZonesPdf = async () => {
+    if (!zoneShareChunks.length) {
+      setFeedback({
+        message: "Primero crea o guarda zonas para poder compartirlas.",
+        title: "No hay zonas para compartir",
+        tone: "warning",
+        visible: true,
+      });
+      return;
+    }
+
+    try {
+      setZoneShareInProgress(true);
+      const canShare = await Sharing.isAvailableAsync();
+
+      if (!canShare) {
+        setFeedback({
+          message: "Este dispositivo no tiene disponible el panel para compartir PDF.",
+          title: "No se pudo compartir",
+          tone: "error",
+          visible: true,
+        });
+        return;
+      }
+
+      setZoneShareModalVisible(false);
+
+      let bracketImageDataUrl = "";
+
+      if (zoneShareIncludeBracket && bracketBoard && bracketShareViewRef.current) {
+        const bracketBase64 = await captureRef(bracketShareViewRef.current, {
+          format: "png",
+          quality: 1,
+          result: "base64",
+        });
+        bracketImageDataUrl = `data:image/png;base64,${bracketBase64}`;
+      }
+
+      const { uri } = await Print.printToFileAsync({
+        base64: false,
+        html: buildZonesPdfHtml(bracketImageDataUrl),
+      });
+      const sharedFileBaseName =
+        sanitizeSharedFileName(
+          [tournament?.name || "Torneo", zoneShareCategoryLabel || "Zonas"].filter(Boolean).join("-")
+        ) || "Torneo-Zonas";
+      const sharedPdfUri = `${FileSystem.cacheDirectory}${sharedFileBaseName}.pdf`;
+
+      await FileSystem.deleteAsync(sharedPdfUri, { idempotent: true });
+      await FileSystem.copyAsync({ from: uri, to: sharedPdfUri });
+
+      await Sharing.shareAsync(sharedPdfUri, {
+        dialogTitle: "Compartir zonas",
+        mimeType: "application/pdf",
+        UTI: "com.adobe.pdf",
+      });
+    } catch (error) {
+      setFeedback({
+        message: error?.message || "No pudimos generar el PDF de zonas.",
+        title: "No se pudo compartir",
+        tone: "error",
+        visible: true,
+      });
+    } finally {
+      setZoneShareInProgress(false);
+    }
+  };
+
+  const handleShareZonesImages = async () => {
+    if (!zoneShareChunks.length) {
+      setFeedback({
+        message: "Primero crea o guarda zonas para poder compartirlas.",
+        title: "No hay zonas para compartir",
+        tone: "warning",
+        visible: true,
+      });
+      return;
+    }
+
+    try {
+      setZoneShareInProgress(true);
+      const canShare = await Sharing.isAvailableAsync();
+
+      if (!canShare) {
+        setFeedback({
+          message: "Este dispositivo no tiene disponible el panel para compartir imagenes.",
+          title: "No se pudo compartir",
+          tone: "error",
+          visible: true,
+        });
+        return;
+      }
+
+      setZoneShareModalVisible(false);
+      const imageUris = [];
+
+      for (let index = 0; index < zoneShareChunks.length; index += 1) {
+        const ref = zoneShareViewRefs.current[index];
+
+        if (!ref) {
+          continue;
+        }
+
+        const imageUri = await captureRef(ref, {
+          format: "png",
+          quality: 1,
+          result: "tmpfile",
+        });
+
+        imageUris.push(imageUri);
+      }
+
+      if (zoneShareIncludeBracket && bracketBoard && bracketShareViewRef.current) {
+        const bracketImageUri = await captureRef(bracketShareViewRef.current, {
+          format: "png",
+          height: Math.ceil(
+            (bracketBoard.boardHeight + spacing.lg * 2) * BRACKET_SHARE_IMAGE_SCALE
+          ),
+          quality: 1,
+          result: "tmpfile",
+          width: Math.ceil(
+            (bracketBoard.boardWidth + spacing.lg * 2) * BRACKET_SHARE_IMAGE_SCALE
+          ),
+        });
+
+        imageUris.push(bracketImageUri);
+      }
+
+      if (!imageUris.length) {
+        throw new Error("No pudimos generar las imagenes de zonas.");
+      }
+
+      await Share.open({
+        failOnCancel: false,
+        title: "Compartir zonas",
+        type: "image/png",
+        urls: imageUris,
+      });
+    } catch (error) {
+      setFeedback({
+        message: error?.message || "No pudimos generar las imagenes de zonas.",
+        title: "No se pudo compartir",
+        tone: "error",
+        visible: true,
+      });
+    } finally {
+      setZoneShareInProgress(false);
     }
   };
 
@@ -4833,7 +9241,128 @@ export default function TournamentFixtureScreen({ navigation, route }) {
     setBracketSwapSelection(null);
   };
 
-  const renderBracketMatchScheduleHeader = (round, match, isFullscreen = false) => {
+  const openBracketProgramEditor = (round, match) => {
+    if (!canEditFixture || !round?.id || !match?.id || match.teamAIsBye || match.teamBIsBye) {
+      return;
+    }
+
+    const parsedCourt = splitCourtLabelPartsSafe(match.courtLabel);
+    const venueIdFromName =
+      tournamentVenueOptions.find(
+        (venue) =>
+          String(venue.name || venue.label || "").trim().toLowerCase() ===
+          String(parsedCourt.venueName || "").trim().toLowerCase()
+      )?.id || "";
+    const availableVenues = getBracketSelectableVenues("");
+    const selectedVenueId =
+      String(match.venueId || venueIdFromName || "").trim() ||
+      (availableVenues.length === 1 ? String(availableVenues[0]?.id || "").trim() : "");
+    const courtOptions = getBracketCourtOptionsForVenue(selectedVenueId);
+    const selectedCourtLabel = String(match.courtLabel || "").trim();
+
+    setBracketProgramEditor({
+      courtLabel: selectedCourtLabel,
+      matchId: match.id,
+      roundId: round.id,
+      scheduledDayKey: String(match.scheduledDayKey || ""),
+      scheduledTime: String(match.scheduledTime || ""),
+      showTimePicker: false,
+      venueId: selectedVenueId,
+      venueName: parsedCourt.venueName || "",
+      fallbackCourtLabel:
+        selectedCourtLabel ||
+        (courtOptions.length === 1 ? String(courtOptions[0]?.value || "") : ""),
+    });
+  };
+
+  const closeBracketProgramEditor = () => {
+    setBracketProgramEditor(null);
+  };
+
+  const updateBracketProgramEditor = (patch = {}) => {
+    setBracketProgramEditor((current) => (current ? { ...current, ...patch } : current));
+  };
+
+  const handleBracketProgramTimeChange = (_, selectedDate) => {
+    if (selectedDate) {
+      updateBracketProgramEditor({
+        scheduledTime: `${formatTwoDigits(selectedDate.getHours())}:${formatTwoDigits(selectedDate.getMinutes())}`,
+      });
+    }
+
+    if (Platform.OS !== "ios") {
+      updateBracketProgramEditor({ showTimePicker: false });
+    }
+  };
+
+  const saveBracketProgramEditor = () => {
+    if (!bracketProgramEditor?.roundId || !bracketProgramEditor?.matchId) {
+      closeBracketProgramEditor();
+      return;
+    }
+
+    const selectedCourtLabel = String(
+      bracketProgramEditor.courtLabel || bracketProgramEditor.fallbackCourtLabel || ""
+    ).trim();
+    const parsedCourt = splitCourtLabelPartsSafe(selectedCourtLabel);
+    const selectedVenueId = String(bracketProgramEditor.venueId || "").trim();
+    const selectedVenue = tournamentVenueOptions.find(
+      (venue) => String(venue.id || "").trim() === selectedVenueId
+    );
+    const selectedVenueName =
+      parsedCourt.venueName ||
+      String(selectedVenue?.name || selectedVenue?.label || bracketProgramEditor.venueName || "").trim();
+    const nextCourtLabel =
+      selectedCourtLabel ||
+      (selectedVenueName ? selectedVenueName : "Cancha pendiente");
+    const nextScheduledDayKey = String(bracketProgramEditor.scheduledDayKey || "");
+    const nextScheduledTime = String(bracketProgramEditor.scheduledTime || "");
+    const nextScheduleLabel =
+      nextScheduledDayKey || nextScheduledTime
+        ? `${nextScheduledDayKey
+            ? formatScheduleDayDisplay(nextScheduledDayKey, tournamentDayOptions)
+            : "Dia a confirmar"} · ${
+            nextScheduledTime ? `${nextScheduledTime} hs` : "Hora a confirmar"
+          }`
+        : "Horario pendiente";
+    const baseBracketPreview = workingBracketPreviewRef.current || currentBracketPreview || {};
+    const nextBracketPreview = applyBracketProgressions(
+      {
+        ...baseBracketPreview,
+        rounds: (baseBracketPreview?.rounds || []).map((round) =>
+          round.id !== bracketProgramEditor.roundId
+            ? round
+            : {
+                ...round,
+                matches: (round.matches || []).map((match) =>
+                  match.id !== bracketProgramEditor.matchId
+                    ? match
+                    : {
+                        ...match,
+                        courtLabel: nextCourtLabel,
+                        scheduledDayKey: nextScheduledDayKey,
+                        scheduledTime: nextScheduledTime,
+                        scheduleLabel: nextScheduleLabel,
+                        venueId: selectedVenueId || String(match.venueId || ""),
+                      }
+                ),
+              }
+        ),
+      },
+      resolveCurrentBracketRoundFormat
+    );
+
+    setBracketDraft(nextBracketPreview);
+    workingBracketPreviewRef.current = nextBracketPreview;
+    scheduleBracketSave(nextBracketPreview);
+    closeBracketProgramEditor();
+  };
+
+  const renderBracketMatchScheduleHeader = (
+    round,
+    match,
+    { isFullscreen = false, isShareCapture = false } = {}
+  ) => {
     const hasBye = Boolean(match.teamAIsBye || match.teamBIsBye);
     const displayDayKey = String(hasBye ? "" : match.scheduledDayKey || bracketDisplayFallbackSchedule?.dayKey || "");
     const displayTime = String(hasBye ? "" : match.scheduledTime || bracketDisplayFallbackSchedule?.time || "");
@@ -4852,55 +9381,38 @@ export default function TournamentFixtureScreen({ navigation, route }) {
     <>
       <View style={styles.bracketMatchHeader}>
         <View style={styles.bracketMatchScheduleWrap}>
-          <Pressable
-            disabled={!canEditFixture || hasBye}
-            hitSlop={{ bottom: 8, left: 10, right: 8, top: 8 }}
-            onPress={() =>
-              canEditFixture
-                ? setBracketMatchPickerState({
-                    roundId: round.id,
-                    matchId: match.id,
-                    field: "scheduledDayKey",
-                  })
-                : null
-            }
-            style={({ pressed }) => [
-              styles.bracketMatchScheduleButton,
-              !hasBye ? styles.bracketMatchScheduleButtonActive : null,
-              pressed ? styles.primaryButtonPressed : null,
-            ]}
-          >
-            <Ionicons color={!hasBye ? colors.surface : "#1B5D92"} name="calendar-outline" size={11} />
-            <Text style={[styles.bracketMatchSchedulePill, !hasBye ? styles.bracketMatchSchedulePillActive : null]}>
-              {dayLabel}
-            </Text>
-          </Pressable>
-          <Pressable
-            disabled={!canEditFixture || hasBye}
-            hitSlop={{ bottom: 8, left: 8, right: 10, top: 8 }}
-            onPress={() =>
-              canEditFixture
-                ? setBracketMatchTimePickerTarget({
-                    roundId: round.id,
-                    matchId: match.id,
-                    currentValue: String(match.scheduledTime || ""),
-                  })
-                : null
-            }
-            style={({ pressed }) => [
-              styles.bracketMatchScheduleButton,
-              !hasBye ? styles.bracketMatchScheduleButtonActive : null,
-              pressed ? styles.primaryButtonPressed : null,
-            ]}
-          >
-            <Ionicons color={!hasBye ? colors.surface : "#1B5D92"} name="time-outline" size={11} />
-            <Text style={[styles.bracketMatchSchedulePill, !hasBye ? styles.bracketMatchSchedulePillActive : null]}>
-              {timeLabel}
-            </Text>
-          </Pressable>
+          <View style={styles.bracketMatchScheduleLine}>
+            <View style={styles.bracketMatchScheduleButton}>
+              <Ionicons color="#263238" name="calendar-outline" size={11} />
+              <Text style={styles.bracketMatchSchedulePill}>
+                {dayLabel}
+              </Text>
+            </View>
+            <View style={styles.bracketMatchScheduleButton}>
+              <Ionicons color="#263238" name="time-outline" size={11} />
+              <Text style={styles.bracketMatchSchedulePill}>
+                {timeLabel}
+              </Text>
+            </View>
+          </View>
+          {renderBracketMatchLocation(round, match)}
         </View>
+        {canEditFixture && !hasBye && !isShareCapture ? (
+          <Pressable
+            hitSlop={{ bottom: 8, left: 8, right: 8, top: 8 }}
+            onPress={() => openBracketProgramEditor(round, match)}
+            style={({ pressed }) => [
+              styles.bracketResultModalButton,
+              styles.bracketProgramButton,
+              pressed ? styles.primaryButtonPressed : null,
+            ]}
+          >
+            <Text style={styles.bracketResultModalButtonText}>Definir</Text>
+          </Pressable>
+        ) : null}
       </View>
       {!isFullscreen &&
+      !isShareCapture &&
       bracketMatchPickerState.roundId === round.id &&
       bracketMatchPickerState.matchId === match.id &&
       bracketMatchPickerState.field === "scheduledDayKey" &&
@@ -4979,32 +9491,18 @@ export default function TournamentFixtureScreen({ navigation, route }) {
         : rawCourtName;
 
     return (
-      <View style={styles.bracketMatchLocationWrap}>
-        <Text numberOfLines={2} style={styles.bracketMatchVenueText}>
+      <View
+        style={[
+          styles.bracketMatchLocationWrap,
+          !canEditFixture || hasBye ? styles.bracketCourtChipDisabled : null,
+        ]}
+      >
+        <Text numberOfLines={1} style={styles.bracketMatchVenueText}>
           {venueName || (hasBye ? "Sede -- --" : "Sede pendiente")}
         </Text>
-        {courtName || hasBye || !venueName ? (
-          <Pressable
-            disabled={!canEditFixture || hasBye || !courtName}
-            hitSlop={{ bottom: 6, left: 8, right: 8, top: 6 }}
-            onPress={() =>
-              setBracketMatchPickerState({
-                roundId: round.id,
-                matchId: match.id,
-                field: "courtLabel",
-              })
-            }
-            style={({ pressed }) => [
-              styles.bracketCourtChip,
-              pressed ? styles.primaryButtonPressed : null,
-              !canEditFixture || hasBye || !courtName ? styles.bracketCourtChipDisabled : null,
-            ]}
-          >
-            <Text numberOfLines={1} style={styles.bracketMatchCourtText}>
-              {courtName || (hasBye ? "Cancha -- --" : "Cancha pendiente")}
-            </Text>
-          </Pressable>
-        ) : null}
+        <Text numberOfLines={1} style={styles.bracketMatchCourtText}>
+          {courtName || (hasBye ? "Cancha -- --" : "Cancha pendiente")}
+        </Text>
       </View>
     );
   };
@@ -5018,27 +9516,6 @@ export default function TournamentFixtureScreen({ navigation, route }) {
     <View style={styles.bracketMatchBodyRow}>
       <View style={styles.bracketSideControlsColumn}>
         <Text style={styles.zoneVsLabel}>VS</Text>
-        <Pressable
-          onPress={() =>
-            canEditFixture
-              ? handleToggleBracketWinner(round.id, match.id, match.result?.winner)
-              : null
-          }
-          style={[
-            styles.zoneResetWinnerButton,
-            !match.result?.winner || teamAIsBye || teamBIsBye
-              ? styles.zoneResetWinnerButtonDisabled
-              : null,
-          ]}
-          disabled={!canEditFixture || teamAIsBye || teamBIsBye}
-        >
-          <FontAwesome5
-            color={colors.textMuted || colors.muted}
-            name="hand-rock"
-            size={12}
-            style={styles.neutralFistIcon}
-          />
-        </Pressable>
       </View>
 
       <View style={styles.bracketTeamsColumn}>
@@ -5054,6 +9531,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
           style={[
             styles.bracketTeamColumn,
             isResolved ? styles.bracketTeamColumnResolved : null,
+            isHighlightedTeamA ? styles.bracketTeamColumnHighlighted : null,
             isBracketSwapSlotSelected(round.id, match.id, "teamA")
               ? styles.bracketTeamColumnSwapSelected
               : null,
@@ -5091,7 +9569,9 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                   size={12}
                 />
               )}
-              <Text style={styles.bracketTeamSeedSide}>{match.teamASeed || "-"}</Text>
+              <Text style={styles.bracketTeamSeedSide}>
+                {getBracketTeamSeedDisplay(match, "teamA") || "-"}
+              </Text>
             </View>
             <View
               style={[
@@ -5130,6 +9610,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
           style={[
             styles.bracketTeamColumn,
             isResolved ? styles.bracketTeamColumnResolved : null,
+            isHighlightedTeamB ? styles.bracketTeamColumnHighlighted : null,
             isBracketSwapSlotSelected(round.id, match.id, "teamB")
               ? styles.bracketTeamColumnSwapSelected
               : null,
@@ -5167,7 +9648,9 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                   size={12}
                 />
               )}
-              <Text style={styles.bracketTeamSeedSide}>{match.teamBSeed || "-"}</Text>
+              <Text style={styles.bracketTeamSeedSide}>
+                {getBracketTeamSeedDisplay(match, "teamB") || "-"}
+              </Text>
             </View>
             <View
               style={[
@@ -5203,108 +9686,60 @@ export default function TournamentFixtureScreen({ navigation, route }) {
           teamAIsBye || teamBIsBye ? styles.bracketResultsColumnDisabled : null,
         ]}
       >
-        <View
-          style={styles.bracketResultsSetRow}
-        >
-          {normalizeResultSets(
-            match.result?.sets,
-            resolveCurrentBracketRoundFormat(round)
-          ).map((set, setIndex) => {
-            const allowDoubleDigits = shouldAllowDoubleDigitSetScore(
-              resolveCurrentBracketRoundFormat(round),
-              setIndex,
-              currentMatchFormat.bracketSuperTieBreakPoints
-            );
-            const maxDigits = allowDoubleDigits ? 2 : 1;
-            const isScoreEditable = canEditFixture && !teamAIsBye && !teamBIsBye;
+        <View style={styles.bracketResultScoreCardsRow}>
+          {Array.from({ length: 3 }, (_, setIndex) => {
+            const set = normalizeResultSets(match.result?.sets, resolveCurrentBracketRoundFormat(round))[setIndex] || {};
+            const hasSetScore = String(set.teamA || "").trim() || String(set.teamB || "").trim();
 
             return (
               <View
-                key={`${match.id}-br-set-${setIndex}`}
-                style={styles.bracketResultSetColumn}
+                key={`${match.id}-score-card-${setIndex}`}
+                style={[
+                  styles.bracketResultScoreCard,
+                  !hasSetScore ? styles.bracketResultScoreCardEmpty : null,
+                ]}
               >
                 <Text
-                  numberOfLines={1}
                   style={[
-                    styles.zoneSetLabel,
-                    !isScoreEditable ? styles.bracketScoreLabelDisabled : null,
+                    styles.bracketResultScoreValue,
+                    !hasSetScore ? styles.bracketResultScoreValueEmpty : null,
                   ]}
                 >
-                  {set.label}
+                  {set.teamA || "-"}
                 </Text>
-                <View style={styles.bracketVerticalSetInputs}>
-                  <TextInput
-                    editable={isScoreEditable && !isShareCapture}
-                    keyboardType="number-pad"
-                    maxLength={maxDigits}
-                    onChangeText={(value) => {
-                      if (!isScoreEditable) {
-                        return;
-                      }
-                      handleBracketSplitScoreChange(
-                        round.id,
-                        match.id,
-                        setIndex,
-                        "teamA",
-                        value
-                      );
-                    }}
-                    placeholder="-"
-                    placeholderTextColor={!isScoreEditable ? "#A8B1B8" : colors.muted}
-                    ref={
-                      isShareCapture
-                        ? undefined
-                        : (ref) => {
-                            bracketSetInputRefs.current[
-                              `${round.id}-${match.id}-${setIndex}-a`
-                            ] = ref;
-                          }
-                    }
-                    style={[
-                      styles.bracketVerticalSetInput,
-                      !isScoreEditable ? styles.bracketVerticalSetInputDisabled : null,
-                    ]}
-                    value={isScoreEditable ? String(set.teamA || "") : ""}
-                  />
-                  <TextInput
-                    editable={isScoreEditable && !isShareCapture}
-                    keyboardType="number-pad"
-                    maxLength={maxDigits}
-                    onChangeText={(value) => {
-                      if (!isScoreEditable) {
-                        return;
-                      }
-                      handleBracketSplitScoreChange(
-                        round.id,
-                        match.id,
-                        setIndex,
-                        "teamB",
-                        value
-                      );
-                    }}
-                    placeholder="-"
-                    placeholderTextColor={!isScoreEditable ? "#A8B1B8" : colors.muted}
-                    ref={
-                      isShareCapture
-                        ? undefined
-                        : (ref) => {
-                            bracketSetInputRefs.current[
-                              `${round.id}-${match.id}-${setIndex}-b`
-                            ] = ref;
-                          }
-                    }
-                    style={[
-                      styles.bracketVerticalSetInput,
-                      !isScoreEditable ? styles.bracketVerticalSetInputDisabled : null,
-                    ]}
-                    value={isScoreEditable ? String(set.teamB || "") : ""}
-                  />
-                </View>
+                <View style={styles.bracketResultScoreDivider} />
+                <Text
+                  style={[
+                    styles.bracketResultScoreValue,
+                    !hasSetScore ? styles.bracketResultScoreValueEmpty : null,
+                  ]}
+                >
+                  {set.teamB || "-"}
+                </Text>
               </View>
             );
           })}
         </View>
-        {renderBracketMatchLocation(round, match)}
+        {!isShareCapture ? (
+          <Pressable
+            disabled={!canEditFixture || teamAIsBye || teamBIsBye}
+            hitSlop={{ bottom: 10, left: 10, right: 10, top: 10 }}
+            onPressIn={() => openBracketResultEditor(round.id, match.id, round, match)}
+            style={({ pressed }) => [
+              styles.bracketResultModalButton,
+              pressed ? styles.primaryButtonPressed : null,
+              !canEditFixture || teamAIsBye || teamBIsBye ? styles.bracketResultModalButtonDisabled : null,
+            ]}
+          >
+            <Text style={styles.bracketResultModalButtonText}>
+              {hasAnyResultSetScore(
+                normalizeResultSets(match.result?.sets, resolveCurrentBracketRoundFormat(round))
+              ) || match.result?.winner
+                ? "Editar"
+                : "Cargar"}
+            </Text>
+          </Pressable>
+        ) : null}
       </View>
     </View>
   );
@@ -5374,6 +9809,333 @@ export default function TournamentFixtureScreen({ navigation, route }) {
         </View>
       ) : null}
     </View>
+  );
+
+  const renderBracketProgramEditorModal = () => {
+    const selectableVenues = getBracketSelectableVenues("");
+    const selectedVenueId =
+      String(bracketProgramEditor?.venueId || "").trim() ||
+      (selectableVenues.length === 1 ? String(selectableVenues[0]?.id || "").trim() : "");
+    const courtOptions = getBracketCourtOptionsForVenue(selectedVenueId);
+    const currentCourtLabel = String(bracketProgramEditor?.courtLabel || "").trim();
+
+    return (
+      <Modal
+        animationType="fade"
+        onRequestClose={closeBracketProgramEditor}
+        transparent
+        visible={Boolean(bracketProgramEditor)}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          style={styles.resultModalOverlay}
+        >
+          <Pressable onPress={closeBracketProgramEditor} style={styles.resultModalBackdrop} />
+          <ScrollView
+            contentContainerStyle={styles.resultModalScrollContent}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+            <View style={styles.resultModalCard}>
+              <Text style={styles.resultModalTitle}>Programar partido</Text>
+              <Text style={styles.resultModalSubtitle}>
+                Selecciona dia, hora, sede y cancha.
+              </Text>
+
+              <View style={styles.programSection}>
+                <Text style={styles.programSectionTitle}>Dia</Text>
+                <View style={styles.programOptionsGrid}>
+                  {tournamentDayOptions.map((day) => {
+                    const isSelected = day.key === bracketProgramEditor?.scheduledDayKey;
+
+                    return (
+                      <Pressable
+                        key={`bracket-program-day-${day.key}`}
+                        onPress={() => updateBracketProgramEditor({ scheduledDayKey: day.key })}
+                        style={[
+                          styles.programOptionChip,
+                          isSelected ? styles.programOptionChipSelected : null,
+                        ]}
+                      >
+                        <Text
+                          numberOfLines={1}
+                          style={[
+                            styles.programOptionChipText,
+                            isSelected ? styles.programOptionChipTextSelected : null,
+                          ]}
+                        >
+                          {formatScheduleDayDisplay(day.key, tournamentDayOptions)}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
+
+              <View style={styles.programSection}>
+                <Text style={styles.programSectionTitle}>Hora</Text>
+                <Pressable
+                  onPress={() => updateBracketProgramEditor({ showTimePicker: true })}
+                  style={styles.programTimeButton}
+                >
+                  <Ionicons color="#244A66" name="time-outline" size={18} />
+                  <Text style={styles.programTimeButtonText}>
+                    {bracketProgramEditor?.scheduledTime
+                      ? `${bracketProgramEditor.scheduledTime} hs`
+                      : "Seleccionar hora"}
+                  </Text>
+                </Pressable>
+                {bracketProgramEditor?.showTimePicker ? (
+                  <DateTimePicker
+                    display={Platform.OS === "ios" ? "spinner" : "default"}
+                    mode="time"
+                    onChange={handleBracketProgramTimeChange}
+                    value={buildDateFromTime(bracketProgramEditor?.scheduledTime)}
+                  />
+                ) : null}
+              </View>
+
+              <View style={styles.programSection}>
+                <Text style={styles.programSectionTitle}>Sede</Text>
+                <View style={styles.programOptionsStack}>
+                  {selectableVenues.map((venue) => {
+                    const venueId = String(venue?.id || "").trim();
+                    const isSelected = venueId === selectedVenueId;
+                    const venueName = String(venue?.name || venue?.label || "Sede").trim();
+
+                    return (
+                      <Pressable
+                        key={`bracket-program-venue-${venueId || venueName}`}
+                        onPress={() =>
+                          updateBracketProgramEditor({
+                            courtLabel: "",
+                            fallbackCourtLabel: "",
+                            venueId,
+                            venueName,
+                          })
+                        }
+                        style={[
+                          styles.programOptionRow,
+                          isSelected ? styles.programOptionRowSelected : null,
+                        ]}
+                      >
+                        <Text
+                          numberOfLines={1}
+                          style={[
+                            styles.programOptionRowText,
+                            isSelected ? styles.programOptionRowTextSelected : null,
+                          ]}
+                        >
+                          {venueName}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
+
+              <View style={styles.programSection}>
+                <Text style={styles.programSectionTitle}>Cancha</Text>
+                <View style={styles.programOptionsGrid}>
+                  {courtOptions.map((court) => {
+                    const isSelected = currentCourtLabel === String(court.value || "");
+
+                    return (
+                      <Pressable
+                        key={`bracket-program-court-${court.value}`}
+                        onPress={() =>
+                          updateBracketProgramEditor({
+                            courtLabel: String(court.value || ""),
+                            fallbackCourtLabel: String(court.value || ""),
+                            venueId: String(court.venueId || selectedVenueId || ""),
+                            venueName: String(court.venueName || bracketProgramEditor?.venueName || ""),
+                          })
+                        }
+                        style={[
+                          styles.programOptionChip,
+                          isSelected ? styles.programOptionChipSelected : null,
+                        ]}
+                      >
+                        <Text
+                          numberOfLines={1}
+                          style={[
+                            styles.programOptionChipText,
+                            isSelected ? styles.programOptionChipTextSelected : null,
+                          ]}
+                        >
+                          {court.courtName || court.label}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
+
+              <View style={styles.resultModalActions}>
+                <Pressable onPress={closeBracketProgramEditor} style={styles.resultCancelButton}>
+                  <Text style={styles.resultCancelButtonText}>Cancelar</Text>
+                </Pressable>
+                <Pressable onPress={saveBracketProgramEditor} style={styles.resultSaveButton}>
+                  <Text style={styles.resultSaveButtonText}>Guardar</Text>
+                </Pressable>
+              </View>
+            </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </Modal>
+    );
+  };
+
+  const renderBracketResultEditorModal = () => (
+    <Modal
+      animationType="fade"
+      onRequestClose={closeBracketResultEditor}
+      transparent
+      visible={Boolean(bracketResultEditor)}
+    >
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        style={styles.resultModalOverlay}
+      >
+        <Pressable onPress={closeBracketResultEditor} style={styles.resultModalBackdrop} />
+        <ScrollView
+          contentContainerStyle={styles.resultModalScrollContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.resultModalCard}>
+            <Text style={styles.resultModalTitle}>Resultado</Text>
+            <Text style={styles.resultModalSubtitle}>
+              {bracketResultEditor?.roundTitle || "Llave"} · selecciona ganador y carga los sets.
+            </Text>
+            <View style={styles.winnerOptions}>
+              {[
+                {
+                  key: "teamA",
+                  label: `${bracketResultEditor?.teamASeed || "A"}. ${
+                    bracketResultEditor?.teamAName || "Pareja A"
+                  }`,
+                },
+                {
+                  key: "teamB",
+                  label: `${bracketResultEditor?.teamBSeed || "B"}. ${
+                    bracketResultEditor?.teamBName || "Pareja B"
+                  }`,
+                },
+              ].map((option) => {
+                const isSelected = bracketResultEditor?.winner === option.key;
+
+                return (
+                  <Pressable
+                    key={`bracket-winner-${option.key}`}
+                    onPress={() =>
+                      setBracketResultEditor((current) =>
+                        current
+                          ? {
+                              ...current,
+                              winner: isSelected ? "" : option.key,
+                            }
+                          : current
+                      )
+                    }
+                    style={[
+                      styles.winnerOption,
+                      isSelected ? styles.winnerOptionSelected : null,
+                    ]}
+                  >
+                    <Text
+                      numberOfLines={1}
+                      style={[
+                        styles.winnerOptionText,
+                        isSelected ? styles.winnerOptionTextSelected : null,
+                      ]}
+                    >
+                      {option.label}
+                    </Text>
+                    {isSelected ? <Text style={styles.winnerBadgeText}>GANADOR</Text> : null}
+                  </Pressable>
+                );
+              })}
+            </View>
+            <View style={styles.setsGrid}>
+              {normalizeResultSets(
+                bracketResultEditor?.sets,
+                resolveCurrentBracketRoundFormat(
+                  (workingBracketPreviewRef.current || currentBracketPreview || {})?.rounds?.find(
+                    (round) => round.id === bracketResultEditor?.roundId
+                  )
+                )
+              ).map((set, setIndex) => {
+                const baseBracketPreview = workingBracketPreviewRef.current || currentBracketPreview || {};
+                const editorRound = (baseBracketPreview?.rounds || []).find(
+                  (round) => round.id === bracketResultEditor?.roundId
+                );
+                const roundFormat = resolveCurrentBracketRoundFormat(editorRound);
+                const allowDoubleDigits = shouldAllowDoubleDigitSetScore(
+                  roundFormat,
+                  setIndex,
+                  currentMatchFormat.bracketSuperTieBreakPoints
+                );
+
+                return (
+                  <View key={`bracket-modal-set-${setIndex}`} style={styles.setRow}>
+                    <Text style={[styles.setLabel, allowDoubleDigits ? styles.superTieBreakSetLabel : null]}>
+                      {allowDoubleDigits ? "SUPER TIE BREAK" : set.label}
+                    </Text>
+                    <TextInput
+                      keyboardType="number-pad"
+                      maxLength={allowDoubleDigits ? 5 : 3}
+                      onChangeText={(value) => updateBracketResultEditorSetScore(setIndex, value)}
+                      ref={(input) => {
+                        bracketSetInputRefs.current[`bracket-result-editor-${setIndex}`] = input;
+                      }}
+                      style={[
+                        styles.setInput,
+                        allowDoubleDigits ? styles.superTieBreakSetInput : null,
+                      ]}
+                      value={formatCompactSetInput(set, allowDoubleDigits)}
+                    />
+                  </View>
+                );
+              })}
+            </View>
+            <View style={styles.resultModalUtilityActions}>
+              {bracketResultEditor?.canClearCrossing ? (
+                <Pressable
+                  onPress={clearBracketEditorCrossing}
+                  style={({ pressed }) => [
+                    styles.resultUtilityButton,
+                    styles.resultUtilityButtonDanger,
+                    pressed ? styles.primaryButtonPressed : null,
+                  ]}
+                >
+                  <Text style={[styles.resultUtilityButtonText, styles.resultUtilityButtonTextDanger]}>
+                    Limpiar cruce
+                  </Text>
+                </Pressable>
+              ) : null}
+              <Pressable
+                onPress={clearBracketEditorResult}
+                style={({ pressed }) => [
+                  styles.resultUtilityButton,
+                  pressed ? styles.primaryButtonPressed : null,
+                ]}
+              >
+                <Text style={styles.resultUtilityButtonText}>Limpiar resultado</Text>
+              </Pressable>
+            </View>
+            <View style={styles.resultModalActions}>
+              <Pressable onPress={closeBracketResultEditor} style={styles.resultCancelButton}>
+                <Text style={styles.resultCancelButtonText}>Cancelar</Text>
+              </Pressable>
+              <Pressable onPress={saveBracketResultEditor} style={styles.resultSaveButton}>
+                <Text style={styles.resultSaveButtonText}>Guardar</Text>
+              </Pressable>
+            </View>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </Modal>
   );
 
   const renderBracketBoard = (isFullscreen = false) => {
@@ -5491,7 +10253,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                         },
                       ]}
                     >
-                    {renderBracketMatchScheduleHeader(round, match, false)}
+                    {renderBracketMatchScheduleHeader(round, match)}
                     {(() => {
                       const isResolved = Boolean(
                         match.result?.winner || match.teamAIsBye || match.teamBIsBye
@@ -5622,7 +10384,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                     },
                   ]}
                 >
-                  {renderBracketMatchScheduleHeader(round, match, true)}
+                  {renderBracketMatchScheduleHeader(round, match, { isFullscreen: true })}
                   {(() => {
                     const isResolved = Boolean(
                       match.result?.winner || match.teamAIsBye || match.teamBIsBye
@@ -5755,7 +10517,10 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                     },
                   ]}
                 >
-                  {renderBracketMatchScheduleHeader(round, match, true)}
+                  {renderBracketMatchScheduleHeader(round, match, {
+                    isFullscreen: true,
+                    isShareCapture: true,
+                  })}
                   {renderBracketMatchBody(round, match, roundIndex, {
                     isResolved: Boolean(match.result?.winner || teamAIsBye || teamBIsBye),
                     isShareCapture: true,
@@ -5767,6 +10532,88 @@ export default function TournamentFixtureScreen({ navigation, route }) {
             })
           )}
         </View>
+      </View>
+    );
+  };
+
+  const renderZoneShareCaptureBoards = () => {
+    if (!zoneShareChunks.length) {
+      return null;
+    }
+
+    return (
+      <View pointerEvents="none" style={styles.zoneShareHiddenRoot}>
+        {zoneShareChunks.map((chunk, chunkIndex) => (
+          <View
+            collapsable={false}
+            key={`zone-share-chunk-${chunkIndex}`}
+            ref={(ref) => {
+              zoneShareViewRefs.current[chunkIndex] = ref;
+            }}
+            style={styles.zoneShareCaptureCard}
+          >
+            <View style={styles.zoneShareHeader}>
+              {zoneShareOrganizerLogoUrl ? (
+                <Image source={{ uri: zoneShareOrganizerLogoUrl }} style={styles.zoneShareOrganizerLogo} />
+              ) : null}
+              <View style={styles.zoneShareHeaderCopy}>
+              <Text style={styles.zoneShareTitle}>{tournament?.name || "Torneo"}</Text>
+              <Text style={styles.zoneShareSubtitle}>
+                {[
+                  zoneShareCategoryLabel,
+                  `Zonas ${chunkIndex * 3 + 1}-${chunkIndex * 3 + chunk.length}`,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </Text>
+              </View>
+            </View>
+            {chunk.map((zone) => (
+              <View key={`zone-share-${zone.id}`} style={styles.zoneShareZoneCard}>
+                <Text style={styles.zoneShareZoneTitle}>{zone.label}</Text>
+                <View style={styles.zoneSharePairsGrid}>
+                  {zone.registrations.map((registration) => (
+                    <View key={`zone-share-pair-${zone.id}-${registration.id}`} style={styles.zoneSharePairRow}>
+                      <Text style={styles.zoneSharePairNumber}>{registration.number}</Text>
+                      <Text numberOfLines={1} style={styles.zoneSharePairName}>{registration.label}</Text>
+                    </View>
+                  ))}
+                </View>
+                <View style={styles.zoneShareMatchTable}>
+                  <View style={styles.zoneShareMatchHeader}>
+                    <Text style={[styles.zoneShareMatchHeaderText, styles.zoneShareResultColumn]}>RESULT.</Text>
+                    <Text style={[styles.zoneShareMatchHeaderText, styles.zoneSharePairColumn]}>PAREJAS</Text>
+                    <Text style={[styles.zoneShareMatchHeaderText, styles.zoneShareDayColumn]}>DIA</Text>
+                    <Text style={[styles.zoneShareMatchHeaderText, styles.zoneShareTimeColumn]}>HORA</Text>
+                    <Text style={[styles.zoneShareMatchHeaderText, styles.zoneSharePlaceColumn]}>LUGAR</Text>
+                  </View>
+                  {zone.matchRows.map((match) => (
+                    <View key={`zone-share-match-${zone.id}-${match.key}`} style={styles.zoneShareMatchRow}>
+                      <Text style={[styles.zoneShareMatchText, styles.zoneShareResultColumn]}>{match.resultLabel}</Text>
+                      <Text style={[styles.zoneShareMatchText, styles.zoneSharePairColumn]}>{match.label}</Text>
+                      <Text style={[styles.zoneShareMatchText, styles.zoneShareDayColumn]}>{match.dayLabel}</Text>
+                      <Text style={[styles.zoneShareMatchText, styles.zoneShareTimeColumn]}>{match.timeLabel}</Text>
+                      <Text numberOfLines={2} style={[styles.zoneShareMatchText, styles.zoneSharePlaceColumn]}>
+                        {match.venueLabel}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+                <View style={styles.zoneShareQualifiersRow}>
+                  {zone.qualifiers.map((qualifier, qualifierIndex) => (
+                    <Text
+                      key={`zone-share-qualifier-${zone.id}-${qualifierIndex}`}
+                      numberOfLines={1}
+                      style={styles.zoneShareQualifierText}
+                    >
+                      {qualifierIndex + 1}° {qualifier ? qualifier.shortName : "Pendiente"}
+                    </Text>
+                  ))}
+                </View>
+              </View>
+            ))}
+          </View>
+        ))}
       </View>
     );
   };
@@ -5794,6 +10641,14 @@ export default function TournamentFixtureScreen({ navigation, route }) {
         </View>
         {bracketBoard ? (
           <>
+            {shouldShowBracketZoneWarning ? (
+              <View style={[styles.bracketWarningCard, styles.bracketFullscreenWarningCard]}>
+                <Ionicons color="#1F6F78" name="alert-circle-outline" size={18} />
+                <Text style={styles.bracketWarningText}>
+                  Las zonas cambiaron despues de crear estas llaves. Revisa y vuelve a crear llaves para sincronizarlas.
+                </Text>
+              </View>
+            ) : null}
             {canEditFixture && bracketSwapMode ? (
               <Text style={[styles.bracketSwapHelpText, styles.bracketFullscreenSwapHelpText]}>
                 Selecciona parejas de partidos sin resultado para intercambiarlas.
@@ -5810,12 +10665,14 @@ export default function TournamentFixtureScreen({ navigation, route }) {
           <View style={styles.loaderWrap}>
             <Text style={styles.loaderText}>
               {canEditFixture
-                ? "Todavia no hay llaves visibles. Usa `CREAR LLAVES` desde Crear."
+                ? "Todavia no hay llaves visibles. Usa `CREAR LLAVES` desde Llaves."
                 : "Todavia no hay llaves visibles."}
             </Text>
           </View>
         )}
         {renderBracketShareBoard()}
+        {renderBracketResultEditorModal()}
+        {renderBracketProgramEditorModal()}
 
         <FeedbackModal
           message={feedback.message}
@@ -5915,7 +10772,9 @@ export default function TournamentFixtureScreen({ navigation, route }) {
               <Text style={styles.bracketDayPickerModalTitle}>Seleccionar cancha</Text>
               <View style={styles.zoneInlinePickerOptions}>
                 {(activeBracketCourtPicker?.options || []).map((option) => {
-                  const isSelected = option.label === activeBracketCourtPicker?.currentCourtName;
+                  const isSelected =
+                    option.value === activeBracketCourtPicker?.currentCourtLabel ||
+                    option.label === activeBracketCourtPicker?.currentCourtName;
 
                   return (
                     <Pressable
@@ -5924,7 +10783,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                         handleUpdateBracketMatchCourt(
                           activeBracketCourtPicker.roundId,
                           activeBracketCourtPicker.matchId,
-                          option.value
+                          option
                         )
                       }
                       style={[
@@ -6023,68 +10882,52 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                 </Pressable>
               ) : null}
 
-              {canEditFixture ? (
-                <Pressable
-                  onPress={() => handleChangeActiveSection("create")}
-                  style={({ pressed }) => [
-                    styles.actionButton,
-                    activeSection === "create" ? styles.actionButtonActive : null,
-                    pressed ? styles.actionButtonPressed : null,
-                  ]}
-                >
-                  <Ionicons
-                    color={activeSection === "create" ? colors.surface : colors.primaryDark}
-                    name="add-circle-outline"
-                    size={18}
-                  />
-                  <Text
-                    style={[
-                      styles.actionButtonText,
-                      activeSection === "create" ? styles.actionButtonTextActive : null,
-                    ]}
-                  >
-                    CREAR
-                  </Text>
-                </Pressable>
-              ) : null}
-
               <Pressable
-                onPress={() => handleChangeActiveSection("zones")}
+                onPress={() => handleChangeActiveSection("newzones")}
                 style={({ pressed }) => [
                   styles.actionButton,
-                  activeSection === "zones" ? styles.actionButtonActive : null,
+                  activeSection === "newzones" ? styles.actionButtonActive : null,
                   pressed ? styles.actionButtonPressed : null,
                 ]}
               >
                 <Ionicons
-                  color={activeSection === "zones" ? colors.surface : colors.primaryDark}
-                  name="layers-outline"
+                  color={activeSection === "newzones" ? colors.surface : colors.primaryDark}
+                  name="calendar-outline"
                   size={18}
                 />
                 <Text
                   style={[
                     styles.actionButtonText,
-                    activeSection === "zones" ? styles.actionButtonTextActive : null,
+                    styles.actionButtonTextCompact,
+                    activeSection === "newzones" ? styles.actionButtonTextActive : null,
                   ]}
                 >
-                  ZONAS
+                  {canEditFixture ? "NUEVAS ZONAS" : "ZONAS"}
                 </Text>
               </Pressable>
 
               <Pressable
-                onPress={() => handleChangeActiveSection("bracket")}
+                disabled={bracketOpening}
+                onPress={handlePressBracketSection}
                 style={({ pressed }) => [
                   styles.actionButton,
                   activeSection === "bracket" ? styles.actionButtonActive : null,
                   pressed ? styles.actionButtonPressed : null,
                 ]}
               >
-                <Ionicons
-                  color={activeSection === "bracket" ? colors.surface : colors.primaryDark}
-                  name="git-branch-outline"
-                  size={18}
-                  style={styles.bracketActionIcon}
-                />
+                {bracketOpening ? (
+                  <ActivityIndicator
+                    color={activeSection === "bracket" ? colors.surface : colors.primaryDark}
+                    size="small"
+                  />
+                ) : (
+                  <Ionicons
+                    color={activeSection === "bracket" ? colors.surface : colors.primaryDark}
+                    name="git-branch-outline"
+                    size={18}
+                    style={styles.bracketActionIcon}
+                  />
+                )}
                 <Text
                   style={[
                     styles.actionButtonText,
@@ -6101,23 +10944,6 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                 <View style={styles.summaryInlineCard}>
                   <Text style={styles.summaryLabel}>Parejas confirmadas</Text>
                   <Text style={styles.summaryValue}>{confirmedPairCount}</Text>
-                </View>
-
-                <View style={styles.configurationModeCard}>
-                  <Text style={styles.configurationModeTitle}>
-                    Como crear las zonas y llaves
-                  </Text>
-                  <SelectionList
-                    onSelect={setSelectedMode}
-                    options={FIXTURE_MODE_OPTIONS}
-                    selectedValue={selectedMode}
-                  />
-
-                  <SelectionList
-                    onSelect={setSelectedPathType}
-                    options={FIXTURE_PATH_OPTIONS}
-                    selectedValue={selectedPathType}
-                  />
                 </View>
 
                 <View style={styles.formatAccordionStack}>
@@ -6518,25 +11344,6 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                   </Text>
                 ) : null}
 
-                {selectedMode === "manual" ? (
-                  <SelectionList
-                    onSelect={setSelectedManualBracketMode}
-                    options={[
-                      {
-                        label: "LLAVES AUTOMATICAS",
-                        value: "automatic",
-                        description: "Luego de crear las zonas, la app recomendara y armara las llaves automaticamente.",
-                      },
-                      {
-                        label: "LLAVES MANUALES",
-                        value: "manual",
-                        description: "Luego de crear las zonas, el organizador decidira la estructura final de las llaves.",
-                      },
-                    ]}
-                    selectedValue={selectedManualBracketMode}
-                  />
-                ) : null}
-
                 <View style={styles.primaryButtonWrap}>
                   <Pressable
                     onPress={handleCreateConfiguration}
@@ -6554,7 +11361,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
               </View>
             ) : null}
 
-            {canEditFixture && activeSection === "create" ? (
+            {canEditFixture && activeSection === "configuration" ? (
               <View style={styles.card}>
                 <View style={styles.venueScheduleCardNoMargin}>
                   <Text style={styles.venueScheduleTitle}>Disponibilidad de sedes para zonas</Text>
@@ -6817,41 +11624,273 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                   )}
                 </View>
 
-                <View style={styles.configurationActionsRow}>
-                  <Pressable
-                    onPress={handleCreateZonesPress}
-                    style={({ pressed }) => [
-                      styles.secondaryActionButton,
-                      pressed ? styles.primaryButtonPressed : null,
-                    ]}
-                  >
-                    <Ionicons color={colors.primaryDark} name="layers-outline" size={16} />
-                    <Text style={styles.secondaryActionButtonText}>
-                      {savingKey === "zones" ? "CREANDO..." : "CREAR ZONAS"}
-                    </Text>
-                  </Pressable>
-                  <Pressable
-                    onPress={handleCreateBracketPress}
-                    style={({ pressed }) => [
-                      styles.secondaryActionButton,
-                      pressed ? styles.primaryButtonPressed : null,
-                    ]}
-                  >
-                    <Ionicons
-                      color={colors.primaryDark}
-                      name="git-branch-outline"
-                      size={16}
-                      style={styles.bracketActionIcon}
-                    />
-                    <Text style={styles.secondaryActionButtonText}>
-                      {savingKey === "bracket" ? "CREANDO..." : "CREAR LLAVES"}
-                    </Text>
-                  </Pressable>
-                </View>
               </View>
             ) : null}
 
-            {activeSection === "zones" ? (
+            {activeSection === "newzones" ? (
+              <View style={styles.newZonesSection}>
+                {canEditFixture ? (
+                  <View style={styles.configurationActionsRow}>
+                    <Pressable
+                      onPress={handleCreateNewAutoZonesPress}
+                      style={({ pressed }) => [
+                        styles.secondaryActionButton,
+                        styles.newZoneModeButton,
+                        pressed ? styles.primaryButtonPressed : null,
+                      ]}
+                    >
+                      <Text style={[styles.secondaryActionButtonText, styles.newZoneModeButtonText]}>
+                        {savingKey === "zones" ? "CREANDO..." : "ARMADO\nAUTOMATICO"}
+                      </Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() =>
+                        navigation.navigate("TournamentZonePlanning", {
+                          tournamentId: tournament.id,
+                          tournamentName: tournament.name || "Torneo",
+                        })
+                      }
+                      style={({ pressed }) => [
+                        styles.secondaryActionButton,
+                        styles.newZoneModeButton,
+                        pressed ? styles.primaryButtonPressed : null,
+                      ]}
+                    >
+                      <Text style={[styles.secondaryActionButtonText, styles.newZoneModeButtonText]}>
+                        ARMADO{"\n"}MANUAL
+                      </Text>
+                    </Pressable>
+                  </View>
+                ) : null}
+                {hasZonePlanningUnsavedChanges ? (
+                  <Text style={styles.unsavedChangesText}>
+                    Hay cambios sin guardar en Nuevas zonas.
+                  </Text>
+                ) : null}
+                {newZonePlanningZones.length ? (
+                  <View style={styles.newZonesStack}>
+                    {newZonePlanningZones.map((zone) => (
+                      <View key={zone.id} style={styles.newZoneCard}>
+                        <View style={styles.newZoneTitleWrap}>
+                          <Text style={styles.newZoneTitle}>{zone.label}</Text>
+                          <Text style={styles.newZoneBracketSeedText}>
+                            Llaves: Zona {zone.bracketLetter}
+                          </Text>
+                        </View>
+                        <View style={styles.newZonePairsStack}>
+                          {zone.registrations.map((registration) => (
+                            <View
+                              key={registration.id}
+                              style={[
+                                styles.newZonePairRow,
+                                highlightedPairId && registration.id === highlightedPairId
+                                  ? styles.newZonePairRowHighlighted
+                                  : null,
+                              ]}
+                            >
+                              <View
+                                style={[
+                                  styles.newZonePairNumber,
+                                  highlightedPairId && registration.id === highlightedPairId
+                                    ? styles.newZonePairNumberHighlighted
+                                    : null,
+                                ]}
+                              >
+                                <Text
+                                  style={[
+                                    styles.newZonePairNumberText,
+                                    highlightedPairId && registration.id === highlightedPairId
+                                      ? styles.newZonePairNumberTextHighlighted
+                                      : null,
+                                  ]}
+                                >
+                                  {registration.number}
+                                </Text>
+                              </View>
+                              <Text
+                                numberOfLines={1}
+                                style={[
+                                  styles.newZonePairName,
+                                  highlightedPairId && registration.id === highlightedPairId
+                                    ? styles.newZonePairNameHighlighted
+                                    : null,
+                                ]}
+                              >
+                                {registration.label}
+                              </Text>
+                            </View>
+                          ))}
+                        </View>
+                        <View style={styles.newZoneMatchTable}>
+                          <View style={styles.newZoneMatchHeader}>
+                            <Text style={[styles.newZoneMatchHeaderText, styles.newZoneResultColumn]}>
+                              RESULTADOS
+                            </Text>
+                            <Text style={[styles.newZoneMatchHeaderText, styles.newZonePairColumn]}>
+                              PAREJAS
+                            </Text>
+                            <Text style={[styles.newZoneMatchHeaderText, styles.newZoneDayColumn]}>
+                              DIA
+                            </Text>
+                            <Text style={[styles.newZoneMatchHeaderText, styles.newZoneTimeColumn]}>
+                              HORARIO
+                            </Text>
+                            <Text style={[styles.newZoneMatchHeaderText, styles.newZonePlaceColumn]}>
+                              LUGAR
+                            </Text>
+                          </View>
+                          {zone.matchRows.length ? (
+                            zone.matchRows.map((match) => {
+                              const isSavingMatch = zonePlanningSavingKey === `${zone.id}-${match.key}`;
+                              const isSavingResult = isSavingMatch && Boolean(zonePlanningResultEditor);
+
+                              return (
+                              <View key={`${zone.id}-${match.key}`} style={styles.newZoneMatchRow}>
+                                <Pressable
+                                  disabled={!canEditFixture}
+                                  onPress={() => openZonePlanningResultEditor(zone.id, match.key)}
+                                  style={[
+                                    styles.newZoneEditableCell,
+                                    styles.newZoneResultColumn,
+                                    !canEditFixture ? styles.newZoneEditableCellDisabled : null,
+                                  ]}
+                                >
+                                  <Text numberOfLines={1} style={styles.newZoneMatchCellText}>
+                                    {isSavingResult ? "..." : match.resultLabel}
+                                  </Text>
+                                </Pressable>
+                                <Text
+                                  numberOfLines={1}
+                                  style={[styles.newZoneMatchCellText, styles.newZonePairColumn]}
+                                >
+                                  {match.pairNumbers?.length === 2 ? (
+                                    <>
+                                      <Text
+                                        style={
+                                          String(match.winnerPairNumber) === String(match.pairNumbers[0])
+                                            ? styles.newZoneWinnerPairNumber
+                                            : null
+                                        }
+                                      >
+                                        {match.pairNumbers[0]}
+                                      </Text>
+                                      <Text> vs </Text>
+                                      <Text
+                                        style={
+                                          String(match.winnerPairNumber) === String(match.pairNumbers[1])
+                                            ? styles.newZoneWinnerPairNumber
+                                            : null
+                                        }
+                                      >
+                                        {match.pairNumbers[1]}
+                                      </Text>
+                                    </>
+                                  ) : (
+                                    match.label
+                                  )}
+                                </Text>
+                                <Pressable
+                                  disabled={!canEditFixture}
+                                  onPress={() => openZonePlanningDayPicker(zone.id, match.key, match.dayKey)}
+                                  style={[
+                                    styles.newZoneEditableCell,
+                                    styles.newZoneDayColumn,
+                                    !canEditFixture ? styles.newZoneEditableCellDisabled : null,
+                                  ]}
+                                >
+                                  <Text numberOfLines={1} style={styles.newZoneMatchCellText}>
+                                    {match.dayLabel}
+                                  </Text>
+                                </Pressable>
+                                <Pressable
+                                  disabled={!canEditFixture}
+                                  onPress={() =>
+                                    setZonePlanningTimePickerTarget({
+                                      currentValue: match.startTime || "19:00",
+                                      matchKey: match.key,
+                                      zoneId: zone.id,
+                                    })
+                                  }
+                                  style={[
+                                    styles.newZoneEditableCell,
+                                    styles.newZoneTimeColumn,
+                                    !canEditFixture ? styles.newZoneEditableCellDisabled : null,
+                                  ]}
+                                >
+                                  <Text numberOfLines={1} style={styles.newZoneMatchCellText}>
+                                    {match.timeLabel}
+                                  </Text>
+                                </Pressable>
+                                <Pressable
+                                  disabled={!canEditFixture}
+                                  onPress={() => cycleZonePlanningMatchVenue(zone.id, match.key, match.venueId)}
+                                  style={[
+                                    styles.newZoneEditableCell,
+                                    styles.newZonePlaceColumn,
+                                    !canEditFixture ? styles.newZoneEditableCellDisabled : null,
+                                  ]}
+                                >
+                                  <Text numberOfLines={2} style={[styles.newZoneMatchCellText, styles.newZonePlaceText]}>
+                                    {match.venueLabel}
+                                  </Text>
+                                </Pressable>
+                              </View>
+                              );
+                            })
+                          ) : (
+                            <Text style={styles.newZoneEmptyText}>
+                              Agrega 2, 3 o 4 parejas para ver los cruces.
+                            </Text>
+                          )}
+                        </View>
+                        <View style={styles.zoneQualifiersRow}>
+                          <View style={styles.zoneQualifiersTextWrap}>
+                            {zone.qualifiers.map((qualifier, qualifierIndex) => (
+                              <Text
+                                key={`${zone.id}-qualifier-${qualifierIndex}`}
+                                numberOfLines={1}
+                                style={styles.zoneQualifierText}
+                              >
+                                {qualifierIndex + 1}° {qualifier ? qualifier.shortName : "Pendiente"}
+                              </Text>
+                            ))}
+                          </View>
+                          <Pressable
+                            onPress={() => setZonePlanningStandingsModalZoneId(zone.id)}
+                            style={styles.zoneStandingsButton}
+                          >
+                            <Text style={styles.zoneStandingsButtonText}>PUNTAJES</Text>
+                          </Pressable>
+                        </View>
+                      </View>
+                    ))}
+                    {canEditFixture ? (
+                      <View style={styles.zoneShareButtonWrap}>
+                        <Pressable
+                          disabled={zoneShareInProgress}
+                          onPress={() => setZoneShareModalVisible(true)}
+                          style={({ pressed }) => [
+                            styles.zoneShareButton,
+                            pressed ? styles.primaryButtonPressed : null,
+                            zoneShareInProgress ? styles.zoneShareButtonDisabled : null,
+                          ]}
+                        >
+                          <Ionicons color={colors.primaryDark} name="share-social-outline" size={20} />
+                        </Pressable>
+                      </View>
+                    ) : null}
+                  </View>
+                ) : (
+                  <Text style={styles.emptyText}>
+                    {canEditFixture
+                      ? "Todavia no hay zonas manuales guardadas."
+                      : "Todavia no hay zonas visibles."}
+                  </Text>
+                )}
+              </View>
+            ) : null}
+
+            {false && activeSection === "zones" ? (
               <View style={styles.card}>
                 {Array.isArray(zonesPreview) && zonesPreview.length ? (
                   <View style={styles.previewStack}>
@@ -6996,7 +12035,29 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                                           </Pressable>
                                         </View>
                                       </View>
-                                      <Text style={styles.zoneMatchCourtText}>{match.courtLabel}</Text>
+                                      <Pressable
+                                        disabled={!canEditFixture}
+                                        hitSlop={{ bottom: 6, left: 8, right: 8, top: 6 }}
+                                        onPress={() =>
+                                          canEditFixture
+                                            ? setZoneMatchPickerState({
+                                                zoneId: zone.id,
+                                                matchId: match.id,
+                                                field: "courtLabel",
+                                              })
+                                            : null
+                                        }
+                                        style={({ pressed }) => [
+                                          styles.zoneMatchCourtButton,
+                                          pressed ? styles.primaryButtonPressed : null,
+                                          !canEditFixture ? styles.zoneMatchCourtButtonDisabled : null,
+                                        ]}
+                                      >
+                                        <MaterialCommunityIcons color="#1B5D92" name="soccer-field" size={14} />
+                                        <Text numberOfLines={1} style={styles.zoneMatchCourtText}>
+                                          {match.courtLabel || "Cancha por asignar"}
+                                        </Text>
+                                      </Pressable>
                                       {zoneMatchPickerState.zoneId === zone.id &&
                                       zoneMatchPickerState.matchId === match.id &&
                                       zoneMatchPickerState.field === "scheduledDayKey" &&
@@ -7342,7 +12403,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                 ) : (
                   <Text style={styles.emptyText}>
                     {canEditFixture
-                      ? "Todavia no hay zonas visibles. Usa `CREAR ZONAS` desde Crear."
+                      ? "Todavia no hay zonas visibles. Usa `ARMADO AUTOMATICO` desde Nuevas zonas."
                       : "Todavia no hay zonas visibles."}
                   </Text>
                 )}
@@ -7351,11 +12412,41 @@ export default function TournamentFixtureScreen({ navigation, route }) {
 
             {activeSection === "bracket" ? (
               <View style={styles.card}>
+                {canEditFixture ? (
+                  <View style={styles.configurationActionsRow}>
+                    <Pressable
+                      onPress={handleCreateBracketPress}
+                      style={({ pressed }) => [
+                        styles.secondaryActionButton,
+                        pressed ? styles.primaryButtonPressed : null,
+                      ]}
+                    >
+                      <Ionicons
+                        color={colors.primaryDark}
+                        name="git-branch-outline"
+                        size={16}
+                        style={styles.bracketActionIcon}
+                      />
+                      <Text style={styles.secondaryActionButtonText}>
+                        {savingKey === "bracket" ? "CREANDO..." : "CREAR LLAVES"}
+                      </Text>
+                    </Pressable>
+                  </View>
+                ) : null}
                 {bracketBoard ? (
+                  <>
+                  {shouldShowBracketZoneWarning ? (
+                    <View style={styles.bracketWarningCard}>
+                      <Ionicons color="#1F6F78" name="alert-circle-outline" size={18} />
+                      <Text style={styles.bracketWarningText}>
+                        Las zonas cambiaron despues de crear estas llaves. Revisa y vuelve a crear llaves para sincronizarlas.
+                      </Text>
+                    </View>
+                  ) : null}
                   <View style={styles.bracketSummaryCard}>
                     <View style={styles.bracketSummaryHeader}>
                       <View style={styles.bracketSummaryHeaderCopy}>
-                        <Text style={styles.bracketSummaryTitle}>Proximos partidos</Text>
+                        <Text style={styles.bracketSummaryTitle}>Resumen de llaves</Text>
                       </View>
                     </View>
 
@@ -7370,7 +12461,8 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                               </Text>
                             </View>
                             <Text numberOfLines={1} style={styles.bracketUpcomingTeams}>
-                              {match.teamALines.join(" / ")} vs {match.teamBLines.join(" / ")}
+                              {(match.teamALines.join(" / ") || "A confirmar")} vs{" "}
+                              {match.teamBLines.join(" / ") || "A confirmar"}
                             </Text>
                             <Text numberOfLines={1} style={styles.bracketUpcomingVenue}>
                               {match.venueLabel} · {match.courtLabel}
@@ -7380,14 +12472,15 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                       </View>
                     ) : (
                       <Text style={styles.bracketSummaryEmptyText}>
-                        Todavia no hay partidos de llaves con horario visible.
+                        Las llaves fueron creadas. Presiona LLAVES para abrir el cuadro.
                       </Text>
                     )}
                   </View>
+                  </>
                 ) : (
                   <Text style={styles.emptyText}>
                     {canEditFixture
-                      ? "Todavia no hay llaves visibles. Usa `CREAR LLAVES` desde Crear."
+                      ? "Todavia no hay llaves visibles. Usa `CREAR LLAVES` desde Llaves."
                       : "Todavia no hay llaves visibles."}
                   </Text>
                 )}
@@ -7401,7 +12494,24 @@ export default function TournamentFixtureScreen({ navigation, route }) {
         )}
       </View>
 
+      <Modal
+        animationType="fade"
+        onRequestClose={() => null}
+        statusBarTranslucent
+        transparent
+        visible={bracketOpening}
+      >
+        <View style={styles.bracketOpeningOverlay}>
+          <View style={styles.bracketOpeningCard}>
+            <ActivityIndicator color={colors.primaryDark} size="large" />
+            <Text style={styles.bracketOpeningTitle}>Abriendo llaves...</Text>
+            <Text style={styles.bracketOpeningSupport}>Preparando el cuadro del torneo</Text>
+          </View>
+        </View>
+      </Modal>
+
       {renderBracketShareBoard()}
+      {renderZoneShareCaptureBoards()}
 
       <FeedbackModal
         message={feedback.message}
@@ -7410,6 +12520,383 @@ export default function TournamentFixtureScreen({ navigation, route }) {
         title={feedback.title}
         visible={feedback.visible}
       />
+      <Modal
+        animationType="fade"
+        onRequestClose={closeZonePlanningResultEditor}
+        transparent
+        visible={Boolean(zonePlanningResultEditor)}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          style={styles.resultModalOverlay}
+        >
+          <Pressable onPress={closeZonePlanningResultEditor} style={styles.resultModalBackdrop} />
+          <ScrollView
+            contentContainerStyle={styles.resultModalScrollContent}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+            <View style={styles.resultModalCard}>
+              <Text style={styles.resultModalTitle}>Resultado</Text>
+              <Text style={styles.resultModalSubtitle}>
+                Selecciona ganador y carga los sets del partido.
+              </Text>
+              {(zonePlanningResultEditor?.participants || []).length ? (
+                <View style={styles.winnerOptions}>
+                  {(zonePlanningResultEditor?.participants || []).map((participant, index) => {
+                    const isSelected =
+                      String(zonePlanningResultEditor?.winnerRegistrationId || "") === String(participant.id);
+
+                    return (
+                      <Pressable
+                        key={`planning-winner-${participant.id}`}
+                        onPress={() =>
+                          setZonePlanningResultEditor((current) =>
+                            current
+                              ? {
+                                  ...current,
+                                  winnerRegistrationId: isSelected ? "" : String(participant.id),
+                                }
+                              : current
+                          )
+                        }
+                        style={[
+                          styles.winnerOption,
+                          isSelected ? styles.winnerOptionSelected : null,
+                        ]}
+                      >
+                        <Text
+                          numberOfLines={1}
+                          style={[
+                            styles.winnerOptionText,
+                            isSelected ? styles.winnerOptionTextSelected : null,
+                          ]}
+                        >
+                          {index + 1}. {participant.label}
+                        </Text>
+                        {isSelected ? <Text style={styles.winnerBadgeText}>GANADOR</Text> : null}
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              ) : (
+                <Text style={styles.resultNoWinnerText}>
+                  Este cruce necesita resultados previos para seleccionar ganador.
+                </Text>
+              )}
+              <View style={styles.setsGrid}>
+                {normalizeResultSets(zonePlanningResultEditor?.sets, currentMatchFormat.zones).map((set, setIndex) => {
+                  const allowDoubleDigits = shouldAllowDoubleDigitSetScore(
+                    currentMatchFormat.zones,
+                    setIndex,
+                    currentMatchFormat.zonesSuperTieBreakPoints
+                  );
+
+                  return (
+                    <View key={`planning-set-${setIndex}`} style={styles.setRow}>
+                      <Text style={[styles.setLabel, allowDoubleDigits ? styles.superTieBreakSetLabel : null]}>
+                        {allowDoubleDigits ? "SUPER TIE BREAK" : set.label}
+                      </Text>
+                      <TextInput
+                        keyboardType="number-pad"
+                        maxLength={allowDoubleDigits ? 5 : 3}
+                        onChangeText={(value) => updateZonePlanningResultSetScore(setIndex, value)}
+                        style={[
+                          styles.setInput,
+                          allowDoubleDigits ? styles.superTieBreakSetInput : null,
+                        ]}
+                        value={formatCompactSetInput(set, allowDoubleDigits)}
+                      />
+                    </View>
+                  );
+                })}
+              </View>
+              <View style={styles.resultModalActions}>
+                <Pressable onPress={closeZonePlanningResultEditor} style={styles.resultCancelButton}>
+                  <Text style={styles.resultCancelButtonText}>Cancelar</Text>
+                </Pressable>
+                <Pressable onPress={saveZonePlanningResultEditor} style={styles.resultSaveButton}>
+                  <Text style={styles.resultSaveButtonText}>Guardar</Text>
+                </Pressable>
+              </View>
+            </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </Modal>
+      <Modal
+        animationType="fade"
+        onRequestClose={closeBracketResultEditor}
+        transparent
+        visible={Boolean(bracketResultEditor)}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          style={styles.resultModalOverlay}
+        >
+          <Pressable onPress={closeBracketResultEditor} style={styles.resultModalBackdrop} />
+          <ScrollView
+            contentContainerStyle={styles.resultModalScrollContent}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+            <View style={styles.resultModalCard}>
+              <Text style={styles.resultModalTitle}>Resultado</Text>
+              <Text style={styles.resultModalSubtitle}>
+                {bracketResultEditor?.roundTitle || "Llave"} · selecciona ganador y carga los sets.
+              </Text>
+              <View style={styles.winnerOptions}>
+                {[
+                  {
+                    key: "teamA",
+                    label: `${bracketResultEditor?.teamASeed || "A"}. ${
+                      bracketResultEditor?.teamAName || "Pareja A"
+                    }`,
+                  },
+                  {
+                    key: "teamB",
+                    label: `${bracketResultEditor?.teamBSeed || "B"}. ${
+                      bracketResultEditor?.teamBName || "Pareja B"
+                    }`,
+                  },
+                ].map((option) => {
+                  const isSelected = bracketResultEditor?.winner === option.key;
+
+                  return (
+                    <Pressable
+                      key={`bracket-winner-${option.key}`}
+                      onPress={() =>
+                        setBracketResultEditor((current) =>
+                          current
+                            ? {
+                                ...current,
+                                winner: isSelected ? "" : option.key,
+                              }
+                            : current
+                        )
+                      }
+                      style={[
+                        styles.winnerOption,
+                        isSelected ? styles.winnerOptionSelected : null,
+                      ]}
+                    >
+                      <Text
+                        numberOfLines={1}
+                        style={[
+                          styles.winnerOptionText,
+                          isSelected ? styles.winnerOptionTextSelected : null,
+                        ]}
+                      >
+                        {option.label}
+                      </Text>
+                      {isSelected ? <Text style={styles.winnerBadgeText}>GANADOR</Text> : null}
+                    </Pressable>
+                  );
+                })}
+              </View>
+              <View style={styles.setsGrid}>
+                {normalizeResultSets(
+                  bracketResultEditor?.sets,
+                  resolveCurrentBracketRoundFormat(
+                    (workingBracketPreviewRef.current || currentBracketPreview || {})?.rounds?.find(
+                      (round) => round.id === bracketResultEditor?.roundId
+                    )
+                  )
+                ).map((set, setIndex) => {
+                  const baseBracketPreview = workingBracketPreviewRef.current || currentBracketPreview || {};
+                  const editorRound = (baseBracketPreview?.rounds || []).find(
+                    (round) => round.id === bracketResultEditor?.roundId
+                  );
+                  const roundFormat = resolveCurrentBracketRoundFormat(editorRound);
+                  const allowDoubleDigits = shouldAllowDoubleDigitSetScore(
+                    roundFormat,
+                    setIndex,
+                    currentMatchFormat.bracketSuperTieBreakPoints
+                  );
+
+                  return (
+                    <View key={`bracket-modal-set-${setIndex}`} style={styles.setRow}>
+                      <Text style={[styles.setLabel, allowDoubleDigits ? styles.superTieBreakSetLabel : null]}>
+                        {allowDoubleDigits ? "SUPER TIE BREAK" : set.label}
+                      </Text>
+                      <TextInput
+                        keyboardType="number-pad"
+                        maxLength={allowDoubleDigits ? 5 : 3}
+                        onChangeText={(value) => updateBracketResultEditorSetScore(setIndex, value)}
+                        ref={(input) => {
+                          bracketSetInputRefs.current[`bracket-result-editor-${setIndex}`] = input;
+                        }}
+                        style={[
+                          styles.setInput,
+                          allowDoubleDigits ? styles.superTieBreakSetInput : null,
+                        ]}
+                        value={formatCompactSetInput(set, allowDoubleDigits)}
+                      />
+                    </View>
+                  );
+                })}
+              </View>
+              <View style={styles.resultModalUtilityActions}>
+                {bracketResultEditor?.canClearCrossing ? (
+                  <Pressable
+                    onPress={clearBracketEditorCrossing}
+                    style={({ pressed }) => [
+                      styles.resultUtilityButton,
+                      styles.resultUtilityButtonDanger,
+                      pressed ? styles.primaryButtonPressed : null,
+                    ]}
+                  >
+                    <Text style={[styles.resultUtilityButtonText, styles.resultUtilityButtonTextDanger]}>
+                      Limpiar cruce
+                    </Text>
+                  </Pressable>
+                ) : null}
+                <Pressable
+                  onPress={clearBracketEditorResult}
+                  style={({ pressed }) => [
+                    styles.resultUtilityButton,
+                    pressed ? styles.primaryButtonPressed : null,
+                  ]}
+                >
+                  <Text style={styles.resultUtilityButtonText}>Limpiar resultado</Text>
+                </Pressable>
+              </View>
+              <View style={styles.resultModalActions}>
+                <Pressable onPress={closeBracketResultEditor} style={styles.resultCancelButton}>
+                  <Text style={styles.resultCancelButtonText}>Cancelar</Text>
+                </Pressable>
+                <Pressable onPress={saveBracketResultEditor} style={styles.resultSaveButton}>
+                  <Text style={styles.resultSaveButtonText}>Guardar</Text>
+                </Pressable>
+              </View>
+            </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </Modal>
+      <Modal
+        animationType="fade"
+        onRequestClose={closeZonePlanningDayPicker}
+        transparent
+        visible={Boolean(zonePlanningDayPickerTarget)}
+      >
+        <View style={styles.dayPickerModalOverlay}>
+          <Pressable onPress={closeZonePlanningDayPicker} style={styles.resultModalBackdrop} />
+          <View style={styles.dayPickerModalCard}>
+            <Text style={styles.dayPickerModalTitle}>Seleccionar dia</Text>
+            <View style={styles.dayPickerOptions}>
+              {tournamentDayOptions.map((day) => {
+                const isSelected = day.key === zonePlanningDayPickerTarget?.currentDayKey;
+
+                return (
+                  <Pressable
+                    key={`zone-planning-day-${day.key}`}
+                    onPress={() => selectZonePlanningMatchDay(day.key)}
+                    style={[
+                      styles.dayPickerOption,
+                      isSelected ? styles.dayPickerOptionSelected : null,
+                    ]}
+                  >
+                    <Text
+                      numberOfLines={1}
+                      style={[
+                        styles.dayPickerOptionText,
+                        isSelected ? styles.dayPickerOptionTextSelected : null,
+                      ]}
+                    >
+                      {formatScheduleDayDisplay(day.key, tournamentDayOptions)}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            <Pressable onPress={closeZonePlanningDayPicker} style={styles.dayPickerCancelButton}>
+              <Text style={styles.dayPickerCancelButtonText}>Cancelar</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+      <Modal
+        animationType="fade"
+        onRequestClose={() => setZonePlanningStandingsModalZoneId("")}
+        transparent
+        visible={Boolean(zonePlanningStandingsModalZone)}
+      >
+        <View style={styles.standingsModalOverlay}>
+          <Pressable
+            onPress={() => setZonePlanningStandingsModalZoneId("")}
+            style={styles.resultModalBackdrop}
+          />
+          <View style={styles.standingsModalCard}>
+            <Text style={styles.standingsModalTitle}>
+              Puntajes {zonePlanningStandingsModalZone?.label || ""}
+            </Text>
+            <View style={styles.standingsTable}>
+              <View style={styles.standingsHeaderRow}>
+                <Text style={[styles.standingsHeaderText, styles.standingsPairColumn]}>PAREJA</Text>
+                {["PJ", "PG", "PP", "SF", "SC", "DIF", "DG"].map((label) => (
+                  <Text key={label} style={styles.standingsHeaderText}>{label}</Text>
+                ))}
+              </View>
+              {(zonePlanningStandingsModalZone?.standings || []).map((row) => {
+                const isHighlightedStanding =
+                  highlightedPairId &&
+                  String(row.registration?.id || "").trim() === highlightedPairId;
+
+                return (
+                <View
+                  key={`standings-${row.registration.id}`}
+                  style={[
+                    styles.standingsRow,
+                    isHighlightedStanding ? styles.standingsRowHighlighted : null,
+                  ]}
+                >
+                  <Text
+                    numberOfLines={1}
+                    style={[
+                      styles.standingsCellText,
+                      styles.standingsPairColumn,
+                      isHighlightedStanding ? styles.standingsCellTextHighlighted : null,
+                    ]}
+                  >
+                    {row.shortName}
+                  </Text>
+                  <Text style={[styles.standingsCellText, isHighlightedStanding ? styles.standingsCellTextHighlighted : null]}>{row.PJ}</Text>
+                  <Text style={[styles.standingsCellText, isHighlightedStanding ? styles.standingsCellTextHighlighted : null]}>{row.PG}</Text>
+                  <Text style={[styles.standingsCellText, isHighlightedStanding ? styles.standingsCellTextHighlighted : null]}>{row.PP}</Text>
+                  <Text style={[styles.standingsCellText, isHighlightedStanding ? styles.standingsCellTextHighlighted : null]}>{row.SF}</Text>
+                  <Text style={[styles.standingsCellText, isHighlightedStanding ? styles.standingsCellTextHighlighted : null]}>{row.SC}</Text>
+                  <Text style={[styles.standingsCellText, isHighlightedStanding ? styles.standingsCellTextHighlighted : null]}>{formatSignedValue(row.DIF)}</Text>
+                  <Text style={[styles.standingsCellText, isHighlightedStanding ? styles.standingsCellTextHighlighted : null]}>{formatSignedValue(row.DG)}</Text>
+                </View>
+                );
+              })}
+            </View>
+            <View style={styles.standingsLegendCard}>
+              <Text style={styles.standingsLegendTitle}>Referencias</Text>
+              <View style={styles.standingsLegendGrid}>
+                {[
+                  "PJ: Partido jugado",
+                  "PG: Partido ganado",
+                  "PP: Partido perdido",
+                  "SF: Sets a favor",
+                  "SC: Sets en contra",
+                  "DIF: Diferencia de sets",
+                  "DG: Diferencia de games",
+                ].map((item) => (
+                  <Text key={item} style={styles.standingsLegendItem}>
+                    {item}
+                  </Text>
+                ))}
+              </View>
+            </View>
+            <Pressable
+              onPress={() => setZonePlanningStandingsModalZoneId("")}
+              style={styles.standingsCloseButton}
+            >
+              <Text style={styles.standingsCloseButtonText}>Cerrar</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
       {zoneMatchTimePickerTarget ? (
         <DateTimePicker
           display={Platform.OS === "ios" ? "spinner" : "clock"}
@@ -7417,6 +12904,15 @@ export default function TournamentFixtureScreen({ navigation, route }) {
           mode="time"
           onChange={handleZoneMatchTimePickerChange}
           value={buildDateFromTime(zoneMatchTimePickerTarget.currentValue)}
+        />
+      ) : null}
+      {zonePlanningTimePickerTarget ? (
+        <DateTimePicker
+          display={Platform.OS === "ios" ? "spinner" : "clock"}
+          is24Hour
+          mode="time"
+          onChange={handleZonePlanningTimePickerChange}
+          value={buildDateFromTime(zonePlanningTimePickerTarget.currentValue)}
         />
       ) : null}
       {bracketMatchTimePickerTarget ? (
@@ -7428,6 +12924,62 @@ export default function TournamentFixtureScreen({ navigation, route }) {
           value={buildDateFromTime(bracketMatchTimePickerTarget.currentValue)}
         />
       ) : null}
+      <Modal
+        animationType="fade"
+        onRequestClose={() => setZoneMatchPickerState({ zoneId: "", matchId: "", field: "" })}
+        transparent
+        visible={Boolean(activeZoneCourtPicker)}
+      >
+        <View style={styles.confirmOverlay}>
+          <Pressable
+            onPress={() => setZoneMatchPickerState({ zoneId: "", matchId: "", field: "" })}
+            style={styles.confirmBackdrop}
+          />
+          <View style={styles.bracketDayPickerModalCard}>
+            <Text style={styles.bracketDayPickerModalTitle}>Seleccionar cancha</Text>
+            <View style={styles.zoneInlinePickerOptions}>
+              {(activeZoneCourtPicker?.options || []).map((option) => {
+                const isSelected = option.label === activeZoneCourtPicker?.currentCourtName;
+
+                return (
+                  <Pressable
+                    key={`zone-court-${activeZoneCourtPicker?.zoneId}-${activeZoneCourtPicker?.matchId}-${option.label}`}
+                    onPress={() =>
+                      handleUpdateZoneMatchCourt(
+                        activeZoneCourtPicker.zoneId,
+                        activeZoneCourtPicker.matchId,
+                        option.value
+                      )
+                    }
+                    style={[
+                      styles.zoneInlinePickerOption,
+                      isSelected ? styles.zoneInlinePickerOptionSelected : null,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.zoneInlinePickerOptionText,
+                        isSelected ? styles.zoneInlinePickerOptionTextSelected : null,
+                      ]}
+                    >
+                      {option.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            <Pressable
+              onPress={() => setZoneMatchPickerState({ zoneId: "", matchId: "", field: "" })}
+              style={({ pressed }) => [
+                styles.zoneInlinePickerCloseButton,
+                pressed ? styles.primaryButtonPressed : null,
+              ]}
+            >
+              <Text style={styles.zoneInlinePickerCloseButtonText}>Cerrar</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
       {scheduleVenueTimePickerTarget ? (
         <DateTimePicker
           display={Platform.OS === "ios" ? "spinner" : "clock"}
@@ -7520,18 +13072,20 @@ export default function TournamentFixtureScreen({ navigation, route }) {
             <Text style={styles.bracketDayPickerModalTitle}>Seleccionar cancha</Text>
             <View style={styles.zoneInlinePickerOptions}>
               {(activeBracketCourtPicker?.options || []).map((option) => {
-                const isSelected = option.label === activeBracketCourtPicker?.currentCourtName;
+                  const isSelected =
+                    option.value === activeBracketCourtPicker?.currentCourtLabel ||
+                    option.label === activeBracketCourtPicker?.currentCourtName;
 
                 return (
                   <Pressable
                     key={`bracket-court-${option.label}`}
                     onPress={() =>
                       handleUpdateBracketMatchCourt(
-                        activeBracketCourtPicker.roundId,
-                        activeBracketCourtPicker.matchId,
-                        option.value
-                      )
-                    }
+                          activeBracketCourtPicker.roundId,
+                          activeBracketCourtPicker.matchId,
+                          option
+                        )
+                      }
                     style={[
                       styles.zoneInlinePickerOption,
                       isSelected ? styles.zoneInlinePickerOptionSelected : null,
@@ -7591,6 +13145,14 @@ export default function TournamentFixtureScreen({ navigation, route }) {
           </View>
           {bracketBoard ? (
             <>
+              {shouldShowBracketZoneWarning ? (
+                <View style={[styles.bracketWarningCard, styles.bracketFullscreenWarningCard]}>
+                  <Ionicons color="#1F6F78" name="alert-circle-outline" size={18} />
+                  <Text style={styles.bracketWarningText}>
+                    Las zonas cambiaron despues de crear estas llaves. Revisa y vuelve a crear llaves para sincronizarlas.
+                  </Text>
+                </View>
+              ) : null}
               {canEditFixture && bracketSwapMode ? (
                 <Text style={[styles.bracketSwapHelpText, styles.bracketFullscreenSwapHelpText]}>
                   Selecciona parejas de partidos sin resultado para intercambiarlas.
@@ -7601,6 +13163,8 @@ export default function TournamentFixtureScreen({ navigation, route }) {
           {renderBracketBoard(true)}
         </SafeAreaView>
       </Modal>
+
+      {renderBracketProgramEditorModal()}
 
       <Modal
         animationType="fade"
@@ -7643,6 +13207,120 @@ export default function TournamentFixtureScreen({ navigation, route }) {
           </View>
         </View>
       </Modal>
+      <Modal
+        animationType="fade"
+        onRequestClose={() => (zoneShareInProgress ? null : setZoneShareModalVisible(false))}
+        transparent
+        visible={zoneShareModalVisible}
+      >
+        <View style={styles.confirmOverlay}>
+          <Pressable
+            onPress={() => (zoneShareInProgress ? null : setZoneShareModalVisible(false))}
+            style={styles.confirmBackdrop}
+          />
+          <View style={styles.zoneShareModalCard}>
+            <View style={styles.zoneShareModalIcon}>
+              <Ionicons color={colors.primaryDark} name="share-social-outline" size={24} />
+            </View>
+            <Text style={styles.confirmTitle}>Compartir zonas</Text>
+            <Text style={styles.confirmMessage}>
+              Podes enviar el armado completo en PDF o compartir imagenes de a 3 zonas por vez.
+            </Text>
+            {bracketBoard ? (
+              <Pressable
+                disabled={zoneShareInProgress}
+                onPress={() => setZoneShareIncludeBracket((current) => !current)}
+                style={({ pressed }) => [
+                  styles.zoneShareBracketToggle,
+                  zoneShareIncludeBracket ? styles.zoneShareBracketToggleActive : null,
+                  pressed ? styles.primaryButtonPressed : null,
+                ]}
+              >
+                <Ionicons
+                  color={zoneShareIncludeBracket ? colors.surface : colors.primaryDark}
+                  name={zoneShareIncludeBracket ? "checkbox" : "square-outline"}
+                  size={19}
+                />
+                <View style={styles.zoneShareBracketToggleCopy}>
+                  <Text
+                    style={[
+                      styles.zoneShareBracketToggleTitle,
+                      zoneShareIncludeBracket ? styles.zoneShareBracketToggleTextActive : null,
+                    ]}
+                  >
+                    Incluir llaves
+                  </Text>
+                  <Text
+                    style={[
+                      styles.zoneShareBracketToggleSupport,
+                      zoneShareIncludeBracket ? styles.zoneShareBracketToggleTextActive : null,
+                    ]}
+                  >
+                    Se agregaran al PDF o a las imagenes compartidas.
+                  </Text>
+                </View>
+              </Pressable>
+            ) : null}
+            <View style={styles.zoneShareModalActions}>
+              <Pressable
+                disabled={zoneShareInProgress}
+                onPress={handleShareZonesPdf}
+                style={({ pressed }) => [
+                  styles.zoneShareOptionButton,
+                  pressed ? styles.primaryButtonPressed : null,
+                ]}
+              >
+                <Ionicons color={colors.primaryDark} name="document-text-outline" size={18} />
+                <Text style={styles.zoneShareOptionText}>PDF completo</Text>
+              </Pressable>
+              <Pressable
+                disabled={zoneShareInProgress}
+                onPress={handleShareZonesImages}
+                style={({ pressed }) => [
+                  styles.zoneShareOptionButton,
+                  pressed ? styles.primaryButtonPressed : null,
+                ]}
+              >
+                <Ionicons color={colors.primaryDark} name="images-outline" size={18} />
+                <Text style={styles.zoneShareOptionText}>
+                  {zoneShareInProgress
+                    ? "Generando..."
+                    : `Imagenes (${
+                        (zoneShareChunks.length || 0) +
+                        (zoneShareIncludeBracket && bracketBoard ? 1 : 0)
+                      })`}
+                </Text>
+              </Pressable>
+            </View>
+            <Pressable
+              disabled={zoneShareInProgress}
+              onPress={() => setZoneShareModalVisible(false)}
+              style={styles.zoneShareCancelButton}
+            >
+              <Text style={styles.zoneShareCancelButtonText}>Cancelar</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
+      {canEditFixture && activeSection === "newzones" && hasZonePlanningUnsavedChanges ? (
+        <View pointerEvents="box-none" style={styles.zonePlanningFloatingSaveWrap}>
+          <Pressable
+            disabled={savingKey === "newzones"}
+            onPress={handleSaveZonePlanningChanges}
+            style={({ pressed }) => [
+              styles.zonePlanningFloatingSaveButton,
+              pressed ? styles.primaryButtonPressed : null,
+              savingKey === "newzones" ? styles.zonePlanningFloatingSaveButtonDisabled : null,
+            ]}
+          >
+            <Ionicons color={colors.surface} name="save-outline" size={17} />
+            <Text style={styles.zonePlanningFloatingSaveText}>
+              {savingKey === "newzones" ? "GUARDANDO..." : "GUARDAR ZONAS"}
+            </Text>
+          </Pressable>
+        </View>
+      ) : null}
 
       <BottomQuickActionsBar />
     </SafeAreaView>
@@ -7675,6 +13353,39 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     marginTop: spacing.sm,
     textAlign: "center",
+  },
+  bracketOpeningOverlay: {
+    alignItems: "center",
+    backgroundColor: "rgba(244, 248, 241, 0.88)",
+    bottom: 0,
+    justifyContent: "center",
+    left: 0,
+    position: "absolute",
+    right: 0,
+    top: 0,
+    zIndex: 50,
+  },
+  bracketOpeningCard: {
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderColor: "#B8DCDD",
+    borderRadius: 18,
+    borderWidth: 1,
+    minWidth: 210,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.lg,
+  },
+  bracketOpeningTitle: {
+    color: colors.primaryDark,
+    fontSize: 15,
+    fontWeight: "900",
+    marginTop: spacing.sm,
+  },
+  bracketOpeningSupport: {
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: "700",
+    marginTop: 3,
   },
   confirmOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -7754,6 +13465,95 @@ const styles = StyleSheet.create({
   confirmModalButtonDangerText: {
     color: colors.surface,
     fontSize: 15,
+    fontWeight: "800",
+  },
+  zoneShareModalCard: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 22,
+    borderWidth: 1,
+    marginHorizontal: spacing.lg,
+    maxWidth: 380,
+    padding: spacing.lg,
+    width: "90%",
+  },
+  zoneShareModalIcon: {
+    alignItems: "center",
+    alignSelf: "center",
+    backgroundColor: "#EAF6F6",
+    borderColor: "#B8DCDD",
+    borderRadius: 999,
+    borderWidth: 1,
+    height: 54,
+    justifyContent: "center",
+    marginBottom: spacing.sm,
+    width: 54,
+  },
+  zoneShareModalActions: {
+    gap: spacing.sm,
+    marginTop: spacing.lg,
+  },
+  zoneShareBracketToggle: {
+    alignItems: "center",
+    backgroundColor: "#F5F9F8",
+    borderColor: "#B8DCDD",
+    borderRadius: 14,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: spacing.sm,
+    marginTop: spacing.md,
+    minHeight: 52,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  zoneShareBracketToggleActive: {
+    backgroundColor: "#28777A",
+    borderColor: "#28777A",
+  },
+  zoneShareBracketToggleCopy: {
+    flex: 1,
+  },
+  zoneShareBracketToggleTitle: {
+    color: colors.primaryDark,
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  zoneShareBracketToggleSupport: {
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: "700",
+    marginTop: 2,
+  },
+  zoneShareBracketToggleTextActive: {
+    color: colors.surface,
+  },
+  zoneShareOptionButton: {
+    alignItems: "center",
+    backgroundColor: "#F7FBF8",
+    borderColor: colors.border,
+    borderRadius: 16,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: spacing.xs,
+    justifyContent: "center",
+    minHeight: 46,
+    paddingHorizontal: spacing.md,
+  },
+  zoneShareOptionText: {
+    color: colors.primaryDark,
+    fontSize: 13,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  zoneShareCancelButton: {
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: spacing.md,
+    minHeight: 34,
+  },
+  zoneShareCancelButtonText: {
+    color: colors.muted,
+    fontSize: 13,
     fontWeight: "800",
   },
   card: {
@@ -8333,6 +14133,38 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
     textAlign: "center",
   },
+  zonePlanningFloatingSaveWrap: {
+    bottom: BOTTOM_QUICK_ACTIONS_SPACE + spacing.md,
+    left: spacing.lg,
+    position: "absolute",
+    right: spacing.lg,
+  },
+  zonePlanningFloatingSaveButton: {
+    alignItems: "center",
+    alignSelf: "center",
+    backgroundColor: colors.primaryDark,
+    borderRadius: 999,
+    elevation: 5,
+    flexDirection: "row",
+    gap: spacing.xs,
+    justifyContent: "center",
+    minHeight: 48,
+    minWidth: 190,
+    paddingHorizontal: spacing.lg,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.18,
+    shadowRadius: 8,
+  },
+  zonePlanningFloatingSaveButtonDisabled: {
+    opacity: 0.72,
+  },
+  zonePlanningFloatingSaveText: {
+    color: colors.surface,
+    fontSize: 13,
+    fontWeight: "900",
+    textAlign: "center",
+  },
   formatSectionCard: {
     backgroundColor: "#F7FBF8",
     borderColor: colors.border,
@@ -8456,6 +14288,18 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "900",
     textTransform: "uppercase",
+  },
+  newZoneModeButton: {
+    flexDirection: "column",
+    gap: 3,
+    minHeight: 66,
+    paddingHorizontal: spacing.xs,
+    paddingVertical: spacing.xs,
+  },
+  newZoneModeButtonText: {
+    fontSize: 11,
+    lineHeight: 14,
+    textAlign: "center",
   },
   actionsRow: {
     flexDirection: "row",
@@ -8597,6 +14441,654 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     borderWidth: 1,
     padding: spacing.sm,
+  },
+  newZonesStack: {
+    gap: spacing.sm,
+    marginTop: spacing.md,
+  },
+  newZonesSection: {
+    gap: spacing.sm,
+  },
+  newZoneCard: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 16,
+    borderWidth: 1,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.md,
+  },
+  newZoneTitleWrap: {
+    alignSelf: "center",
+    backgroundColor: "#E1F4F0",
+    borderColor: "#9FD6CF",
+    borderRadius: 999,
+    borderWidth: 1,
+    minWidth: 116,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 6,
+  },
+  newZoneTitle: {
+    color: "#1F6D69",
+    fontSize: 14,
+    fontWeight: "900",
+    textAlign: "center",
+    textTransform: "uppercase",
+  },
+  newZoneBracketSeedText: {
+    color: "#3C7A75",
+    fontSize: 9,
+    fontWeight: "900",
+    marginTop: 2,
+    textAlign: "center",
+    textTransform: "uppercase",
+  },
+  newZonePairsStack: {
+    gap: 4,
+    marginTop: spacing.sm,
+  },
+  zoneShareButtonWrap: {
+    alignItems: "center",
+    marginTop: spacing.sm,
+  },
+  zoneShareButton: {
+    alignItems: "center",
+    backgroundColor: "#F7FBF8",
+    borderColor: "#B8DCDD",
+    borderRadius: 999,
+    borderWidth: 1,
+    height: 42,
+    justifyContent: "center",
+    width: 42,
+  },
+  zoneShareButtonDisabled: {
+    opacity: 0.65,
+  },
+  newZonePairRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 6,
+  },
+  newZonePairRowHighlighted: {
+    backgroundColor: "transparent",
+  },
+  newZonePairNumber: {
+    alignItems: "center",
+    backgroundColor: "#E1F4F0",
+    borderColor: "#9FD6CF",
+    borderRadius: 999,
+    borderWidth: 1,
+    height: 20,
+    justifyContent: "center",
+    width: 20,
+  },
+  newZonePairNumberHighlighted: {
+    backgroundColor: "#1F6F78",
+    borderColor: "#1F6F78",
+  },
+  newZonePairNumberText: {
+    color: "#1F6D69",
+    fontSize: 11,
+    fontWeight: "900",
+  },
+  newZonePairNumberTextHighlighted: {
+    color: colors.surface,
+  },
+  newZonePairName: {
+    color: colors.text,
+    flex: 1,
+    fontSize: 11,
+    fontWeight: "900",
+  },
+  newZonePairNameHighlighted: {
+    color: "#15555E",
+  },
+  newZoneMatchTable: {
+    alignSelf: "stretch",
+    borderColor: colors.border,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginTop: spacing.sm,
+    overflow: "hidden",
+  },
+  newZoneMatchHeader: {
+    backgroundColor: "#E1F4F0",
+    borderBottomColor: "#9FD6CF",
+    borderBottomWidth: 1,
+    flexDirection: "row",
+    minHeight: 28,
+  },
+  newZoneMatchHeaderText: {
+    color: "#1F6D69",
+    fontSize: 9,
+    fontWeight: "900",
+    paddingHorizontal: 5,
+    paddingVertical: 7,
+    textAlign: "center",
+  },
+  newZoneMatchRow: {
+    alignItems: "center",
+    borderBottomColor: "#E6ECE8",
+    borderBottomWidth: 1,
+    flexDirection: "row",
+    minHeight: 30,
+  },
+  newZoneMatchCellText: {
+    color: colors.text,
+    fontSize: 9,
+    fontWeight: "800",
+    paddingHorizontal: 3,
+    textAlign: "center",
+  },
+  newZoneWinnerPairNumber: {
+    color: "#39FF14",
+    fontWeight: "900",
+    textShadowColor: "rgba(57, 255, 20, 0.35)",
+    textShadowRadius: 2,
+  },
+  newZoneEditableCell: {
+    alignItems: "center",
+    alignSelf: "stretch",
+    justifyContent: "center",
+    minHeight: 30,
+  },
+  newZoneEditableCellDisabled: {
+    opacity: 1,
+  },
+  newZoneResultColumn: {
+    flex: 1.04,
+  },
+  newZonePairColumn: {
+    flex: 0.78,
+  },
+  newZoneDayColumn: {
+    flex: 0.74,
+  },
+  newZoneTimeColumn: {
+    flex: 0.78,
+  },
+  newZonePlaceColumn: {
+    flex: 0.82,
+  },
+  newZonePlaceText: {
+    lineHeight: 11,
+  },
+  newZoneEmptyText: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "700",
+    lineHeight: 17,
+    padding: spacing.sm,
+    textAlign: "center",
+  },
+  zoneQualifiersRow: {
+    alignItems: "center",
+    backgroundColor: "#F7FAF8",
+    borderColor: colors.border,
+    borderRadius: 12,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 7,
+  },
+  zoneQualifiersTextWrap: {
+    flex: 1,
+    gap: 2,
+  },
+  zoneQualifierText: {
+    color: colors.text,
+    fontSize: 10,
+    fontWeight: "900",
+  },
+  zoneStandingsButton: {
+    alignItems: "center",
+    backgroundColor: "#E1F4F0",
+    borderColor: "#9FD6CF",
+    borderRadius: 999,
+    borderWidth: 1,
+    justifyContent: "center",
+    minHeight: 30,
+    paddingHorizontal: 10,
+  },
+  zoneStandingsButtonText: {
+    color: "#1F6D69",
+    fontSize: 10,
+    fontWeight: "900",
+  },
+  standingsModalOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: spacing.lg,
+  },
+  standingsModalCard: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 22,
+    borderWidth: 1,
+    padding: spacing.md,
+    width: "100%",
+  },
+  standingsModalTitle: {
+    color: colors.primaryDark,
+    fontSize: 18,
+    fontWeight: "900",
+    textAlign: "center",
+    textTransform: "uppercase",
+  },
+  standingsTable: {
+    borderColor: colors.border,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginTop: spacing.md,
+    overflow: "hidden",
+  },
+  standingsHeaderRow: {
+    backgroundColor: "#F3F6F8",
+    borderBottomColor: colors.border,
+    borderBottomWidth: 1,
+    flexDirection: "row",
+    minHeight: 30,
+  },
+  standingsRow: {
+    alignItems: "center",
+    borderBottomColor: "#E6ECE8",
+    borderBottomWidth: 1,
+    flexDirection: "row",
+    minHeight: 30,
+  },
+  standingsRowHighlighted: {
+    backgroundColor: "transparent",
+  },
+  standingsHeaderText: {
+    color: colors.primaryDark,
+    flex: 0.48,
+    fontSize: 9,
+    fontWeight: "900",
+    paddingVertical: 8,
+    textAlign: "center",
+  },
+  standingsCellText: {
+    color: colors.text,
+    flex: 0.48,
+    fontSize: 10,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  standingsCellTextHighlighted: {
+    color: "#15555E",
+  },
+  standingsPairColumn: {
+    flex: 1.9,
+    paddingHorizontal: 6,
+    textAlign: "left",
+  },
+  standingsLegendCard: {
+    backgroundColor: "#F7FAF8",
+    borderColor: colors.border,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginTop: spacing.sm,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 8,
+  },
+  standingsLegendTitle: {
+    color: colors.primaryDark,
+    fontSize: 11,
+    fontWeight: "900",
+    marginBottom: 5,
+    textAlign: "center",
+    textTransform: "uppercase",
+  },
+  standingsLegendGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    rowGap: 3,
+  },
+  standingsLegendItem: {
+    color: colors.muted,
+    fontSize: 9,
+    fontWeight: "800",
+    lineHeight: 13,
+    textAlign: "left",
+    width: "50%",
+  },
+  standingsCloseButton: {
+    alignItems: "center",
+    backgroundColor: colors.primaryDark,
+    borderRadius: 14,
+    justifyContent: "center",
+    marginTop: spacing.md,
+    minHeight: 42,
+  },
+  standingsCloseButtonText: {
+    color: colors.surface,
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  resultModalOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: "center",
+  },
+  resultModalBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: colors.overlay,
+  },
+  resultModalCard: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 22,
+    borderWidth: 1,
+    padding: spacing.lg,
+    width: "100%",
+  },
+  resultModalScrollContent: {
+    flexGrow: 1,
+    justifyContent: "center",
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.xl,
+  },
+  resultModalTitle: {
+    color: colors.primaryDark,
+    fontSize: 20,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  resultModalSubtitle: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "700",
+    lineHeight: 17,
+    marginTop: spacing.xs,
+    textAlign: "center",
+  },
+  winnerOptions: {
+    gap: spacing.xs,
+    marginTop: spacing.md,
+  },
+  winnerOption: {
+    alignItems: "center",
+    backgroundColor: "#F7FAF8",
+    borderColor: colors.border,
+    borderRadius: 14,
+    borderWidth: 1,
+    justifyContent: "center",
+    minHeight: 42,
+    paddingHorizontal: spacing.sm,
+  },
+  winnerOptionSelected: {
+    backgroundColor: "#DDF6EF",
+    borderColor: "#89D9C4",
+  },
+  winnerOptionText: {
+    color: colors.primaryDark,
+    fontSize: 12,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  winnerOptionTextSelected: {
+    color: "#176B5B",
+  },
+  winnerBadgeText: {
+    color: "#176B5B",
+    fontSize: 9,
+    fontWeight: "900",
+    marginTop: 2,
+    textAlign: "center",
+  },
+  resultNoWinnerText: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "800",
+    lineHeight: 16,
+    marginTop: spacing.md,
+    textAlign: "center",
+  },
+  setsGrid: {
+    gap: spacing.xs,
+    marginTop: spacing.md,
+  },
+  setRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.xs,
+    justifyContent: "center",
+  },
+  setLabel: {
+    color: colors.primaryDark,
+    fontSize: 11,
+    fontWeight: "900",
+    textAlign: "right",
+    width: 102,
+  },
+  superTieBreakSetLabel: {
+    fontSize: 10,
+    lineHeight: 12,
+  },
+  setInput: {
+    backgroundColor: "#F7FAF8",
+    borderColor: colors.border,
+    borderRadius: 12,
+    borderWidth: 1,
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: "900",
+    height: 42,
+    paddingHorizontal: spacing.sm,
+    textAlign: "center",
+    width: 86,
+  },
+  superTieBreakSetInput: {
+    width: 86,
+  },
+  resultModalActions: {
+    flexDirection: "row",
+    gap: spacing.sm,
+    marginTop: spacing.md,
+  },
+  resultModalUtilityActions: {
+    flexDirection: "row",
+    gap: spacing.sm,
+    marginTop: spacing.md,
+  },
+  resultUtilityButton: {
+    alignItems: "center",
+    backgroundColor: "#F3F6F7",
+    borderColor: "#D8E2E6",
+    borderRadius: 12,
+    borderWidth: 1,
+    flex: 1,
+    justifyContent: "center",
+    minHeight: 38,
+    paddingHorizontal: spacing.xs,
+  },
+  resultUtilityButtonDanger: {
+    backgroundColor: "#FFF4EF",
+    borderColor: "#F1BCA6",
+  },
+  resultUtilityButtonText: {
+    color: "#38515D",
+    fontSize: 11,
+    fontWeight: "900",
+    textAlign: "center",
+    textTransform: "uppercase",
+  },
+  resultUtilityButtonTextDanger: {
+    color: "#B0522E",
+  },
+  programSection: {
+    marginTop: spacing.md,
+  },
+  programSectionTitle: {
+    color: colors.primaryDark,
+    fontSize: 12,
+    fontWeight: "900",
+    marginBottom: spacing.xs,
+    textAlign: "center",
+    textTransform: "uppercase",
+  },
+  programOptionsGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.xs,
+    justifyContent: "center",
+  },
+  programOptionsStack: {
+    gap: spacing.xs,
+  },
+  programOptionChip: {
+    alignItems: "center",
+    backgroundColor: "#F3F6F7",
+    borderColor: "#D8E2E6",
+    borderRadius: 999,
+    borderWidth: 1,
+    justifyContent: "center",
+    minHeight: 36,
+    minWidth: 92,
+    paddingHorizontal: spacing.sm,
+  },
+  programOptionChipSelected: {
+    backgroundColor: "#E5F5FA",
+    borderColor: "#8BC6DD",
+  },
+  programOptionChipText: {
+    color: "#38515D",
+    fontSize: 11,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  programOptionChipTextSelected: {
+    color: "#1E6380",
+  },
+  programOptionRow: {
+    alignItems: "center",
+    backgroundColor: "#F3F6F7",
+    borderColor: "#D8E2E6",
+    borderRadius: 13,
+    borderWidth: 1,
+    justifyContent: "center",
+    minHeight: 40,
+    paddingHorizontal: spacing.md,
+  },
+  programOptionRowSelected: {
+    backgroundColor: "#E5F5FA",
+    borderColor: "#8BC6DD",
+  },
+  programOptionRowText: {
+    color: "#38515D",
+    fontSize: 12,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  programOptionRowTextSelected: {
+    color: "#1E6380",
+  },
+  programTimeButton: {
+    alignItems: "center",
+    alignSelf: "center",
+    backgroundColor: "#F0F6FA",
+    borderColor: "#B8CCE0",
+    borderRadius: 14,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: spacing.xs,
+    justifyContent: "center",
+    minHeight: 42,
+    minWidth: 190,
+    paddingHorizontal: spacing.md,
+  },
+  programTimeButtonText: {
+    color: "#244A66",
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  resultCancelButton: {
+    alignItems: "center",
+    backgroundColor: "#EEF2F4",
+    borderRadius: 14,
+    flex: 1,
+    justifyContent: "center",
+    minHeight: 44,
+  },
+  resultCancelButtonText: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  resultSaveButton: {
+    alignItems: "center",
+    backgroundColor: colors.primaryDark,
+    borderRadius: 14,
+    flex: 1,
+    justifyContent: "center",
+    minHeight: 44,
+  },
+  resultSaveButtonText: {
+    color: colors.surface,
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  dayPickerModalOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
+    padding: spacing.lg,
+  },
+  dayPickerModalCard: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 20,
+    borderWidth: 1,
+    padding: spacing.md,
+    width: "100%",
+  },
+  dayPickerModalTitle: {
+    color: colors.primaryDark,
+    fontSize: 16,
+    fontWeight: "900",
+    textAlign: "center",
+    textTransform: "uppercase",
+  },
+  dayPickerOptions: {
+    gap: spacing.xs,
+    marginTop: spacing.md,
+  },
+  dayPickerOption: {
+    alignItems: "center",
+    backgroundColor: "#F7FAF8",
+    borderColor: colors.border,
+    borderRadius: 13,
+    borderWidth: 1,
+    justifyContent: "center",
+    minHeight: 40,
+    paddingHorizontal: spacing.sm,
+  },
+  dayPickerOptionSelected: {
+    backgroundColor: "#E1F4F0",
+    borderColor: "#9FD6CF",
+  },
+  dayPickerOptionText: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  dayPickerOptionTextSelected: {
+    color: "#1F6D69",
+  },
+  dayPickerCancelButton: {
+    alignItems: "center",
+    backgroundColor: "#EEF2F4",
+    borderRadius: 13,
+    justifyContent: "center",
+    marginTop: spacing.md,
+    minHeight: 42,
+  },
+  dayPickerCancelButtonText: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: "900",
   },
   zoneHeaderPressable: {
     backgroundColor: "#4F86A8",
@@ -8775,8 +15267,26 @@ const styles = StyleSheet.create({
     color: colors.primaryDark,
     fontSize: 11,
     fontWeight: "800",
-    marginTop: spacing.xs,
     textAlign: "center",
+    flexShrink: 1,
+  },
+  zoneMatchCourtButton: {
+    alignItems: "center",
+    alignSelf: "center",
+    backgroundColor: "#FFFFFF",
+    borderColor: "#8BB9E8",
+    borderRadius: 999,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 5,
+    justifyContent: "center",
+    marginTop: spacing.xs,
+    maxWidth: "100%",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  zoneMatchCourtButtonDisabled: {
+    opacity: 0.78,
   },
   zoneInlinePickerCard: {
     backgroundColor: "#F7FBFF",
@@ -9117,6 +15627,29 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.sm,
   },
+  bracketWarningCard: {
+    alignItems: "center",
+    backgroundColor: "#EAF6F6",
+    borderColor: "#B8DCDD",
+    borderRadius: 14,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: spacing.xs,
+    marginTop: spacing.md,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
+  },
+  bracketWarningText: {
+    color: "#15555E",
+    flex: 1,
+    fontSize: 12,
+    fontWeight: "800",
+    lineHeight: 16,
+  },
+  bracketFullscreenWarningCard: {
+    marginHorizontal: spacing.md,
+    marginTop: spacing.sm,
+  },
   bracketSummaryHeader: {
     alignItems: "center",
     flexDirection: "row",
@@ -9140,30 +15673,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "600",
     lineHeight: 17,
-  },
-  bracketSummaryActionButton: {
-    alignItems: "center",
-    alignSelf: "flex-start",
-    backgroundColor: colors.primaryDark,
-    borderColor: colors.primaryDark,
-    borderRadius: 999,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: spacing.xs,
-    justifyContent: "center",
-    minHeight: 42,
-    paddingHorizontal: spacing.lg,
-    shadowColor: colors.primaryDark,
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.22,
-    shadowRadius: 7,
-    elevation: 4,
-  },
-  bracketSummaryActionButtonText: {
-    color: colors.surface,
-    fontSize: 12,
-    fontWeight: "900",
-    textTransform: "uppercase",
   },
   bracketUpcomingList: {
     gap: 6,
@@ -9465,6 +15974,162 @@ const styles = StyleSheet.create({
     position: "absolute",
     top: -10000,
   },
+  zoneShareHiddenRoot: {
+    left: -10000,
+    position: "absolute",
+    top: -10000,
+  },
+  zoneShareCaptureCard: {
+    backgroundColor: "#F4F8F1",
+    padding: spacing.lg,
+    width: 920,
+  },
+  zoneShareHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.sm,
+    justifyContent: "center",
+    marginBottom: spacing.md,
+  },
+  zoneShareHeaderCopy: {
+    alignItems: "flex-start",
+  },
+  zoneShareOrganizerLogo: {
+    borderRadius: 999,
+    height: 54,
+    width: 54,
+  },
+  zoneShareTitle: {
+    color: colors.primaryDark,
+    fontSize: 26,
+    fontWeight: "900",
+    textAlign: "left",
+  },
+  zoneShareSubtitle: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "800",
+    marginTop: 4,
+    textAlign: "left",
+  },
+  zoneShareZoneCard: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 18,
+    borderWidth: 1,
+    marginBottom: spacing.md,
+    padding: spacing.md,
+  },
+  zoneShareZoneTitle: {
+    alignSelf: "center",
+    backgroundColor: "#E1F4F0",
+    borderColor: "#9FD6CF",
+    borderRadius: 999,
+    borderWidth: 1,
+    color: "#1F6D69",
+    fontSize: 18,
+    fontWeight: "900",
+    marginBottom: spacing.sm,
+    minWidth: 130,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 7,
+    textAlign: "center",
+    textTransform: "uppercase",
+  },
+  zoneSharePairsGrid: {
+    gap: 5,
+    marginBottom: spacing.sm,
+  },
+  zoneSharePairRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 8,
+  },
+  zoneSharePairNumber: {
+    backgroundColor: "#E1F4F0",
+    borderColor: "#9FD6CF",
+    borderRadius: 999,
+    borderWidth: 1,
+    color: "#1F6D69",
+    fontSize: 12,
+    fontWeight: "900",
+    height: 24,
+    lineHeight: 22,
+    textAlign: "center",
+    width: 24,
+  },
+  zoneSharePairName: {
+    color: colors.text,
+    flex: 1,
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  zoneShareMatchTable: {
+    borderColor: colors.border,
+    borderRadius: 12,
+    borderWidth: 1,
+    overflow: "hidden",
+  },
+  zoneShareMatchHeader: {
+    backgroundColor: "#E1F4F0",
+    borderBottomColor: "#9FD6CF",
+    borderBottomWidth: 1,
+    flexDirection: "row",
+    minHeight: 30,
+  },
+  zoneShareMatchHeaderText: {
+    color: "#1F6D69",
+    fontSize: 10,
+    fontWeight: "900",
+    paddingVertical: 8,
+    textAlign: "center",
+  },
+  zoneShareMatchRow: {
+    alignItems: "center",
+    borderBottomColor: "#E6ECE8",
+    borderBottomWidth: 1,
+    flexDirection: "row",
+    minHeight: 32,
+  },
+  zoneShareMatchText: {
+    color: colors.text,
+    fontSize: 10,
+    fontWeight: "800",
+    paddingHorizontal: 5,
+    textAlign: "center",
+  },
+  zoneShareResultColumn: {
+    flex: 1.1,
+  },
+  zoneSharePairColumn: {
+    flex: 1,
+  },
+  zoneShareDayColumn: {
+    flex: 0.8,
+  },
+  zoneShareTimeColumn: {
+    flex: 0.75,
+  },
+  zoneSharePlaceColumn: {
+    flex: 1.25,
+  },
+  zoneShareQualifiersRow: {
+    backgroundColor: "#F7FAF8",
+    borderColor: colors.border,
+    borderRadius: 12,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: spacing.sm,
+    justifyContent: "center",
+    marginTop: spacing.sm,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 8,
+  },
+  zoneShareQualifierText: {
+    color: colors.text,
+    fontSize: 12,
+    fontWeight: "900",
+  },
   bracketDayPickerModalCard: {
     alignSelf: "center",
     backgroundColor: colors.surface,
@@ -9578,47 +16243,52 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 1,
-    marginTop: 2,
-    minHeight: 28,
-    transform: [{ translateY: 8 }],
+    marginTop: 0,
+    minHeight: 30,
+    transform: [{ translateY: 2 }],
     width: "100%",
   },
   bracketMatchScheduleWrap: {
     alignItems: "center",
+    gap: 0,
+    justifyContent: "center",
+    paddingRight: 58,
+    minWidth: 0,
+    width: "100%",
+  },
+  bracketMatchScheduleLine: {
+    alignItems: "center",
     flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 2,
+    gap: 4,
     justifyContent: "center",
     width: "100%",
   },
   bracketMatchScheduleButton: {
     alignItems: "center",
-    backgroundColor: "#FFFFFF",
-    borderColor: "#8BB9E8",
-    borderRadius: 999,
-    borderWidth: 1,
+    backgroundColor: "transparent",
+    borderRadius: 0,
+    borderWidth: 0,
     flexDirection: "row",
     gap: 2,
-    minHeight: 24,
-    paddingHorizontal: 6,
-    paddingVertical: 3,
-  },
-  bracketMatchScheduleButtonActive: {
-    backgroundColor: "#1B5D92",
-    borderColor: "#1B5D92",
+    minHeight: 18,
+    paddingHorizontal: 2,
+    paddingVertical: 1,
   },
   bracketMatchSchedulePill: {
-    color: "#1B5D92",
+    color: "#263238",
     fontSize: 8,
     fontWeight: "900",
   },
-  bracketMatchSchedulePillActive: {
-    color: colors.surface,
+  bracketProgramButton: {
+    marginTop: 0,
+    position: "absolute",
+    right: 3,
+    top: 4,
   },
   bracketTeamsColumn: {
     alignItems: "center",
     flex: 1,
-    gap: 3,
+    gap: 0,
     justifyContent: "center",
     height: BRACKET_TEAMS_STACK_HEIGHT,
     minWidth: 0,
@@ -9630,15 +16300,14 @@ const styles = StyleSheet.create({
     gap: 4,
     height: BRACKET_TEAMS_STACK_HEIGHT,
     justifyContent: "space-between",
-    paddingTop: 0,
+    paddingTop: 2,
     width: "100%",
   },
   bracketSideControlsColumn: {
     alignItems: "center",
-    gap: 4,
     height: BRACKET_TEAMS_STACK_HEIGHT,
     justifyContent: "center",
-    width: 22,
+    width: 18,
   },
   bracketResultsColumn: {
     alignItems: "center",
@@ -9646,10 +16315,11 @@ const styles = StyleSheet.create({
     flexShrink: 0,
     justifyContent: "flex-start",
     height: BRACKET_TEAMS_STACK_HEIGHT,
-    minWidth: 86,
+    paddingTop: 31,
+    width: 62,
   },
   bracketResultsColumnCompact: {
-    minWidth: 82,
+    width: 60,
   },
   bracketResultsSetRow: {
     alignItems: "flex-start",
@@ -9698,13 +16368,13 @@ const styles = StyleSheet.create({
     alignItems: "stretch",
     backgroundColor: "#FFFFFF",
     borderColor: colors.border,
-    borderRadius: 12,
+    borderRadius: 10,
     borderWidth: 1,
     flex: 0,
     height: BRACKET_TEAM_CARD_HEIGHT,
     justifyContent: "center",
-    paddingHorizontal: 6,
-    paddingVertical: 2,
+    paddingHorizontal: 5,
+    paddingVertical: 0,
     alignSelf: "center",
     width: "100%",
   },
@@ -9717,8 +16387,8 @@ const styles = StyleSheet.create({
     borderWidth: 2,
   },
   bracketTeamColumnHighlighted: {
-    backgroundColor: "#EEF9F1",
-    borderColor: "#63B97F",
+    backgroundColor: "#E8F6F6",
+    borderColor: "#1F6F78",
     borderWidth: 2,
   },
   bracketTeamContentRow: {
@@ -9809,27 +16479,28 @@ const styles = StyleSheet.create({
   },
   bracketMatchLocationWrap: {
     alignItems: "center",
-    flexDirection: "column",
-    gap: 0,
+    flexDirection: "row",
+    gap: 4,
     justifyContent: "center",
-    marginTop: 2,
-    minHeight: 22,
+    marginTop: 0,
+    maxWidth: "100%",
+    minHeight: 12,
     paddingHorizontal: 0,
-    width: "100%",
   },
   bracketMatchVenueText: {
     color: "#2EA8D9",
     fontSize: 7,
-    fontWeight: "800",
-    lineHeight: 8,
+    fontWeight: "900",
+    lineHeight: 9,
     textAlign: "center",
-    width: "100%",
+    maxWidth: 98,
   },
   bracketMatchCourtText: {
     color: "#1B5D92",
-    fontSize: 8,
-    fontWeight: "800",
+    fontSize: 7,
+    fontWeight: "900",
     textAlign: "center",
+    maxWidth: 68,
   },
   bracketCourtChip: {
     alignItems: "center",
@@ -9840,12 +16511,80 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     justifyContent: "center",
     marginTop: 1,
-    minHeight: 16,
-    paddingHorizontal: 6,
+    maxWidth: 84,
+    minHeight: 15,
+    paddingHorizontal: 5,
     paddingVertical: 1,
   },
   bracketCourtChipDisabled: {
     opacity: 0.78,
+  },
+  bracketResultModalButton: {
+    alignItems: "center",
+    backgroundColor: "#EEF4FA",
+    borderColor: "#B8CCE0",
+    borderRadius: 999,
+    borderWidth: 1,
+    justifyContent: "center",
+    marginTop: 7,
+    minHeight: 22,
+    paddingHorizontal: 7,
+    width: 56,
+  },
+  bracketResultModalButtonDisabled: {
+    opacity: 0.72,
+  },
+  bracketResultModalButtonText: {
+    color: "#244A66",
+    fontSize: 8,
+    fontWeight: "900",
+    textAlign: "center",
+    textTransform: "uppercase",
+  },
+  bracketResultScoreCardsRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 2,
+    justifyContent: "center",
+    minHeight: 34,
+    width: 62,
+  },
+  bracketResultScoreCard: {
+    alignItems: "center",
+    backgroundColor: "#FFFFFF",
+    borderColor: "#9FD6CF",
+    borderRadius: 7,
+    borderWidth: 1,
+    justifyContent: "center",
+    minHeight: 32,
+    width: 18,
+  },
+  bracketResultScoreCardEmpty: {
+    backgroundColor: "#F7FAF8",
+    borderColor: "#DCE9E5",
+  },
+  bracketResultScoreDivider: {
+    backgroundColor: "#D8E8E4",
+    height: 1,
+    width: "70%",
+  },
+  bracketResultScoreValue: {
+    color: "#173C38",
+    fontSize: 9,
+    fontWeight: "900",
+    lineHeight: 13,
+    textAlign: "center",
+  },
+  bracketResultScoreValueEmpty: {
+    color: "#A3B2AF",
+  },
+  bracketResultSummaryText: {
+    color: colors.text,
+    fontSize: 8,
+    fontWeight: "900",
+    lineHeight: 10,
+    textAlign: "center",
+    width: 56,
   },
   bracketCenterInfo: {
     alignItems: "center",

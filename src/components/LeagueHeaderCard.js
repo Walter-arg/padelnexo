@@ -1,4 +1,4 @@
-import { StyleSheet, Text, View } from "react-native";
+import { Image, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
 import { colors, spacing } from "../config/theme";
@@ -59,6 +59,7 @@ export default function LeagueHeaderCard({
   children = null,
   complexName = "",
   league = null,
+  organizerLogoUrl = "",
   sex = "",
   subtitle = "",
   title = "Liga",
@@ -69,10 +70,15 @@ export default function LeagueHeaderCard({
   const metaCategory = [categoryText, showSex ? sex : ""].filter(Boolean).join(" · ");
   const scheduleSummary = buildScheduleSummary(league);
   const teamTypeLabel =
-    teamType === "individual" ? "Individual" : teamType === "pair" ? "Pareja fija" : "";
-  const locationLine = [league?.localidad, league?.provincia].filter(Boolean).join(", ");
-  const complexLocationLine = [complexName, locationLine].filter(Boolean).join(" · ");
+    teamType === "individual" ? "Individual" : teamType === "pair" ? "En pareja" : "";
   const suspensionNotice = getActiveLeagueSuspensionNotice(league);
+  const resolvedOrganizerLogoUrl =
+    organizerLogoUrl ||
+    league?.organizerLogoUrl ||
+    league?.organizerLogoURL ||
+    league?.complejo?.organizerLogoUrl ||
+    league?.complejo?.organizerLogoURL ||
+    "";
 
   return (
     <View style={styles.card}>
@@ -85,40 +91,56 @@ export default function LeagueHeaderCard({
         {actions ? <View style={styles.actionsWrap}>{actions}</View> : null}
       </View>
 
-      <View style={styles.metaList}>
-        {metaCategory ? (
-          <View style={styles.metaItem}>
-            <Ionicons color={colors.primaryDark} name="ribbon-outline" size={16} />
-            <Text numberOfLines={1} style={[styles.metaText, styles.metaTextStrong]}>
-              {metaCategory}
-            </Text>
+      <View style={styles.headerBody}>
+        {resolvedOrganizerLogoUrl ? (
+          <View style={styles.logoWrap}>
+            <Image source={{ uri: resolvedOrganizerLogoUrl }} style={styles.organizerLogo} />
           </View>
         ) : null}
 
-        <View style={styles.metaItem}>
-          <Ionicons color={colors.primaryDark} name="calendar-outline" size={16} />
-          <Text numberOfLines={1} style={[styles.metaText, styles.metaTextMuted]}>
-            {scheduleSummary}
-          </Text>
-        </View>
+        <View style={styles.metaList}>
+          {metaCategory ? (
+            <View style={styles.metaItem}>
+              <View style={styles.metaIconSlot}>
+                <Ionicons color={colors.primaryDark} name="ribbon-outline" size={16} />
+              </View>
+              <Text numberOfLines={1} style={[styles.metaText, styles.metaTextStrong]}>
+                {metaCategory}
+              </Text>
+            </View>
+          ) : null}
 
-        {complexLocationLine ? (
-          <View style={styles.metaItem}>
-            <Ionicons color="#2F8FCF" name="business-outline" size={16} />
-            <Text numberOfLines={1} style={[styles.metaText, styles.metaTextStrong]}>
-              {complexLocationLine}
-            </Text>
-          </View>
-        ) : null}
+          {teamTypeLabel ? (
+            <View style={styles.metaItem}>
+              <View style={styles.metaIconSlot}>
+                <Ionicons color={colors.primaryDark} name="people-outline" size={16} />
+              </View>
+              <Text numberOfLines={1} style={[styles.metaText, styles.metaTextMuted]}>
+                {teamTypeLabel}
+              </Text>
+            </View>
+          ) : null}
 
-        {teamTypeLabel ? (
           <View style={styles.metaItem}>
-            <Ionicons color={colors.primaryDark} name="people-outline" size={16} />
+            <View style={styles.metaIconSlot}>
+              <Ionicons color={colors.primaryDark} name="calendar-outline" size={16} />
+            </View>
             <Text numberOfLines={1} style={[styles.metaText, styles.metaTextMuted]}>
-              {teamTypeLabel}
+              {scheduleSummary}
             </Text>
           </View>
-        ) : null}
+
+          {complexName ? (
+            <View style={styles.metaItem}>
+              <View style={styles.metaIconSlot}>
+                <Ionicons color="#2F8FCF" name="business-outline" size={16} />
+              </View>
+              <Text numberOfLines={1} style={[styles.metaText, styles.metaTextStrong]}>
+                {complexName}
+              </Text>
+            </View>
+          ) : null}
+        </View>
       </View>
 
       {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
@@ -167,20 +189,48 @@ const styles = StyleSheet.create({
     right: 0,
     top: 0,
   },
+  headerBody: {
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 64,
+    position: "relative",
+  },
+  logoWrap: {
+    alignItems: "center",
+    bottom: 0,
+    justifyContent: "center",
+    left: 0,
+    position: "absolute",
+    top: 0,
+    width: 74,
+  },
+  organizerLogo: {
+    borderRadius: 14,
+    height: 60,
+    width: 60,
+  },
   metaList: {
-    gap: 6,
+    alignItems: "flex-start",
+    gap: 3,
+    maxWidth: "92%",
   },
   metaItem: {
     alignItems: "center",
     columnGap: 8,
     flexDirection: "row",
+    justifyContent: "flex-start",
+  },
+  metaIconSlot: {
+    alignItems: "center",
     justifyContent: "center",
+    width: 18,
   },
   metaText: {
+    flexShrink: 1,
     fontSize: 12,
     fontWeight: "800",
-    lineHeight: 15,
-    textAlign: "center",
+    lineHeight: 14,
+    textAlign: "left",
   },
   metaTextStrong: {
     color: "#101820",

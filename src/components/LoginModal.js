@@ -12,6 +12,7 @@ import {
   Text,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import {
   avatarColors,
@@ -107,10 +108,34 @@ function sanitizeFullName(value) {
   return joinedValue;
 }
 
+function sanitizeNamePart(value, maxWords = 2) {
+  const normalizedValue = sanitizeName(value)
+    .toLowerCase()
+    .replace(/^\s+/, "")
+    .replace(/\s{2,}/g, " ")
+    .slice(0, 24);
+  const hasTrailingSpace = normalizedValue.endsWith(" ");
+  const formattedParts = normalizedValue
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, maxWords)
+    .map((part) => {
+      const trimmedWord = part.slice(0, 12);
+      return `${trimmedWord.charAt(0).toUpperCase()}${trimmedWord.slice(1)}`;
+    });
+  const joinedValue = formattedParts.join(" ");
+
+  if (hasTrailingSpace && formattedParts.length > 0 && formattedParts.length < maxWords) {
+    return `${joinedValue} `;
+  }
+
+  return joinedValue;
+}
+
 function hasValidFullName(value) {
   const words = value.trim().split(/\s+/).filter(Boolean);
 
-  if (!words.length || words.length > 3) {
+  if (!words.length || words.length > 4) {
     return false;
   }
 
@@ -128,6 +153,7 @@ function isValidLocalidad(localidad, inputValue) {
 
 export default function LoginModal({ onClose, onLogin, visible }) {
   const { login, loginWithGoogle, register, sendResetPassword, lastLoginEmail } = useAuth();
+  const insets = useSafeAreaInsets();
   const [feedback, setFeedback] = useState({
     visible: false,
     title: "",
@@ -135,7 +161,8 @@ export default function LoginModal({ onClose, onLogin, visible }) {
     tone: "default",
   });
   const [mode, setMode] = useState("login");
-  const [name, setName] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [identifier, setIdentifier] = useState("");
   const [phone, setPhone] = useState("");
   const [isPhonePublic, setIsPhonePublic] = useState(false);
@@ -165,7 +192,8 @@ export default function LoginModal({ onClose, onLogin, visible }) {
         tone: "default",
       });
       setMode("login");
-      setName("");
+      setFirstName("");
+      setLastName("");
       setIdentifier(lastLoginEmail || "");
       setPhone("");
       setIsPhonePublic(false);
@@ -268,7 +296,9 @@ export default function LoginModal({ onClose, onLogin, visible }) {
     }
 
     if (mode === "register") {
-      if (!name.trim()) {
+      const fullName = [firstName.trim(), lastName.trim()].filter(Boolean).join(" ");
+
+      if (!firstName.trim() || !lastName.trim()) {
         setFeedback({
           visible: true,
           title: "Falta tu nombre",
@@ -278,7 +308,7 @@ export default function LoginModal({ onClose, onLogin, visible }) {
         return;
       }
 
-      if (!NAME_REGEX.test(name.trim())) {
+      if (!NAME_REGEX.test(fullName)) {
         setFeedback({
           visible: true,
           title: "Nombre invalido",
@@ -288,12 +318,12 @@ export default function LoginModal({ onClose, onLogin, visible }) {
         return;
       }
 
-      if (!hasValidFullName(name)) {
+      if (!hasValidFullName(fullName)) {
         setFeedback({
           visible: true,
           title: "Nombre invalido",
           message:
-            "Ingresa nombre y apellido con maximo 3 palabras y hasta 10 caracteres por palabra.",
+            "Ingresa nombre y apellido con hasta 2 palabras por campo y 12 caracteres por palabra.",
           tone: "danger",
         });
         return;
@@ -342,8 +372,8 @@ export default function LoginModal({ onClose, onLogin, visible }) {
       if (!sex) {
         setFeedback({
           visible: true,
-          title: "Falta el sexo",
-          message: "Selecciona una opcion en sexo.",
+          title: "Falta el g\u00e9nero",
+          message: "Selecciona una opcion en g\u00e9nero.",
           tone: "danger",
         });
         return;
@@ -387,7 +417,9 @@ export default function LoginModal({ onClose, onLogin, visible }) {
 
       try {
         await register({
-          name: name.trim(),
+          name: fullName,
+          firstName: firstName.trim(),
+          lastName: lastName.trim(),
           email,
           phone: phone.trim(),
           countryCode,
@@ -502,7 +534,7 @@ export default function LoginModal({ onClose, onLogin, visible }) {
         style={styles.overlay}
       >
         <Pressable onPress={onClose} style={styles.backdrop} />
-        <View style={styles.card}>
+        <View style={[styles.card, { paddingBottom: spacing.md + Math.max(insets.bottom, 16) }]}>
           <View style={styles.handle} />
           <Text style={styles.title}>{title}</Text>
           {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
@@ -519,21 +551,37 @@ export default function LoginModal({ onClose, onLogin, visible }) {
           ) : null}
 
           <ScrollView
-            contentContainerStyle={styles.formContent}
+            contentContainerStyle={[
+              styles.formContent,
+              { paddingBottom: spacing.md + Math.max(insets.bottom, 18) },
+            ]}
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
           >
             {mode === "register" ? (
               <>
-                <AppInput
-                  autoCapitalize="words"
-                  inputStyle={styles.compactInput}
-                  label="Nombre y Apellido"
-                  labelStyle={styles.centeredLabel}
-                  onChangeText={(value) => setName(sanitizeFullName(value))}
-                  placeholder="Tu nombre completo"
-                  value={name}
-                />
+                <View style={styles.nameRow}>
+                  <AppInput
+                    autoCapitalize="words"
+                    containerStyle={styles.nameField}
+                    inputStyle={styles.compactInput}
+                    label="Nombre"
+                    labelStyle={styles.centeredLabel}
+                    onChangeText={(value) => setFirstName(sanitizeNamePart(value, 2))}
+                    placeholder="Nombre"
+                    value={firstName}
+                  />
+                  <AppInput
+                    autoCapitalize="words"
+                    containerStyle={styles.nameField}
+                    inputStyle={styles.compactInput}
+                    label="Apellido"
+                    labelStyle={styles.centeredLabel}
+                    onChangeText={(value) => setLastName(sanitizeNamePart(value, 2))}
+                    placeholder="Apellido"
+                    value={lastName}
+                  />
+                </View>
                 <AppInput
                   autoCapitalize="none"
                   autoComplete="email"
@@ -613,7 +661,7 @@ export default function LoginModal({ onClose, onLogin, visible }) {
                   visible={isCategoryVisible}
                 />
                 <SelectField
-                  label="Sexo"
+                  label={"G\u00e9nero"}
                   labelStyle={styles.centeredLabel}
                   onClose={() => setIsSexVisible(false)}
                   onOpen={() => setIsSexVisible(true)}
@@ -635,7 +683,7 @@ export default function LoginModal({ onClose, onLogin, visible }) {
                   visible={isPreferredSideVisible}
                 />
                 <SelectField
-                  label="Mano habil"
+                  label={"Mano h\u00e1bil"}
                   labelStyle={styles.centeredLabel}
                   onClose={() => setIsDominantHandVisible(false)}
                   onOpen={() => setIsDominantHandVisible(true)}
@@ -811,6 +859,15 @@ const styles = StyleSheet.create({
     fontSize: 15,
     minHeight: 46,
     paddingVertical: 8,
+  },
+  nameRow: {
+    flexDirection: "row",
+    gap: spacing.xs,
+    marginBottom: spacing.xs,
+  },
+  nameField: {
+    flex: 1,
+    marginBottom: 0,
   },
   loginField: {
     marginBottom: spacing.sm,

@@ -100,6 +100,34 @@ function normalizeCount(value) {
   return parsedValue;
 }
 
+function normalizeCoordinate(value) {
+  const parsedValue = Number(value);
+
+  return Number.isFinite(parsedValue) ? parsedValue : null;
+}
+
+function getComplexCoordinates(complex = {}) {
+  const coordinates = complex.coordinates || complex.coords || complex.location || {};
+  const latitude = normalizeCoordinate(
+    complex.latitude ?? complex.lat ?? complex.latitud ?? coordinates.latitude ?? coordinates.lat
+  );
+  const longitude = normalizeCoordinate(
+    complex.longitude ??
+      complex.lng ??
+      complex.lon ??
+      complex.longitud ??
+      coordinates.longitude ??
+      coordinates.lng ??
+      coordinates.lon
+  );
+
+  if (latitude === null || longitude === null) {
+    return null;
+  }
+
+  return { latitude, longitude };
+}
+
 export function normalizeComplex(complex = {}) {
   const canchas = Array.isArray(complex.canchas) && complex.canchas.length
     ? complex.canchas.map(normalizeCourt)
@@ -115,6 +143,7 @@ export function normalizeComplex(complex = {}) {
     cemento: counts.cemento,
     totalCanchas: canchas.length,
     direccion: complex.direccion?.trim() || "",
+    coordinates: getComplexCoordinates(complex),
   };
 }
 

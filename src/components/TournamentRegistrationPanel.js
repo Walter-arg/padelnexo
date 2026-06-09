@@ -1,5 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
-import { Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import {
+  Image,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as DocumentPicker from "expo-document-picker";
 
@@ -195,13 +206,29 @@ function getPaymentStatusLabel(status = "") {
   return "Pendiente";
 }
 
+function getRegistrationSidePlayerKey(registration = {}, side = "player1") {
+  const directId = registration?.[`${side}Id`];
+
+  if (directId) {
+    return directId;
+  }
+
+  const playerName = String(registration?.[`${side}Name`] || "").trim();
+  const paymentMatch = (Array.isArray(registration?.payments) ? registration.payments : []).find(
+    (payment) => String(payment?.playerName || "").trim() === playerName && payment?.playerId
+  );
+
+  return paymentMatch?.playerId || `guest-${side}-${registration?.id || "registration"}`;
+}
+
 function buildEditablePartnerFromRegistration(registration = {}, playersSource = [], currentUserId = "") {
   const isCurrentUserPlayer2 =
     normalizeText(registration?.player2Id) === normalizeText(currentUserId);
-  const partnerId = isCurrentUserPlayer2 ? registration?.player1Id : registration?.player2Id;
+  const partnerSide = isCurrentUserPlayer2 ? "player1" : "player2";
+  const partnerId = getRegistrationSidePlayerKey(registration, partnerSide);
   const partnerName = isCurrentUserPlayer2 ? registration?.player1Name : registration?.player2Name;
 
-  if (!partnerId) {
+  if (!partnerId && !partnerName) {
     return null;
   }
 
@@ -217,7 +244,7 @@ function buildEditablePartnerFromRegistration(registration = {}, playersSource =
   const [nombre = fullName, ...rest] = fullName.split(/\s+/);
 
   return {
-    id: partnerId,
+    id: partnerId || `guest-partner-${registration?.id || "registration"}`,
     nombre,
     apellido: rest.join(" "),
     categoria: "",
@@ -227,8 +254,10 @@ function buildEditablePartnerFromRegistration(registration = {}, playersSource =
 }
 
 export default function TournamentRegistrationPanel({
+  autoOpenAvailability = false,
   currentUser,
   editorRole = "player",
+  initialPanel = "partner",
   onRegistrationCreated,
   registration,
   registrations = [],
@@ -238,7 +267,7 @@ export default function TournamentRegistrationPanel({
 }) {
   const [playersSource, setPlayersSource] = useState([]);
   const [playersLoading, setPlayersLoading] = useState(false);
-  const [activePanel, setActivePanel] = useState("partner");
+  const [activePanel, setActivePanel] = useState(initialPanel || "partner");
   const [partnerQuery, setPartnerQuery] = useState("");
   const [selectedPartner, setSelectedPartner] = useState(null);
   const [availability, setAvailability] = useState({});
@@ -344,6 +373,22 @@ export default function TournamentRegistrationPanel({
   }, []);
 
   useEffect(() => {
+    if (!["partner", "availability", "payments"].includes(initialPanel)) {
+      return;
+    }
+
+    setActivePanel((current) => (current === initialPanel ? current : initialPanel));
+  }, [initialPanel]);
+
+  useEffect(() => {
+    if (!autoOpenAvailability || initialPanel !== "availability") {
+      return;
+    }
+
+    setAvailabilityEditorVisible(true);
+  }, [autoOpenAvailability, initialPanel, registration?.id]);
+
+  useEffect(() => {
     if (!availablePayments.length) {
       if (!isOrganizerPaymentEditor || !organizerPaymentParticipants.length) {
         setPaymentTargetPlayerId((current) => (current ? "" : current));
@@ -401,7 +446,7 @@ export default function TournamentRegistrationPanel({
 
     const nextSelectedPlayer1 = registration
       ? {
-          id: registration.player1Id || registration.player1Id || `guest-player1-${registration.id}`,
+          id: getRegistrationSidePlayerKey(registration, "player1"),
           nombre: registration.player1Name || "",
           apellido: "",
           categoria: currentPlayerRecord?.categoria || "",
@@ -489,7 +534,10 @@ export default function TournamentRegistrationPanel({
       registrations
         .filter((entry) => entry?.withdrawalStatus !== "confirmed")
         .filter((entry) => entry.id !== registration?.id)
-        .flatMap((entry) => [entry.player1Id, entry.player2Id])
+        .flatMap((entry) => [
+          getRegistrationSidePlayerKey(entry, "player1"),
+          getRegistrationSidePlayerKey(entry, "player2"),
+        ])
         .filter(Boolean)
     );
   }, [registration?.id, registrations]);
@@ -1586,9 +1634,12 @@ export default function TournamentRegistrationPanel({
         transparent
         visible={playerPickerVisible}
       >
-        <View style={styles.modalOverlay}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          style={styles.modalOverlay}
+        >
           <Pressable onPress={() => setPlayerPickerVisible(false)} style={styles.modalBackdrop} />
-          <View style={styles.modalCard}>
+          <View style={[styles.modalCard, styles.playerPickerModalCard]}>
             <Text style={styles.modalTitle}>
               {activePairSlot === "player1" ? "Seleccionar Jugador 1" : "Seleccionar Jugador 2"}
             </Text>
@@ -1626,7 +1677,11 @@ export default function TournamentRegistrationPanel({
               <Text style={styles.createGuestInlineButtonText}>Crear no registrado</Text>
             </Pressable>
 
-            <ScrollView contentContainerStyle={styles.playerPickerList}>
+            <ScrollView
+              contentContainerStyle={styles.playerPickerList}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+            >
               {playerPickerResults.map((player) => (
                 <Pressable
                   key={player.id}
@@ -1663,7 +1718,7 @@ export default function TournamentRegistrationPanel({
               </Pressable>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       <Modal
@@ -1672,59 +1727,68 @@ export default function TournamentRegistrationPanel({
         transparent
         visible={guestModalVisible}
       >
-        <View style={styles.modalOverlay}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          style={styles.modalOverlay}
+        >
           <Pressable onPress={() => setGuestModalVisible(false)} style={styles.modalBackdrop} />
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Agregar jugador manual</Text>
-            <Text style={styles.modalText}>
-              Este jugador quedara cargado solo dentro de esta inscripcion del torneo.
-            </Text>
-            <TextInput
-              onChangeText={setGuestName}
-              placeholder="Nombre"
-              placeholderTextColor={colors.muted}
-              style={styles.modalInput}
-              value={guestName}
-            />
-            <TextInput
-              onChangeText={setGuestLastName}
-              placeholder="Apellido"
-              placeholderTextColor={colors.muted}
-              style={styles.modalInput}
-              value={guestLastName}
-            />
-            <SelectField
-              label="Categoria"
-              onClose={() => setGuestCategoryPickerVisible(false)}
-              onOpen={() => setGuestCategoryPickerVisible(true)}
-              onSelect={setGuestCategory}
-              options={LEAGUE_CATEGORY_OPTIONS}
-              placeholder="Seleccionar categoria"
-              value={guestCategory}
-              visible={guestCategoryPickerVisible}
-            />
-            <View style={styles.guestSexRow}>
-              {["Masculino", "Femenino"].map((sexOption) => (
-                <Pressable
-                  key={sexOption}
-                  onPress={() => setGuestSex(sexOption)}
-                  style={[
-                    styles.guestSexChip,
-                    guestSex === sexOption ? styles.guestSexChipActive : null,
-                  ]}
-                >
-                  <Text
+          <View style={[styles.modalCard, styles.guestModalCard]}>
+            <ScrollView
+              contentContainerStyle={styles.guestModalScrollContent}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+            >
+              <Text style={styles.modalTitle}>Agregar jugador manual</Text>
+              <Text style={styles.modalText}>
+                Este jugador quedara cargado solo dentro de esta inscripcion del torneo.
+              </Text>
+              <TextInput
+                onChangeText={setGuestName}
+                placeholder="Nombre"
+                placeholderTextColor={colors.muted}
+                style={styles.modalInput}
+                value={guestName}
+              />
+              <TextInput
+                onChangeText={setGuestLastName}
+                placeholder="Apellido"
+                placeholderTextColor={colors.muted}
+                style={styles.modalInput}
+                value={guestLastName}
+              />
+              <SelectField
+                label="Categoria"
+                onClose={() => setGuestCategoryPickerVisible(false)}
+                onOpen={() => setGuestCategoryPickerVisible(true)}
+                onSelect={setGuestCategory}
+                options={LEAGUE_CATEGORY_OPTIONS}
+                placeholder="Seleccionar categoria"
+                value={guestCategory}
+                visible={guestCategoryPickerVisible}
+              />
+              <View style={styles.guestSexRow}>
+                {["Masculino", "Femenino"].map((sexOption) => (
+                  <Pressable
+                    key={sexOption}
+                    onPress={() => setGuestSex(sexOption)}
                     style={[
-                      styles.guestSexChipText,
-                      guestSex === sexOption ? styles.guestSexChipTextActive : null,
+                      styles.guestSexChip,
+                      guestSex === sexOption ? styles.guestSexChipActive : null,
                     ]}
                   >
-                    {sexOption}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-            <View style={styles.modalActions}>
+                    <Text
+                      style={[
+                        styles.guestSexChipText,
+                        guestSex === sexOption ? styles.guestSexChipTextActive : null,
+                      ]}
+                    >
+                      {sexOption}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            </ScrollView>
+            <View style={[styles.modalActions, styles.guestModalActions]}>
               <Pressable onPress={() => setGuestModalVisible(false)} style={styles.secondaryButton}>
                 <Text style={styles.secondaryButtonText}>Cancelar</Text>
               </Pressable>
@@ -1733,7 +1797,7 @@ export default function TournamentRegistrationPanel({
               </Pressable>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );
@@ -2035,6 +2099,17 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     paddingTop: spacing.xl + spacing.xs,
   },
+  guestModalCard: {
+    maxHeight: "84%",
+    paddingBottom: spacing.xl + 26,
+  },
+  playerPickerModalCard: {
+    maxHeight: "84%",
+    paddingBottom: spacing.xl + 26,
+  },
+  guestModalScrollContent: {
+    paddingBottom: spacing.sm,
+  },
   modalTitle: {
     color: colors.text,
     fontSize: 18,
@@ -2178,6 +2253,9 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     justifyContent: "space-between",
     marginTop: spacing.lg,
+  },
+  guestModalActions: {
+    marginTop: spacing.md,
   },
   secondaryButton: {
     alignItems: "center",

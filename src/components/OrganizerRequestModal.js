@@ -17,6 +17,11 @@ import AppButton from "./AppButton";
 import AppInput from "./AppInput";
 import CountryCodeSelector from "./CountryCodeSelector";
 import FeedbackModal from "./FeedbackModal";
+import {
+  geocodeAddress,
+  getCoordinatesFromObject,
+  requestCurrentLocation,
+} from "../services/locationService";
 
 const NAME_REGEX = /^[A-Za-z\u00c0-\u00ff\s]+$/;
 const COURT_STRUCTURE_OPTIONS = [
@@ -44,11 +49,34 @@ function sanitizeComplexText(value) {
   return value.slice(0, 30);
 }
 
+function sanitizeAddressText(value) {
+  return value.slice(0, 80);
+}
+
+function buildUserLocationParts(user = {}) {
+  return [
+    user?.localidad?.nombre || user?.city || "",
+    user?.localidad?.provincia || user?.province || user?.location?.provincia || "",
+    user?.localidad?.pais || user?.country || user?.location?.pais || "Argentina",
+  ].filter(Boolean);
+}
+
+function buildComplexGeocodeCandidates(complex = {}, user = {}) {
+  const locationParts = buildUserLocationParts(user);
+
+  return [
+    [complex.direccion, ...locationParts].filter(Boolean).join(", "),
+    [complex.nombre, ...locationParts].filter(Boolean).join(", "),
+    [complex.direccion, "Argentina"].filter(Boolean).join(", "),
+  ].filter(Boolean);
+}
+
 function createEmptyComplexForm() {
   return {
     nombre: "",
     canchaAmbiente: "descubierta",
     canchas: [createEmptyCourtForm()],
+    coordinates: null,
     direccion: "",
   };
 }
@@ -98,6 +126,7 @@ function mapComplexToForm(complex = createEmptyComplexForm()) {
         }))
       : mapLegacyCourts(complex),
     direccion: complex.direccion || "",
+    coordinates: getCoordinatesFromObject(complex),
   };
 }
 
@@ -132,6 +161,7 @@ export default function OrganizerRequestModal({
   const [form, setForm] = useState(buildInitialState(user, mode));
   const [expandedComplexes, setExpandedComplexes] = useState({ 0: true });
   const [pendingSavedProfile, setPendingSavedProfile] = useState(null);
+  const [locatingComplexIndex, setLocatingComplexIndex] = useState(null);
   const [feedback, setFeedback] = useState({
     visible: false,
     title: "",
@@ -226,6 +256,7 @@ export default function OrganizerRequestModal({
       nuevosComplejos[index] = {
         ...nuevosComplejos[index],
         [field]: value,
+        ...(field === "direccion" ? { coordinates: null } : {}),
       };
 
       return {
@@ -233,6 +264,68 @@ export default function OrganizerRequestModal({
         complejos: nuevosComplejos,
       };
     });
+  };
+
+  const handleSetComplexCurrentLocation = async (index) => {
+    try {
+      setLocatingComplexIndex(index);
+      const coordinates = await requestCurrentLocation();
+
+      setForm((current) => {
+        const complejos = [...current.complejos];
+        complejos[index] = {
+          ...complejos[index],
+          coordinates,
+        };
+
+        return {
+          ...current,
+          complejos,
+        };
+      });
+
+      showFeedback(
+        "Ubicacion guardada",
+        `El complejo ${index + 1} ya tiene ubicacion exacta cargada.`,
+        "success"
+      );
+    } catch (error) {
+      showFeedback(
+        "No pudimos obtener ubicacion",
+        error?.message || "Revisa el permiso de ubicacion del telefono.",
+        "danger"
+      );
+    } finally {
+      setLocatingComplexIndex(null);
+    }
+  };
+
+  const geocodeComplexIfNeeded = async (complex) => {
+    const coordinates = getCoordinatesFromObject(complex);
+
+    if (coordinates) {
+      return {
+        ...complex,
+        coordinates,
+      };
+    }
+
+    for (const address of buildComplexGeocodeCandidates(complex, user)) {
+      try {
+        const nextCoordinates = await geocodeAddress(address);
+
+        if (nextCoordinates) {
+          return {
+            ...complex,
+            coordinates: nextCoordinates,
+          };
+        }
+      } catch (error) {
+        // Intentamos con el siguiente dato disponible.
+      }
+    }
+
+    return complex;
   };
 
   const handleCourtChange = (complexIndex, courtIndex, field, value) => {
@@ -380,24 +473,28 @@ export default function OrganizerRequestModal({
       return;
     }
 
-    const complejos = complexesWithTotals.map((complex) => ({
-      nombre: complex.nombre.trim(),
-      canchaAmbiente: complex.canchaAmbiente || "descubierta",
-      canchas: (complex.canchas || []).map((court, courtIndex) => ({
-        id: court.id || `court-${courtIndex + 1}`,
-        nombre: court.nombre?.trim() || "",
-        estructura: court.estructura,
-        piso: court.piso,
-        ambiente: court.ambiente,
-      })),
-      blindex: complex.blindex,
-      cesped: complex.cesped,
-      cemento: complex.cemento,
-      totalCanchas: complex.totalCanchas,
-      direccion: complex.direccion.trim(),
-    }));
-
     try {
+      const complejos = await Promise.all(
+        complexesWithTotals.map((complex) =>
+          geocodeComplexIfNeeded({
+            nombre: complex.nombre.trim(),
+            canchaAmbiente: complex.canchaAmbiente || "descubierta",
+            canchas: (complex.canchas || []).map((court, courtIndex) => ({
+              id: court.id || `court-${courtIndex + 1}`,
+              nombre: court.nombre?.trim() || "",
+              estructura: court.estructura,
+              piso: court.piso,
+              ambiente: court.ambiente,
+            })),
+            coordinates: complex.coordinates || null,
+            blindex: complex.blindex,
+            cesped: complex.cesped,
+            cemento: complex.cemento,
+            totalCanchas: complex.totalCanchas,
+            direccion: complex.direccion.trim(),
+          })
+        )
+      );
       const profile = isEditMode
         ? await updateOrganizerComplexes(complejos)
         : isAddComplexRequestMode
@@ -534,11 +631,36 @@ export default function OrganizerRequestModal({
                         label="Direccion del complejo"
                         labelStyle={styles.centeredLabel}
                         onChangeText={(value) =>
-                          handleComplejoChange(index, "direccion", sanitizeComplexText(value))
+                          handleComplejoChange(index, "direccion", sanitizeAddressText(value))
                         }
                         placeholder="Direccion"
                         value={complex.direccion}
                       />
+
+                      <View style={styles.locationStatusRow}>
+                        <Text
+                          style={[
+                            styles.locationStatusText,
+                            complex.coordinates ? styles.locationStatusTextReady : null,
+                          ]}
+                        >
+                          {complex.coordinates
+                            ? "Ubicacion exacta cargada"
+                            : "Ubicacion exacta pendiente"}
+                        </Text>
+                        <Pressable
+                          disabled={locatingComplexIndex !== null}
+                          onPress={() => handleSetComplexCurrentLocation(index)}
+                          style={[
+                            styles.locationButton,
+                            locatingComplexIndex === index ? styles.locationButtonDisabled : null,
+                          ]}
+                        >
+                          <Text style={styles.locationButtonText}>
+                            {locatingComplexIndex === index ? "Buscando..." : "Usar ubicacion actual"}
+                          </Text>
+                        </Pressable>
+                      </View>
 
                       <View style={styles.totalCard}>
                         <Text style={styles.totalLabel}>Total de canchas</Text>
@@ -828,6 +950,42 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.md,
+  },
+  locationStatusRow: {
+    alignItems: "center",
+    backgroundColor: "#F6FBF8",
+    borderColor: colors.border,
+    borderRadius: 16,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: spacing.sm,
+    marginBottom: spacing.sm,
+    marginTop: -spacing.xs,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 8,
+  },
+  locationStatusText: {
+    color: colors.muted,
+    flex: 1,
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  locationStatusTextReady: {
+    color: colors.primaryDark,
+  },
+  locationButton: {
+    backgroundColor: colors.primaryDark,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+  locationButtonDisabled: {
+    opacity: 0.65,
+  },
+  locationButtonText: {
+    color: colors.surface,
+    fontSize: 10,
+    fontWeight: "900",
   },
   totalLabel: {
     color: colors.muted,

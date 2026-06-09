@@ -37,6 +37,8 @@ export default function TournamentRegistrationScreen({ navigation, route }) {
   const tournamentId = route?.params?.tournamentId || "";
   const requestedRegistrationId = route?.params?.registrationId || "";
   const editorRole = route?.params?.editorRole || "player";
+  const initialPanel = route?.params?.initialPanel || "";
+  const autoOpenAvailability = Boolean(route?.params?.autoOpenAvailability);
   const [tournament, setTournament] = useState(null);
   const [registrations, setRegistrations] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -156,7 +158,9 @@ export default function TournamentRegistrationScreen({ navigation, route }) {
 
             <TournamentRegistrationPanel
               currentUser={editorUser}
+              autoOpenAvailability={autoOpenAvailability}
               editorRole={editorRole}
+              initialPanel={initialPanel}
               onRegistrationCreated={async () => {
                 await loadRegistrationScreen();
 

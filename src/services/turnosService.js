@@ -35,6 +35,32 @@ function normalizeKey(value = "") {
     .replace(/[^a-z0-9-]/g, "");
 }
 
+function buildComplexKey(complex = {}) {
+  return `${normalizeKey(complex.nombre || complex.name)}-${normalizeKey(
+    complex.direccion || complex.address
+  )}`;
+}
+
+function findStoredComplexConfig(storedComplexes = [], complex = {}, index = 0) {
+  const complexKey = buildComplexKey(complex);
+  const exactMatch = storedComplexes.find((storedComplex) => storedComplex.complexKey === complexKey);
+
+  if (exactMatch) {
+    return exactMatch;
+  }
+
+  const complexName = normalizeKey(complex.nombre || complex.name);
+  const nameMatches = storedComplexes.filter(
+    (storedComplex) => normalizeKey(storedComplex.name || storedComplex.nombre) === complexName
+  );
+
+  if (nameMatches.length === 1) {
+    return nameMatches[0];
+  }
+
+  return storedComplexes[index] || null;
+}
+
 function normalizeCount(value = 0) {
   const parsedValue = Number.parseInt(String(value || "0"), 10);
 
@@ -45,6 +71,53 @@ function normalizeMoney(value = 0) {
   const parsedValue = Number.parseFloat(String(value || "0").replace(",", "."));
 
   return Number.isFinite(parsedValue) && parsedValue > 0 ? Math.round(parsedValue) : 0;
+}
+
+function normalizeCoordinate(value) {
+  const parsedValue = Number(value);
+
+  return Number.isFinite(parsedValue) ? parsedValue : null;
+}
+
+function getComplexCoordinates(complex = {}, storedComplex = {}) {
+  const coordinates =
+    complex.coordinates ||
+    complex.coords ||
+    complex.location ||
+    complex.ubicacion ||
+    storedComplex.coordinates ||
+    storedComplex.coords ||
+    storedComplex.location ||
+    {};
+  const latitude = normalizeCoordinate(
+    complex.latitude ??
+      complex.lat ??
+      complex.latitud ??
+      storedComplex.latitude ??
+      storedComplex.lat ??
+      storedComplex.latitud ??
+      coordinates.latitude ??
+      coordinates.lat
+  );
+  const longitude = normalizeCoordinate(
+    complex.longitude ??
+      complex.lng ??
+      complex.lon ??
+      complex.longitud ??
+      storedComplex.longitude ??
+      storedComplex.lng ??
+      storedComplex.lon ??
+      storedComplex.longitud ??
+      coordinates.longitude ??
+      coordinates.lng ??
+      coordinates.lon
+  );
+
+  if (latitude === null || longitude === null) {
+    return null;
+  }
+
+  return { latitude, longitude };
 }
 
 function getMillisFromTimestamp(value) {
@@ -204,9 +277,7 @@ function normalizeCourtConfig(court = {}, fallback = {}) {
 }
 
 function normalizeComplexConfig(complex = {}, storedComplex = {}) {
-  const complexKey =
-    storedComplex.complexKey ||
-    `${normalizeKey(complex.nombre)}-${normalizeKey(complex.direccion)}`;
+  const complexKey = storedComplex.complexKey || buildComplexKey(complex);
   const baseCourts = buildCourtsFromComplex(complex);
   const storedCourts = Array.isArray(storedComplex.courts) ? storedComplex.courts : [];
   const storedById = new Map(storedCourts.map((court) => [court.id, court]));
@@ -217,6 +288,7 @@ function normalizeComplexConfig(complex = {}, storedComplex = {}) {
     address: complex.direccion || storedComplex.address || "",
     canchaAmbiente: complex.canchaAmbiente || storedComplex.canchaAmbiente || "",
     city: complex.localidad || complex.ciudad || complex.city || storedComplex.city || "",
+    coordinates: getComplexCoordinates(complex, storedComplex),
     province: complex.provincia || complex.province || storedComplex.province || "",
     courts: baseCourts.map((court) => normalizeCourtConfig(storedById.get(court.id), court)),
   };
@@ -234,9 +306,12 @@ function mapUserDocToOrganizer(docSnapshot, storedConfig = null) {
     organizerLogoUrl: data.organizerLogoURL || "",
     organizerCity: data.localidad?.nombre || data.location?.ciudad || data.city || "",
     organizerProvince: data.localidad?.provincia || data.location?.provincia || data.province || "",
-    complexes: complexes.map((complex) => {
-      const complexKey = `${normalizeKey(complex.nombre)}-${normalizeKey(complex.direccion)}`;
-      return normalizeComplexConfig(complex, storedByKey.get(complexKey) || { complexKey });
+    complexes: complexes.map((complex, index) => {
+      const complexKey = buildComplexKey(complex);
+      const storedComplex =
+        storedByKey.get(complexKey) || findStoredComplexConfig(storedComplexes, complex, index);
+
+      return normalizeComplexConfig(complex, storedComplex || { complexKey });
     }),
   };
 }
@@ -248,11 +323,10 @@ export async function getOrganizerTurnosConfig(organizerId = "", userData = {}) 
   return {
     organizerId,
     requiresOrganizerApproval: storedConfig?.requiresOrganizerApproval !== false,
-    complexes: (Array.isArray(userData?.complejos) ? userData.complejos : []).map((complex) => {
-      const complexKey = `${normalizeKey(complex.nombre)}-${normalizeKey(complex.direccion)}`;
-      const storedComplex = (storedConfig?.complexes || []).find(
-        (item) => item.complexKey === complexKey
-      );
+    complexes: (Array.isArray(userData?.complejos) ? userData.complejos : []).map((complex, index) => {
+      const storedComplexes = storedConfig?.complexes || [];
+      const complexKey = buildComplexKey(complex);
+      const storedComplex = findStoredComplexConfig(storedComplexes, complex, index);
 
       return normalizeComplexConfig(complex, storedComplex || { complexKey });
     }),

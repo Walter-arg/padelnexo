@@ -34,6 +34,7 @@ import TournamentPaymentsScreen from "../screens/TournamentPaymentsScreen";
 import TournamentPosterViewerScreen from "../screens/TournamentPosterViewerScreen";
 import TournamentRegistrationScreen from "../screens/TournamentRegistrationScreen";
 import TournamentRegistrationsScreen from "../screens/TournamentRegistrationsScreen";
+import TournamentZonePlanningScreen from "../screens/TournamentZonePlanningScreen";
 import TorneosScreen from "../screens/TorneosScreen";
 import TurnosScreen from "../screens/TurnosScreen";
 
@@ -237,6 +238,11 @@ export default function AppNavigator() {
       <Stack.Screen
         component={TournamentRegistrationsScreen}
         name="TournamentRegistrations"
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        component={TournamentZonePlanningScreen}
+        name="TournamentZonePlanning"
         options={{ headerShown: false }}
       />
       <Stack.Screen

@@ -262,7 +262,7 @@ export default function OrganizerRegistrationsScreen({ navigation }) {
           currentUserName: reservation.complexName || "Complejo",
           otherUserId: reservation.playerId,
           otherUserName: reservation.playerName || "Jugador",
-          text: `Tu reserva de ${reservation.courtName || "cancha"} en ${
+          text: `**Tu reserva fue confirmada.**\n\nTu reserva de ${reservation.courtName || "cancha"} en ${
             reservation.complexName || "el complejo"
           } para el ${reservation.dateLabel || "dia seleccionado"} a las ${
             reservation.time || ""

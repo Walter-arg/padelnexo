@@ -104,7 +104,7 @@ export default function InvitacionesScreen({ navigation }) {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: "#EAF3FF",
+    backgroundColor: "#F3FAF6",
   },
   container: {
     flex: 1,
@@ -112,7 +112,7 @@ const styles = StyleSheet.create({
     paddingTop: spacing.sm,
   },
   subtitle: {
-    color: "#2F5688",
+    color: colors.primaryDark,
     fontSize: 14,
     fontWeight: "700",
     marginBottom: spacing.sm,
@@ -123,7 +123,7 @@ const styles = StyleSheet.create({
   },
   card: {
     backgroundColor: colors.surface,
-    borderColor: "#C2D8F2",
+    borderColor: "#BFE6D1",
     borderRadius: 18,
     borderWidth: 1,
     marginBottom: spacing.sm,
@@ -186,7 +186,7 @@ const styles = StyleSheet.create({
   emptyCard: {
     alignItems: "center",
     backgroundColor: colors.surface,
-    borderColor: "#C2D8F2",
+    borderColor: "#BFE6D1",
     borderRadius: 20,
     borderWidth: 1,
     marginTop: spacing.md,

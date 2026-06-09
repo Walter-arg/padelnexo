@@ -272,7 +272,10 @@ export default function AvailabilityEditor({
             <Text style={styles.title}>{resolvedTitle}</Text>
             <Text style={styles.subtitle}>{resolvedSubtitle}</Text>
 
-            <ScrollView showsVerticalScrollIndicator={false}>
+            <ScrollView
+              contentContainerStyle={styles.scrollContent}
+              showsVerticalScrollIndicator={false}
+            >
               <DaySelector
                 activeDayKeys={activeDayKeys}
                 days={days}
@@ -466,9 +469,12 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 30,
     borderTopRightRadius: 30,
     maxHeight: "92%",
+    paddingBottom: spacing.xl + 28,
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.md,
-    paddingBottom: spacing.lg,
+  },
+  scrollContent: {
+    paddingBottom: spacing.xl + 8,
   },
   handle: {
     alignSelf: "center",
