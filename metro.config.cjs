@@ -12,7 +12,6 @@ config.resolver.blockList = [
   rootOnly(".git"),
   rootOnly(".expo"),
   rootOnly("dist"),
-  rootOnly("data"),
   rootOnly("temp-export"),
 ];
 config.resolver.resolveRequest = (context, moduleName, platform) => {

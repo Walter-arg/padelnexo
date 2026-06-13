@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { memo, useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -59,6 +59,25 @@ const TOURNAMENT_FINANCE_AREAS = [
 const REGISTRATION_FEE_OPTIONS = [
   { label: "Sin inscripcion", value: "no" },
   { label: "Con inscripcion", value: "yes" },
+];
+
+const FINANCE_TABS = [
+  { key: "cobros", label: "Cobros", icon: "wallet-outline" },
+  { key: "history", label: "Historial", icon: "receipt-outline" },
+  { key: "summary", label: "Resumen", icon: "stats-chart-outline" },
+  { key: "settings", label: "Ajustes", icon: "cog-outline" },
+];
+
+const FINANCE_SOURCE_FILTERS = [
+  { key: "leagues", label: "Ligas" },
+  { key: "tournaments", label: "Torneos" },
+  { key: "turns", label: "Turnos" },
+];
+
+const COBRO_STATUS_FILTERS = [
+  { key: "all", label: "Todos" },
+  { key: "pending", label: "Pendientes" },
+  { key: "review", label: "En revision" },
 ];
 
 function sanitizeDecimal(value) {
@@ -175,6 +194,63 @@ function formatShortDate(millis = 0) {
     month: "2-digit",
     year: "2-digit",
   });
+}
+
+function formatFinanceMethodLabel(method = "") {
+  const normalized = normalizeText(method);
+
+  if (normalized.includes("efect")) {
+    return "Efectivo";
+  }
+
+  if (normalized.includes("transf")) {
+    return "Transferencia";
+  }
+
+  if (normalized.includes("mercado")) {
+    return "Mercado Pago";
+  }
+
+  return method ? String(method) : "Pago confirmado";
+}
+
+function buildFinanceFilterOptions(values = []) {
+  const uniqueValues = Array.from(
+    new Set(
+      values
+        .map((value) => String(value || "").trim())
+        .filter(Boolean)
+    )
+  ).sort((first, second) => first.localeCompare(second, "es"));
+
+  return [{ key: "all", label: "Todos" }, ...uniqueValues.map((value) => ({ key: value, label: value }))];
+}
+
+function formatLeagueCollectionSchedule(round = {}) {
+  const baseDateMillis = Number(round?.rescheduledDateMillis || round?.scheduledDateMillis || 0);
+  const scheduleLabel = String(round?.scheduleLabel || "").trim();
+
+  if (!baseDateMillis && !scheduleLabel) {
+    return "";
+  }
+
+  const parts = [];
+
+  if (baseDateMillis) {
+    parts.push(
+      new Date(baseDateMillis).toLocaleDateString("es-AR", {
+        weekday: "short",
+        day: "2-digit",
+        month: "2-digit",
+      })
+    );
+  }
+
+  if (scheduleLabel) {
+    parts.push(scheduleLabel);
+  }
+
+  return parts.join(" · ");
 }
 
 function getDayStartMillis(date = new Date()) {
@@ -507,9 +583,11 @@ function buildLeaguePaymentHistory(leagues = [], defaultRoundPrice = 0) {
           if (!leagueDetail) {
             leagueDetail = {
               amount: 0,
+              category: league.categoria || "",
               leagueId,
               leagueName: league.nombre || "Liga",
               payments: [],
+              sex: league.sexo || "",
             };
             current.leagueDetails.push(leagueDetail);
           }
@@ -831,6 +909,18 @@ function buildTournamentPaymentHistory(tournaments = []) {
         if (!tournamentDetail) {
           tournamentDetail = {
             amount: 0,
+            category:
+              tournament.compositionLabel ||
+              tournament.compositionConfig?.label ||
+              tournament.categoria ||
+              tournament.category ||
+              "",
+            sex:
+              tournament.compositionConfig?.branch ||
+              tournament.branch ||
+              tournament.sexo ||
+              tournament.sex ||
+              "",
             tournamentId,
             tournamentName: tournament.name || "Torneo",
             payments: [],
@@ -964,6 +1054,254 @@ function buildTournamentReminderItems(tournaments = []) {
   });
 }
 
+function buildLeagueCollectionRows(leagues = [], defaultRoundPrice = 0, playerLookup = {}) {
+  const rows = [];
+
+  leagues.forEach((league) => {
+    const leagueRoundPrice = Number(league?.paymentConfig?.roundPricePerPlayer || 0);
+    const roundPrice = leagueRoundPrice > 0 ? leagueRoundPrice : Number(defaultRoundPrice || 0);
+
+    if (roundPrice <= 0) {
+      return;
+    }
+
+    const paymentRounds = resolveLeaguePaymentRounds(league);
+
+    paymentRounds.forEach((round) => {
+      const roundLabel = round.title || `Fecha ${round.roundNumber}`;
+      const roundSchedule = formatLeagueCollectionSchedule(round);
+      const roundDetail = roundSchedule ? `${roundLabel} · ${roundSchedule}` : roundLabel;
+
+      (round.entries || []).forEach((entry) => {
+        if (!["pendiente", "informo_transferencia"].includes(entry.paymentStatus)) {
+          return;
+        }
+
+        if (Number(entry.completedAtMillis || 0) <= 0 && entry.paymentStatus !== "informo_transferencia") {
+          return;
+        }
+
+        const players = Array.isArray(entry.players) && entry.players.length
+          ? entry.players
+          : [{ nombre: entry.participantLabel, id: entry.participantId }];
+
+        players.forEach((player) => {
+          const playerName =
+            [player?.nombre, player?.apellido].filter(Boolean).join(" ") ||
+            entry.participantLabel ||
+            "Jugador";
+          const playerId =
+            player?.linkedUserId ||
+            player?.id ||
+            normalizeText(playerName) ||
+            entry.participantId;
+
+          rows.push({
+            amount: roundPrice,
+            eventMillis: Number(
+              entry.paymentStatus === "informo_transferencia"
+                ? entry.proofUploadedAtMillis || entry.updatedAtMillis || 0
+                : entry.completedAtMillis || round.completedAtMillis || 0
+            ),
+            itemId: `${league.id}-${round.roundId}-${entry.participantId}-${playerId}`,
+            label:
+              entry.paymentStatus === "informo_transferencia"
+                ? `Comprobante para revisar · ${roundDetail}`
+                : roundDetail,
+            playerId,
+            playerName,
+            playerPhoto:
+              player?.foto ||
+              resolveFinancePlayerPhoto(playerLookup, [playerId, playerName]) ||
+              "",
+            sourceId: league.id,
+            sourceName: league.nombre || "Liga",
+            sourceType: "leagues",
+            sourceTypeLabel: "Liga",
+            sourceCategory: league.categoria || "",
+            sourceSex: league.sexo || "",
+            status: entry.paymentStatus === "informo_transferencia" ? "review" : "pending",
+          });
+        });
+      });
+    });
+  });
+
+  return rows;
+}
+
+function buildTournamentCollectionRows(tournaments = [], playerLookup = {}) {
+  const rows = [];
+
+  tournaments.forEach((tournament) => {
+    const registrations = Array.isArray(tournament.registrations) ? tournament.registrations : [];
+
+    registrations.forEach((registration) => {
+      buildTournamentRegistrationPlayers(registration).forEach((player) => {
+        const payment = player.payment || {};
+        const amount = Number(payment.amount || tournament.entryFee || 0);
+
+        if (amount <= 0 || payment.status === "approved") {
+          return;
+        }
+
+        const playerId = payment.userId || payment.playerId || player.playerId || player.playerName;
+        const playerName = player.playerName || "Jugador";
+        const paymentStatus = payment.status === "in_review" ? "review" : "pending";
+
+        rows.push({
+          amount,
+          eventMillis: getTournamentPaymentEventMillis(registration, payment),
+          itemId: `${tournament.id}-${registration.id}-${playerId}`,
+          label:
+            paymentStatus === "review"
+              ? `Comprobante para revisar${registration.pairLabel ? ` · ${registration.pairLabel}` : ""}`
+              : `Inscripcion${registration.pairLabel ? ` · ${registration.pairLabel}` : ""}`,
+          playerId,
+          playerName,
+          playerPhoto:
+            player.playerPhoto ||
+            resolveFinancePlayerPhoto(playerLookup, [playerId, playerName]) ||
+            "",
+          sourceId: tournament.id,
+          sourceName: tournament.name || "Torneo",
+          sourceType: "tournaments",
+          sourceTypeLabel: "Torneo",
+          sourceCategory:
+            tournament.compositionLabel ||
+            tournament.compositionConfig?.label ||
+            tournament.categoria ||
+            tournament.category ||
+            "",
+          sourceSex:
+            tournament.compositionConfig?.branch ||
+            tournament.branch ||
+            tournament.sexo ||
+            tournament.sex ||
+            "",
+          status: paymentStatus,
+        });
+      });
+    });
+  });
+
+  return rows;
+}
+
+function buildCollectionRowsByPlayer(items = []) {
+  const itemsByPlayer = new Map();
+
+  items.forEach((item) => {
+    const key = String(item.playerId || item.playerName);
+    const current = itemsByPlayer.get(key) || {
+      items: [],
+      pendingAmount: 0,
+      playerId: item.playerId,
+      playerName: item.playerName,
+      playerPhoto: item.playerPhoto || "",
+      reviewAmount: 0,
+      sourceTypes: new Set(),
+      totalAmount: 0,
+    };
+
+    current.items.push(item);
+    current.totalAmount += item.amount;
+
+    if (item.status === "review") {
+      current.reviewAmount += item.amount;
+    } else {
+      current.pendingAmount += item.amount;
+    }
+
+    current.sourceTypes.add(item.sourceType);
+
+    if (!current.playerPhoto && item.playerPhoto) {
+      current.playerPhoto = item.playerPhoto;
+    }
+
+    itemsByPlayer.set(key, current);
+  });
+
+  return [...itemsByPlayer.values()]
+    .map((entry) => ({
+      ...entry,
+      items: entry.items.sort((first, second) => Number(second.eventMillis || 0) - Number(first.eventMillis || 0)),
+      sourceTypes: Array.from(entry.sourceTypes),
+    }))
+    .sort((first, second) => {
+      if (second.reviewAmount !== first.reviewAmount) {
+        return second.reviewAmount - first.reviewAmount;
+      }
+
+      if (second.totalAmount !== first.totalAmount) {
+        return second.totalAmount - first.totalAmount;
+      }
+
+      return String(first.playerName || "").localeCompare(String(second.playerName || ""), "es");
+    });
+}
+
+function buildCollectionHistoryRows(leagueHistory = [], tournamentHistory = []) {
+  const rows = [];
+
+  leagueHistory.forEach((history) => {
+    history.leagueDetails.forEach((detail) => {
+      detail.payments.forEach((payment, index) => {
+        rows.push({
+          amount: payment.amount || 0,
+          dateMillis: Number(payment.confirmedAtMillis || 0),
+          dateLabel: formatShortDate(payment.confirmedAtMillis || 0),
+          id: `league-${history.playerId}-${detail.leagueId}-${index}`,
+          method: payment.method || "",
+          methodLabel: formatFinanceMethodLabel(payment.method || ""),
+          playerId: history.playerId,
+          playerName: history.playerName,
+          sourceCategory: detail.category || "",
+          sourceName: detail.leagueName || "Liga",
+          sourceSex: detail.sex || "",
+          sourceType: "leagues",
+          sourceTypeLabel: "Liga",
+          summary: payment.roundTitle || "Fecha",
+        });
+      });
+    });
+  });
+
+  tournamentHistory.forEach((history) => {
+    history.tournamentDetails.forEach((detail) => {
+      detail.payments.forEach((payment, index) => {
+        rows.push({
+          amount: payment.amount || 0,
+          dateMillis: Number(payment.confirmedAtMillis || 0),
+          dateLabel: formatShortDate(payment.confirmedAtMillis || 0),
+          id: `tournament-${history.playerId}-${detail.tournamentId}-${index}`,
+          method: payment.method || "",
+          methodLabel: formatFinanceMethodLabel(payment.method || ""),
+          playerId: history.playerId,
+          playerName: history.playerName,
+          sourceCategory: detail.category || "",
+          sourceName: detail.tournamentName || "Torneo",
+          sourceSex: detail.sex || "",
+          sourceType: "tournaments",
+          sourceTypeLabel: "Torneo",
+          summary: payment.pairLabel || "Inscripcion",
+        });
+      });
+    });
+  });
+
+  return rows.sort((first, second) => {
+    const secondDate = Number(second.dateMillis || 0);
+    const firstDate = Number(first.dateMillis || 0);
+
+    if (secondDate !== firstDate) {
+      return secondDate - firstDate;
+    }
+
+    return String(first.playerName || "").localeCompare(String(second.playerName || ""), "es");
+  });
+}
+
 function ChipGroup({ onChange, options, value }) {
   return (
     <View style={styles.chipRow}>
@@ -990,21 +1328,136 @@ function ChipGroup({ onChange, options, value }) {
   );
 }
 
+const CollectionRowsList = memo(function CollectionRowsList({
+  expandedCollectionIds,
+  onOpenItem,
+  onToggleDetails,
+  rows,
+}) {
+  return rows.map((row) => {
+    const playerKey = String(row.playerId || row.playerName);
+    const isExpanded = expandedCollectionIds.includes(playerKey);
+
+    return (
+      <Pressable
+        key={playerKey}
+        onPress={() => onToggleDetails(playerKey)}
+        style={({ pressed }) => [
+          styles.collectionCard,
+          pressed ? styles.debtorCardPressed : null,
+        ]}
+      >
+        <View style={styles.collectionHeader}>
+          <AvatarBadge color={colors.primaryDark} size={38} uri={row.playerPhoto} />
+          <View style={styles.collectionCopy}>
+            <Text numberOfLines={1} style={styles.debtorName}>
+              {row.playerName}
+            </Text>
+            <Text numberOfLines={1} style={styles.collectionAmountText}>
+              Debe {formatCurrency(row.totalAmount)}
+            </Text>
+          </View>
+          <Ionicons
+            color={colors.textMuted}
+            name={isExpanded ? "chevron-up" : "chevron-down"}
+            size={18}
+          />
+        </View>
+
+        <View style={styles.collectionMetaRow}>
+          {row.pendingAmount > 0 ? (
+            <View style={[styles.collectionStatusPill, styles.collectionStatusPillPending]}>
+              <Text style={styles.collectionStatusPillPendingText}>
+                Pendiente {formatCurrency(row.pendingAmount)}
+              </Text>
+            </View>
+          ) : null}
+          {row.reviewAmount > 0 ? (
+            <View style={[styles.collectionStatusPill, styles.collectionStatusPillReview]}>
+              <Text style={styles.collectionStatusPillReviewText}>
+                Revision {formatCurrency(row.reviewAmount)}
+              </Text>
+            </View>
+          ) : null}
+        </View>
+
+        {isExpanded ? (
+          <View style={styles.collectionDetailList}>
+            {row.items.map((item) => (
+              <View key={item.itemId} style={styles.collectionDetailItem}>
+                <View style={styles.collectionDetailCopy}>
+                  <Text numberOfLines={1} style={styles.collectionDetailTitle}>
+                    {item.sourceTypeLabel} · {item.sourceName}
+                  </Text>
+                  <Text numberOfLines={2} style={styles.collectionDetailText}>
+                    {item.label}
+                  </Text>
+                </View>
+                <View style={styles.collectionDetailRight}>
+                  <Text style={styles.collectionDetailAmount}>{formatCurrency(item.amount)}</Text>
+                  <Pressable
+                    onPress={() => onOpenItem(item)}
+                    style={({ pressed }) => [
+                      styles.collectionActionButton,
+                      pressed ? styles.pressedState : null,
+                    ]}
+                  >
+                    <Text style={styles.collectionActionButtonText}>
+                      {item.status === "review" ? "Revisar" : "Abrir"}
+                    </Text>
+                  </Pressable>
+                </View>
+              </View>
+            ))}
+          </View>
+        ) : null}
+      </Pressable>
+    );
+  });
+});
+
+const HistoryRowsList = memo(function HistoryRowsList({ rows }) {
+  return rows.map((row) => (
+    <View key={row.id} style={styles.historyLineCard}>
+      <View style={styles.historyLineTop}>
+        <Text numberOfLines={1} style={styles.historyLinePlayer}>
+          {row.playerName}
+        </Text>
+        <Text style={styles.historyLineAmount}>{formatCurrency(row.amount)}</Text>
+      </View>
+      <Text numberOfLines={2} style={styles.historyLineText}>
+        {row.sourceTypeLabel} · {row.sourceName} · {row.summary}
+      </Text>
+      <Text style={styles.historyLineMeta}>
+        {row.methodLabel}
+        {row.dateLabel ? ` · ${row.dateLabel}` : ""}
+      </Text>
+    </View>
+  ));
+});
+
 export default function FinanzasScreen({ navigation }) {
   const { updateProfile, userData } = useAuth();
   const [form, setForm] = useState(() =>
     normalizePaymentDefaults(userData?.leaguePaymentDefaults || {})
   );
-  const [activeModule, setActiveModule] = useState("");
-  const [activeLeagueArea, setActiveLeagueArea] = useState("");
-  const [activeTournamentArea, setActiveTournamentArea] = useState("");
+  const [activeFinanceTab, setActiveFinanceTab] = useState("cobros");
+  const [activeSourceFilters, setActiveSourceFilters] = useState(() =>
+    FINANCE_SOURCE_FILTERS.map((filter) => filter.key)
+  );
+  const [activeCobroStatus, setActiveCobroStatus] = useState("all");
+  const [showFinanceAdvancedFilters, setShowFinanceAdvancedFilters] = useState(false);
+  const [financeCategoryFilter, setFinanceCategoryFilter] = useState("all");
+  const [financeSexFilter, setFinanceSexFilter] = useState("all");
   const [ownLeagues, setOwnLeagues] = useState([]);
   const [ownTournaments, setOwnTournaments] = useState([]);
   const [financePlayers, setFinancePlayers] = useState([]);
+  const [expandedCollectionIds, setExpandedCollectionIds] = useState([]);
   const [expandedDebtorIds, setExpandedDebtorIds] = useState([]);
   const [expandedHistoryIds, setExpandedHistoryIds] = useState([]);
   const [expandedTournamentDebtorIds, setExpandedTournamentDebtorIds] = useState([]);
   const [expandedTournamentHistoryIds, setExpandedTournamentHistoryIds] = useState([]);
+  const [financeSearch, setFinanceSearch] = useState("");
   const [leagueDebtSearch, setLeagueDebtSearch] = useState("");
   const [tournamentDebtSearch, setTournamentDebtSearch] = useState("");
   const [tournamentReminderSearch, setTournamentReminderSearch] = useState("");
@@ -1019,6 +1472,9 @@ export default function FinanzasScreen({ navigation }) {
     tone: "default",
   });
   const canManageFinances = isApprovedOrganizer(userData);
+  const deferredSourceFilters = useDeferredValue(activeSourceFilters);
+  const deferredCobroStatus = useDeferredValue(activeCobroStatus);
+  const deferredFinanceSearch = useDeferredValue(financeSearch);
 
   useEffect(() => {
     setForm(normalizePaymentDefaults(userData?.leaguePaymentDefaults || {}));
@@ -1143,40 +1599,213 @@ export default function FinanzasScreen({ navigation }) {
   const defaultRoundPrice = Number.parseFloat(
     String(userData?.leaguePaymentDefaults?.roundPricePerPlayer || "0").replace(",", ".")
   );
-  const financePlayerLookup = buildFinancePlayerLookup(financePlayers);
-  const leagueDebtors = buildLeagueDebtors(
-    ownLeagues,
-    Number.isFinite(defaultRoundPrice) ? defaultRoundPrice : 0
-  ).map((debtor) => ({
-    ...debtor,
-    playerPhoto:
-      debtor.playerPhoto ||
-      resolveFinancePlayerPhoto(financePlayerLookup, [debtor.playerId, debtor.playerName]),
-  }));
-  const filteredLeagueDebtors = filterLeagueDebtors(leagueDebtors, leagueDebtSearch);
-  const leaguePaymentHistory = buildLeaguePaymentHistory(
-    ownLeagues,
-    Number.isFinite(defaultRoundPrice) ? defaultRoundPrice : 0
+  const financePlayerLookup = useMemo(
+    () => buildFinancePlayerLookup(financePlayers),
+    [financePlayers]
   );
-  const cashSummary = buildCashSummary(
-    ownLeagues,
-    Number.isFinite(defaultRoundPrice) ? defaultRoundPrice : 0
+  const leagueDebtors = useMemo(
+    () =>
+      buildLeagueDebtors(
+        ownLeagues,
+        Number.isFinite(defaultRoundPrice) ? defaultRoundPrice : 0
+      ).map((debtor) => ({
+        ...debtor,
+        playerPhoto:
+          debtor.playerPhoto ||
+          resolveFinancePlayerPhoto(financePlayerLookup, [debtor.playerId, debtor.playerName]),
+      })),
+    [defaultRoundPrice, financePlayerLookup, ownLeagues]
   );
-  const reminderItems = buildLeagueReminderItems(ownLeagues);
-  const tournamentDebtors = buildTournamentDebtors(ownTournaments)
-    .map((debtor) => ({
-      ...debtor,
-      playerPhoto:
-        debtor.playerPhoto ||
-        resolveFinancePlayerPhoto(financePlayerLookup, [debtor.playerId, debtor.playerName]),
-    }));
-  const filteredTournamentDebtors = filterTournamentDebtors(tournamentDebtors, tournamentDebtSearch);
-  const tournamentPaymentHistory = buildTournamentPaymentHistory(ownTournaments);
-  const tournamentCashSummary = buildTournamentCashSummary(ownTournaments);
-  const tournamentReminderItems = buildTournamentReminderItems(ownTournaments).filter((item) =>
-    normalizeText(`${item.playerName} ${item.tournament?.name || ""}`).includes(
-      normalizeText(tournamentReminderSearch)
-    )
+  const filteredLeagueDebtors = useMemo(
+    () => filterLeagueDebtors(leagueDebtors, leagueDebtSearch),
+    [leagueDebtors, leagueDebtSearch]
+  );
+  const leaguePaymentHistory = useMemo(
+    () =>
+      buildLeaguePaymentHistory(
+        ownLeagues,
+        Number.isFinite(defaultRoundPrice) ? defaultRoundPrice : 0
+      ),
+    [defaultRoundPrice, ownLeagues]
+  );
+  const cashSummary = useMemo(
+    () =>
+      buildCashSummary(
+        ownLeagues,
+        Number.isFinite(defaultRoundPrice) ? defaultRoundPrice : 0
+      ),
+    [defaultRoundPrice, ownLeagues]
+  );
+  const reminderItems = useMemo(() => buildLeagueReminderItems(ownLeagues), [ownLeagues]);
+  const tournamentDebtors = useMemo(
+    () =>
+      buildTournamentDebtors(ownTournaments).map((debtor) => ({
+        ...debtor,
+        playerPhoto:
+          debtor.playerPhoto ||
+          resolveFinancePlayerPhoto(financePlayerLookup, [debtor.playerId, debtor.playerName]),
+      })),
+    [financePlayerLookup, ownTournaments]
+  );
+  const filteredTournamentDebtors = useMemo(
+    () => filterTournamentDebtors(tournamentDebtors, tournamentDebtSearch),
+    [tournamentDebtors, tournamentDebtSearch]
+  );
+  const tournamentPaymentHistory = useMemo(
+    () => buildTournamentPaymentHistory(ownTournaments),
+    [ownTournaments]
+  );
+  const tournamentCashSummary = useMemo(
+    () => buildTournamentCashSummary(ownTournaments),
+    [ownTournaments]
+  );
+  const tournamentReminderItems = useMemo(
+    () =>
+      buildTournamentReminderItems(ownTournaments).filter((item) =>
+        normalizeText(`${item.playerName} ${item.tournament?.name || ""}`).includes(
+          normalizeText(tournamentReminderSearch)
+        )
+      ),
+    [ownTournaments, tournamentReminderSearch]
+  );
+  const leagueCollectionItems = useMemo(
+    () =>
+      buildLeagueCollectionRows(
+        ownLeagues,
+        Number.isFinite(defaultRoundPrice) ? defaultRoundPrice : 0,
+        financePlayerLookup
+      ),
+    [defaultRoundPrice, financePlayerLookup, ownLeagues]
+  );
+  const tournamentCollectionItems = useMemo(
+    () => buildTournamentCollectionRows(ownTournaments, financePlayerLookup),
+    [financePlayerLookup, ownTournaments]
+  );
+  const collectionItems = useMemo(
+    () => [...leagueCollectionItems, ...tournamentCollectionItems],
+    [leagueCollectionItems, tournamentCollectionItems]
+  );
+  const collectionRows = useMemo(() => buildCollectionRowsByPlayer(collectionItems), [collectionItems]);
+  const filteredCollectionRows = useMemo(() => {
+    const searchText = normalizeText(deferredFinanceSearch);
+
+    return collectionRows
+      .map((row) => {
+        const filteredItems = row.items.filter((item) => {
+          if (deferredSourceFilters.length && !deferredSourceFilters.includes(item.sourceType)) {
+            return false;
+          }
+
+          if (deferredCobroStatus === "pending" && item.status !== "pending") {
+            return false;
+          }
+
+          if (deferredCobroStatus === "review" && item.status !== "review") {
+            return false;
+          }
+
+          if (financeCategoryFilter !== "all" && item.sourceCategory !== financeCategoryFilter) {
+            return false;
+          }
+
+          if (financeSexFilter !== "all" && item.sourceSex !== financeSexFilter) {
+            return false;
+          }
+
+          if (!searchText) {
+            return true;
+          }
+
+          return normalizeText(`${row.playerName} ${item.sourceName} ${item.label}`).includes(searchText);
+        });
+
+        if (!filteredItems.length) {
+          return null;
+        }
+
+        return {
+          ...row,
+          items: filteredItems,
+          pendingAmount: filteredItems
+            .filter((item) => item.status === "pending")
+            .reduce((total, item) => total + Number(item.amount || 0), 0),
+          reviewAmount: filteredItems
+            .filter((item) => item.status === "review")
+            .reduce((total, item) => total + Number(item.amount || 0), 0),
+          sourceTypes: [...new Set(filteredItems.map((item) => item.sourceType))],
+          totalAmount: filteredItems.reduce((total, item) => total + Number(item.amount || 0), 0),
+        };
+      })
+      .filter(Boolean);
+  }, [
+    collectionRows,
+    deferredCobroStatus,
+    deferredFinanceSearch,
+    deferredSourceFilters,
+    financeCategoryFilter,
+    financeSexFilter,
+  ]);
+  const historyRows = useMemo(
+    () => buildCollectionHistoryRows(leaguePaymentHistory, tournamentPaymentHistory),
+    [leaguePaymentHistory, tournamentPaymentHistory]
+  );
+  const financeCategoryOptions = useMemo(
+    () =>
+      buildFinanceFilterOptions([
+        ...collectionItems.map((item) => item.sourceCategory),
+        ...historyRows.map((row) => row.sourceCategory),
+      ]),
+    [collectionItems, historyRows]
+  );
+  const financeSexOptions = useMemo(
+    () =>
+      buildFinanceFilterOptions([
+        ...collectionItems.map((item) => item.sourceSex),
+        ...historyRows.map((row) => row.sourceSex),
+      ]),
+    [collectionItems, historyRows]
+  );
+  const filteredHistoryRows = useMemo(() => {
+    const searchText = normalizeText(deferredFinanceSearch);
+
+    return historyRows.filter((row) => {
+      if (deferredSourceFilters.length && !deferredSourceFilters.includes(row.sourceType)) {
+        return false;
+      }
+
+      if (financeCategoryFilter !== "all" && row.sourceCategory !== financeCategoryFilter) {
+        return false;
+      }
+
+      if (financeSexFilter !== "all" && row.sourceSex !== financeSexFilter) {
+        return false;
+      }
+
+      if (!searchText) {
+        return true;
+      }
+
+      return normalizeText(`${row.playerName} ${row.sourceName} ${row.summary}`).includes(searchText);
+    });
+  }, [
+    deferredFinanceSearch,
+    deferredSourceFilters,
+    financeCategoryFilter,
+    financeSexFilter,
+    historyRows,
+  ]);
+  const combinedSummary = useMemo(
+    () => ({
+      todayIncome: Number(cashSummary.today.income || 0) + Number(tournamentCashSummary.today.income || 0),
+      todayPending: Number(cashSummary.today.pending || 0) + Number(tournamentCashSummary.today.pending || 0),
+      weekIncome:
+        Number(cashSummary.last7Days.income || 0) + Number(tournamentCashSummary.last7Days.income || 0),
+      weekPending:
+        Number(cashSummary.last7Days.pending || 0) + Number(tournamentCashSummary.last7Days.pending || 0),
+      reviewAmount: collectionRows.reduce((total, row) => total + Number(row.reviewAmount || 0), 0),
+      debtorsCount: collectionRows.length,
+    }),
+    [cashSummary, collectionRows, tournamentCashSummary]
   );
 
   const toggleDebtorDetails = (playerId) => {
@@ -1190,6 +1819,18 @@ export default function FinanzasScreen({ navigation }) {
       return [...current, key];
     });
   };
+
+  const toggleCollectionDetails = useCallback((playerId) => {
+    setExpandedCollectionIds((current) => {
+      const key = String(playerId);
+
+      if (current.includes(key)) {
+        return current.filter((item) => item !== key);
+      }
+
+      return [...current, key];
+    });
+  }, []);
 
   const toggleHistoryDetails = (playerId) => {
     setExpandedHistoryIds((current) => {
@@ -1235,23 +1876,6 @@ export default function FinanzasScreen({ navigation }) {
   };
 
   const handleHeaderBack = () => {
-    if (activeModule === "ligas" && activeLeagueArea) {
-      setActiveLeagueArea("");
-      return;
-    }
-
-    if (activeModule === "torneos" && activeTournamentArea) {
-      setActiveTournamentArea("");
-      return;
-    }
-
-    if (activeModule) {
-      setActiveModule("");
-      setActiveLeagueArea("");
-      setActiveTournamentArea("");
-      return;
-    }
-
     navigation.goBack();
   };
 
@@ -1448,9 +2072,483 @@ export default function FinanzasScreen({ navigation }) {
     }
   };
 
+  const renderCollectionSourceChip = (sourceType) => {
+    const label =
+      sourceType === "leagues" ? "Liga" : sourceType === "tournaments" ? "Torneo" : "Turno";
+    const filterKey =
+      sourceType === "leagues" ? "leagues" : sourceType === "tournaments" ? "tournaments" : "turns";
+    const isActive = activeSourceFilters.includes(filterKey);
+
+    return (
+      <Pressable
+        key={sourceType}
+        onPress={() =>
+          setActiveSourceFilters((current) => {
+            const next = current.includes(filterKey)
+              ? current.filter((item) => item !== filterKey)
+              : [...current, filterKey];
+
+            return next.length ? next : current;
+          })
+        }
+        style={({ pressed }) => [
+          styles.collectionSourceChip,
+          isActive ? styles.collectionSourceChipActive : null,
+          pressed ? styles.pressedState : null,
+        ]}
+      >
+        <Text
+          style={[
+            styles.collectionSourceChipText,
+            isActive ? styles.collectionSourceChipTextActive : null,
+          ]}
+        >
+          {label}
+        </Text>
+      </Pressable>
+    );
+  };
+
+  const openCollectionItem = useCallback((item) => {
+    if (!item) {
+      return;
+    }
+
+    if (item.sourceType === "leagues") {
+      navigation.navigate("LeaguePayments", {
+        leagueId: item.sourceId,
+        leagueName: item.sourceName,
+        focusPlayerId: item.playerId || "",
+        focusPlayerName: item.playerName || "",
+      });
+      return;
+    }
+
+    if (item.sourceType === "tournaments") {
+      navigation.navigate("TournamentPayments", {
+        tournamentId: item.sourceId,
+        tournamentName: item.sourceName,
+        focusPlayerId: item.playerId || "",
+        focusPlayerName: item.playerName || "",
+      });
+    }
+  }, [navigation]);
+
+  const toggleSourceFilter = useCallback((filterKey) => {
+    setActiveSourceFilters((current) => {
+      const next = current.includes(filterKey)
+        ? current.filter((item) => item !== filterKey)
+        : [...current, filterKey];
+
+      return next.length ? next : current;
+    });
+  }, []);
+
+  const toggleFinanceAdvancedFilters = useCallback(() => {
+    setShowFinanceAdvancedFilters((current) => !current);
+  }, []);
+
+  const renderFinanceAdvancedFilters = () => (
+    <View style={styles.advancedFiltersPanel}>
+      <View style={styles.advancedFiltersSection}>
+        <Text style={styles.advancedFiltersLabel}>Categoria</Text>
+        <View style={styles.advancedFiltersChipRow}>
+          {financeCategoryOptions.map((option) => {
+            const isActive = financeCategoryFilter === option.key;
+
+            return (
+              <Pressable
+                key={`category-${option.key}`}
+                onPress={() => setFinanceCategoryFilter(option.key)}
+                style={({ pressed }) => [
+                  styles.advancedFilterChip,
+                  isActive ? styles.advancedFilterChipActive : null,
+                  pressed ? styles.pressedState : null,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.advancedFilterChipText,
+                    isActive ? styles.advancedFilterChipTextActive : null,
+                  ]}
+                >
+                  {option.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      </View>
+
+      <View style={styles.advancedFiltersSection}>
+        <Text style={styles.advancedFiltersLabel}>Sexo</Text>
+        <View style={styles.advancedFiltersChipRow}>
+          {financeSexOptions.map((option) => {
+            const isActive = financeSexFilter === option.key;
+
+            return (
+              <Pressable
+                key={`sex-${option.key}`}
+                onPress={() => setFinanceSexFilter(option.key)}
+                style={({ pressed }) => [
+                  styles.advancedFilterChip,
+                  isActive ? styles.advancedFilterChipActive : null,
+                  pressed ? styles.pressedState : null,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.advancedFilterChipText,
+                    isActive ? styles.advancedFilterChipTextActive : null,
+                  ]}
+                >
+                  {option.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      </View>
+    </View>
+  );
+
+  const renderCobrosTab = () => {
+    const isLoading = loadingLeagues || loadingTournaments;
+
+    return (
+      <View style={styles.card}>
+        <View style={styles.cardHeaderRow}>
+          <View>
+            <Text style={styles.cardTitle}>Pendientes por jugador</Text>
+          </View>
+          <Ionicons color={colors.primaryDark} name="wallet-outline" size={24} />
+        </View>
+
+        <View style={styles.sourceFilterGrid}>
+          {FINANCE_SOURCE_FILTERS.map((filter) => {
+            const isActive = activeSourceFilters.includes(filter.key);
+
+            return (
+              <Pressable
+                key={filter.key}
+                onPress={() => toggleSourceFilter(filter.key)}
+                style={({ pressed }) => [
+                  styles.sourceFilterSquare,
+                  isActive ? styles.sourceFilterSquareActive : null,
+                  pressed ? styles.pressedState : null,
+                ]}
+              >
+                <View
+                  style={[
+                    styles.sourceFilterCheck,
+                    isActive ? styles.sourceFilterCheckActive : null,
+                  ]}
+                >
+                  {isActive ? <Ionicons color={colors.surface} name="checkmark" size={12} /> : null}
+                </View>
+                <Text
+                  style={[
+                    styles.sourceFilterSquareText,
+                    isActive ? styles.sourceFilterSquareTextActive : null,
+                  ]}
+                >
+                  {filter.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+
+        <View style={styles.searchWrap}>
+          <Ionicons color={colors.textMuted} name="search-outline" size={18} />
+          <TextInput
+            onChangeText={setFinanceSearch}
+            placeholder="Buscar jugador o competencia"
+            placeholderTextColor={colors.textMuted}
+            style={styles.searchInput}
+            value={financeSearch}
+          />
+          <Pressable
+            onPress={toggleFinanceAdvancedFilters}
+            style={({ pressed }) => [
+              styles.searchFilterButton,
+              showFinanceAdvancedFilters ? styles.searchFilterButtonActive : null,
+              pressed ? styles.pressedState : null,
+            ]}
+          >
+            <Ionicons
+              color={showFinanceAdvancedFilters ? colors.surface : colors.textMuted}
+              name="options-outline"
+              size={18}
+            />
+          </Pressable>
+        </View>
+
+        {showFinanceAdvancedFilters ? renderFinanceAdvancedFilters() : null}
+
+        <View style={styles.financeFilterRow}>
+          {COBRO_STATUS_FILTERS.map((filter) => {
+            const isActive = activeCobroStatus === filter.key;
+
+            return (
+              <Pressable
+                key={filter.key}
+                onPress={() => setActiveCobroStatus(filter.key)}
+                style={({ pressed }) => [
+                  styles.statusFilterChip,
+                  isActive ? styles.statusFilterChipActive : null,
+                  pressed ? styles.pressedState : null,
+                ]}
+              >
+                <Text style={[styles.statusFilterChipText, isActive ? styles.statusFilterChipTextActive : null]}>
+                  {filter.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+
+        {isLoading ? (
+          <View style={styles.loadingBox}>
+            <ActivityIndicator color={colors.primaryDark} />
+            <Text style={styles.loadingText}>Preparando cobros...</Text>
+          </View>
+        ) : null}
+
+        {!isLoading && !filteredCollectionRows.length ? (
+          <View style={styles.emptyBox}>
+            <Text style={styles.emptyTitle}>Sin cobros para mostrar</Text>
+            <Text style={styles.emptyText}>
+              Cuando haya deudas o comprobantes pendientes, van a aparecer agrupados por jugador.
+            </Text>
+          </View>
+        ) : null}
+
+        {!isLoading ? (
+          <CollectionRowsList
+            expandedCollectionIds={expandedCollectionIds}
+            onOpenItem={openCollectionItem}
+            onToggleDetails={toggleCollectionDetails}
+            rows={filteredCollectionRows}
+          />
+        ) : null}
+      </View>
+    );
+  };
+
+  const renderHistoryTab = () => {
+    const isLoading = loadingLeagues || loadingTournaments;
+
+    return (
+      <View style={styles.card}>
+        <View style={styles.cardHeaderRow}>
+          <View>
+            <Text style={styles.cardEyebrow}>HISTORIAL</Text>
+            <Text style={styles.cardTitle}>Pagos confirmados</Text>
+          </View>
+          <Ionicons color={colors.primaryDark} name="receipt-outline" size={24} />
+        </View>
+
+        <View style={styles.sourceFilterGrid}>
+          {FINANCE_SOURCE_FILTERS.map((filter) => {
+            const isActive = activeSourceFilters.includes(filter.key);
+
+            return (
+              <Pressable
+                key={filter.key}
+                onPress={() => toggleSourceFilter(filter.key)}
+                style={({ pressed }) => [
+                  styles.sourceFilterSquare,
+                  isActive ? styles.sourceFilterSquareActive : null,
+                  pressed ? styles.pressedState : null,
+                ]}
+              >
+                <View
+                  style={[
+                    styles.sourceFilterCheck,
+                    isActive ? styles.sourceFilterCheckActive : null,
+                  ]}
+                >
+                  {isActive ? <Ionicons color={colors.surface} name="checkmark" size={12} /> : null}
+                </View>
+                <Text
+                  style={[
+                    styles.sourceFilterSquareText,
+                    isActive ? styles.sourceFilterSquareTextActive : null,
+                  ]}
+                >
+                  {filter.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+
+        <View style={styles.searchWrap}>
+          <Ionicons color={colors.textMuted} name="search-outline" size={18} />
+          <TextInput
+            onChangeText={setFinanceSearch}
+            placeholder="Buscar jugador o competencia"
+            placeholderTextColor={colors.textMuted}
+            style={styles.searchInput}
+            value={financeSearch}
+          />
+          <Pressable
+            onPress={toggleFinanceAdvancedFilters}
+            style={({ pressed }) => [
+              styles.searchFilterButton,
+              showFinanceAdvancedFilters ? styles.searchFilterButtonActive : null,
+              pressed ? styles.pressedState : null,
+            ]}
+          >
+            <Ionicons
+              color={showFinanceAdvancedFilters ? colors.surface : colors.textMuted}
+              name="options-outline"
+              size={18}
+            />
+          </Pressable>
+        </View>
+
+        {showFinanceAdvancedFilters ? renderFinanceAdvancedFilters() : null}
+
+        {isLoading ? (
+          <View style={styles.loadingBox}>
+            <ActivityIndicator color={colors.primaryDark} />
+            <Text style={styles.loadingText}>Armando historial...</Text>
+          </View>
+        ) : null}
+
+        {!isLoading && !filteredHistoryRows.length ? (
+          <View style={styles.emptyBox}>
+            <Text style={styles.emptyTitle}>Sin pagos registrados</Text>
+            <Text style={styles.emptyText}>
+              Cuando se confirmen pagos, apareceran aca en formato de historial.
+            </Text>
+          </View>
+        ) : null}
+
+        {!isLoading ? <HistoryRowsList rows={filteredHistoryRows} /> : null}
+      </View>
+    );
+  };
+
+  const renderSummaryTab = () => (
+    <View style={styles.card}>
+      <View style={styles.cardHeaderRow}>
+        <View>
+          <Text style={styles.cardEyebrow}>RESUMEN</Text>
+          <Text style={styles.cardTitle}>Vista rapida</Text>
+        </View>
+        <Ionicons color={colors.primaryDark} name="stats-chart-outline" size={24} />
+      </View>
+
+      <View style={styles.summaryMiniGrid}>
+        <View style={styles.summaryMiniCard}>
+          <Text style={styles.summaryMiniLabel}>Ingresado hoy</Text>
+          <Text style={styles.summaryMiniValue}>{formatCurrency(combinedSummary.todayIncome)}</Text>
+        </View>
+        <View style={styles.summaryMiniCard}>
+          <Text style={styles.summaryMiniLabel}>Pendiente hoy</Text>
+          <Text style={[styles.summaryMiniValue, styles.summaryMiniValueWarning]}>
+            {formatCurrency(combinedSummary.todayPending)}
+          </Text>
+        </View>
+        <View style={styles.summaryMiniCard}>
+          <Text style={styles.summaryMiniLabel}>Ingresado 7 dias</Text>
+          <Text style={styles.summaryMiniValue}>{formatCurrency(combinedSummary.weekIncome)}</Text>
+        </View>
+        <View style={styles.summaryMiniCard}>
+          <Text style={styles.summaryMiniLabel}>Pendiente total</Text>
+          <Text style={[styles.summaryMiniValue, styles.summaryMiniValueWarning]}>
+            {formatCurrency(combinedSummary.weekPending + combinedSummary.reviewAmount)}
+          </Text>
+        </View>
+        <View style={styles.summaryMiniCard}>
+          <Text style={styles.summaryMiniLabel}>Jugadores con deuda</Text>
+          <Text style={styles.summaryMiniValue}>{combinedSummary.debtorsCount}</Text>
+        </View>
+        <View style={styles.summaryMiniCard}>
+          <Text style={styles.summaryMiniLabel}>A revisar</Text>
+          <Text style={[styles.summaryMiniValue, styles.summaryMiniValueInfo]}>
+            {formatCurrency(combinedSummary.reviewAmount)}
+          </Text>
+        </View>
+      </View>
+    </View>
+  );
+
+  const renderSettingsTab = () => (
+    <View style={styles.card}>
+      <View style={styles.cardHeaderRow}>
+        <View>
+          <Text style={styles.cardEyebrow}>AJUSTES</Text>
+          <Text style={styles.cardTitle}>Valores predeterminados</Text>
+        </View>
+        <Ionicons color={colors.primaryDark} name="cog-outline" size={24} />
+      </View>
+
+      <Text style={styles.sectionLabel}>Inscripcion inicial</Text>
+      <ChipGroup
+        onChange={(value) =>
+          setForm((current) => ({
+            ...current,
+            registrationFeeMode: value,
+            registrationFeeAmount: value === "yes" ? current.registrationFeeAmount : "",
+          }))
+        }
+        options={REGISTRATION_FEE_OPTIONS}
+        value={form.registrationFeeMode}
+      />
+
+      {form.registrationFeeMode === "yes" ? (
+        <View style={styles.inlineFieldRow}>
+          <Text style={styles.inlineFieldLabel}>Monto de inscripcion</Text>
+          <TextInput
+            keyboardType="decimal-pad"
+            onChangeText={(value) => updateField("registrationFeeAmount", sanitizeDecimal(value))}
+            placeholder="0"
+            placeholderTextColor={colors.muted}
+            style={styles.inlineFieldInput}
+            value={form.registrationFeeAmount}
+          />
+        </View>
+      ) : null}
+
+      <View style={styles.inlineFieldRow}>
+        <Text style={styles.inlineFieldLabel}>Precio por fecha por jugador</Text>
+        <TextInput
+          keyboardType="decimal-pad"
+          onChangeText={(value) => updateField("roundPricePerPlayer", sanitizeDecimal(value))}
+          placeholder="0"
+          placeholderTextColor={colors.muted}
+          style={styles.inlineFieldInput}
+          value={form.roundPricePerPlayer}
+        />
+      </View>
+
+      <Text style={styles.helperText}>
+        Guardar aca cambia el valor base para ligas nuevas. Las ligas ya creadas mantienen su propio importe.
+      </Text>
+
+      <Pressable
+        disabled={saving}
+        onPress={handleSaveDefaults}
+        style={({ pressed }) => [
+          styles.primaryButton,
+          saving ? styles.primaryButtonDisabled : null,
+          pressed && !saving ? styles.pressedState : null,
+        ]}
+      >
+        <Text style={styles.primaryButtonText}>
+          {saving ? "GUARDANDO..." : "GUARDAR CONFIGURACION"}
+        </Text>
+      </Pressable>
+    </View>
+  );
+
   return (
     <SafeAreaView style={styles.safeArea}>
-      <SectionHeader onBack={handleHeaderBack} subtitle="Finanzas" />
+      <SectionHeader onBack={handleHeaderBack} subtitle="Centro de Cobros" />
       <View style={styles.backgroundOrbTop} />
       <View style={styles.backgroundOrbBottom} />
 
@@ -1464,911 +2562,55 @@ export default function FinanzasScreen({ navigation }) {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          <View style={styles.heroCard}>
-            <Text style={styles.heroEyebrow}>
-              {activeModule === "ligas"
-                ? "GESTION GENERAL LIGAS"
-                : activeModule === "torneos"
-                ? "GESTION GENERAL TORNEOS"
-                : "GESTION GENERAL"}
+{!canManageFinances ? (
+  <View style={styles.card}>
+    <Text style={styles.cardTitle}>Acceso de organizador</Text>
+    <Text style={styles.cardText}>
+      Esta area queda disponible para organizadores aprobados.
+    </Text>
+  </View>
+) : (
+  <>
+    <View style={styles.financeTabsRow}>
+      {FINANCE_TABS.map((tab) => {
+        const isActive = activeFinanceTab === tab.key;
+
+        return (
+          <Pressable
+            key={tab.key}
+            onPress={() => setActiveFinanceTab(tab.key)}
+            style={({ pressed }) => [
+              styles.financeTabButton,
+              isActive ? styles.financeTabButtonActive : null,
+              pressed ? styles.pressedState : null,
+            ]}
+          >
+            <Ionicons
+              color={isActive ? colors.surface : colors.primaryDark}
+              name={tab.icon}
+              size={18}
+            />
+            <Text
+              style={[
+                styles.financeTabButtonText,
+                isActive ? styles.financeTabButtonTextActive : null,
+              ]}
+            >
+              {tab.label}
             </Text>
-          </View>
-
-          {!canManageFinances ? (
-            <View style={styles.card}>
-              <Text style={styles.cardTitle}>Acceso de organizador</Text>
-              <Text style={styles.cardText}>
-                Esta area queda disponible para organizadores aprobados.
-              </Text>
-            </View>
-          ) : (
-            <>
-              {!activeModule ? (
-              <View style={styles.moduleButtonsGrid}>
-                {FINANCE_MODULES.map((module) => {
-                  const isActive = activeModule === module.key;
-
-                  return (
-                    <Pressable
-                      key={module.key}
-                      onPress={() => {
-                        setActiveModule(module.key);
-                        setActiveLeagueArea("");
-                        setActiveTournamentArea("");
-                      }}
-                      style={({ pressed }) => [
-                        styles.moduleButton,
-                        isActive ? styles.moduleButtonActive : null,
-                        pressed ? styles.pressedState : null,
-                      ]}
-                    >
-                      <Ionicons
-                        color={isActive ? colors.surface : colors.primaryDark}
-                        name={module.icon}
-                        size={22}
-                      />
-                      <Text style={[styles.moduleButtonText, isActive ? styles.moduleButtonTextActive : null]}>
-                        {module.label}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-              ) : null}
-
-              {activeModule === "ligas" && !activeLeagueArea ? (
-                <View style={styles.leagueAreaButtons}>
-                  {LEAGUE_FINANCE_AREAS.map((area) => {
-                    const isActive = activeLeagueArea === area.key;
-
-                    return (
-                      <Pressable
-                        key={area.key}
-                        onPress={() => setActiveLeagueArea(area.key)}
-                        style={({ pressed }) => [
-                          styles.leagueAreaButton,
-                          isActive ? styles.leagueAreaButtonActive : null,
-                          pressed ? styles.pressedState : null,
-                        ]}
-                      >
-                        <Ionicons
-                          color={isActive ? colors.surface : colors.primaryDark}
-                          name={area.icon}
-                          size={24}
-                        />
-                        <Text style={[styles.leagueAreaButtonText, isActive ? styles.leagueAreaButtonTextActive : null]}>
-                          {area.label}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                </View>
-              ) : null}
-
-              {activeModule === "torneos" && !activeTournamentArea ? (
-                <View style={styles.leagueAreaButtons}>
-                  {TOURNAMENT_FINANCE_AREAS.map((area) => {
-                    const isActive = activeTournamentArea === area.key;
-
-                    return (
-                      <Pressable
-                        key={area.key}
-                        onPress={() => setActiveTournamentArea(area.key)}
-                        style={({ pressed }) => [
-                          styles.leagueAreaButton,
-                          isActive ? styles.leagueAreaButtonActive : null,
-                          pressed ? styles.pressedState : null,
-                        ]}
-                      >
-                        <Ionicons
-                          color={isActive ? colors.surface : colors.primaryDark}
-                          name={area.icon}
-                          size={24}
-                        />
-                        <Text style={[styles.leagueAreaButtonText, isActive ? styles.leagueAreaButtonTextActive : null]}>
-                          {area.label}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                </View>
-              ) : null}
-
-              {activeModule && activeModule !== "ligas" && activeModule !== "torneos" ? (
-                <View style={styles.card}>
-                  <View style={styles.cardHeaderRow}>
-                    <View>
-                      <Text style={styles.cardEyebrow}>{activeModule.toUpperCase()}</Text>
-                      <Text style={styles.cardTitle}>Proximamente</Text>
-                    </View>
-                    <Ionicons color={colors.primaryDark} name="construct-outline" size={24} />
-                  </View>
-                  <Text style={styles.cardText}>
-                    Esta parte todavia no esta desarrollada. La dejamos dentro de Finanzas para
-                    centralizar torneos y turnos cuando avancemos esos modulos.
-                  </Text>
-                </View>
-              ) : null}
-
-              {activeModule === "ligas" && activeLeagueArea === "cash" ? (
-                <View style={styles.card}>
-                  <View style={styles.cardHeaderRow}>
-                    <View>
-                      <Text style={styles.cardEyebrow}>LIGAS</Text>
-                      <Text style={styles.cardTitle}>Caja de Ligas</Text>
-                    </View>
-                    <Ionicons color={colors.primaryDark} name="cash-outline" size={24} />
-                  </View>
-
-                  {loadingLeagues ? (
-                    <View style={styles.loadingBox}>
-                      <ActivityIndicator color={colors.primaryDark} />
-                      <Text style={styles.loadingText}>Calculando caja...</Text>
-                    </View>
-                  ) : null}
-
-                  {!loadingLeagues ? (
-                    <>
-                      <View style={styles.cashSummaryGrid}>
-                        <View style={styles.cashSummaryBlock}>
-                          <Text style={styles.cashSummaryTitle}>HOY</Text>
-                          <View style={styles.cashMetricRow}>
-                            <Text style={styles.cashMetricLabel}>Ingresos</Text>
-                            <Text style={styles.cashIncomeAmount}>
-                              {formatCurrency(cashSummary.today.income)}
-                            </Text>
-                          </View>
-                          <View style={styles.cashMetricRow}>
-                            <Text style={styles.cashMetricLabel}>Impagos</Text>
-                            <Text style={styles.cashPendingAmount}>
-                              {formatCurrency(cashSummary.today.pending)}
-                            </Text>
-                          </View>
-                        </View>
-
-                        <View style={styles.cashSummaryBlock}>
-                          <Text style={styles.cashSummaryTitle}>ULTIMOS 7 DIAS</Text>
-                          {cashSummary.daily.map((day) => (
-                            <View key={day.key} style={styles.cashDailyRow}>
-                              <Text style={styles.cashDailyLabel}>{day.label}</Text>
-                              <View style={styles.cashDailyAmounts}>
-                                <Text style={styles.cashDailyIncome}>
-                                  Ingresos {formatCurrency(day.income)}
-                                </Text>
-                                <Text style={styles.cashDailyPending}>
-                                  Impagos {formatCurrency(day.pending)}
-                                </Text>
-                              </View>
-                            </View>
-                          ))}
-                        </View>
-                      </View>
-
-                      <Text style={styles.helperText}>
-                        Los ingresos se toman de pagos confirmados. Los impagos se calculan solo
-                        cuando el jugador pertenece a un partido con ganador cargado.
-                      </Text>
-                    </>
-                  ) : null}
-                </View>
-              ) : null}
-
-              {activeModule === "ligas" && activeLeagueArea === "values" ? (
-              <View style={styles.card}>
-                <View style={styles.cardHeaderRow}>
-                  <View>
-                    <Text style={styles.cardEyebrow}>LIGAS</Text>
-                    <Text style={styles.cardTitle}>Valores predeterminados</Text>
-                  </View>
-                  <Ionicons color={colors.primaryDark} name="wallet-outline" size={24} />
-                </View>
-
-                <Text style={styles.sectionLabel}>Inscripcion inicial</Text>
-                <ChipGroup
-                  onChange={(value) =>
-                    setForm((current) => ({
-                      ...current,
-                      registrationFeeMode: value,
-                      registrationFeeAmount: value === "yes" ? current.registrationFeeAmount : "",
-                    }))
-                  }
-                  options={REGISTRATION_FEE_OPTIONS}
-                  value={form.registrationFeeMode}
-                />
-
-                {form.registrationFeeMode === "yes" ? (
-                  <View style={styles.inlineFieldRow}>
-                    <Text style={styles.inlineFieldLabel}>Monto de inscripcion</Text>
-                    <TextInput
-                      keyboardType="decimal-pad"
-                      onChangeText={(value) => updateField("registrationFeeAmount", sanitizeDecimal(value))}
-                      placeholder="0"
-                      placeholderTextColor={colors.muted}
-                      style={styles.inlineFieldInput}
-                      value={form.registrationFeeAmount}
-                    />
-                  </View>
-                ) : null}
-
-                <View style={styles.inlineFieldRow}>
-                  <Text style={styles.inlineFieldLabel}>Precio por fecha por jugador</Text>
-                  <TextInput
-                    keyboardType="decimal-pad"
-                    onChangeText={(value) => updateField("roundPricePerPlayer", sanitizeDecimal(value))}
-                    placeholder="0"
-                    placeholderTextColor={colors.muted}
-                    style={styles.inlineFieldInput}
-                    value={form.roundPricePerPlayer}
-                  />
-                </View>
-
-                <Text style={styles.helperText}>
-                  Guardar aca cambia el valor base para ligas nuevas. Las ligas ya creadas
-                  conservan su propio importe hasta que decidas actualizarlas.
-                </Text>
-
-                <Pressable
-                  disabled={saving}
-                  onPress={handleSaveDefaults}
-                  style={({ pressed }) => [
-                    styles.primaryButton,
-                    saving ? styles.primaryButtonDisabled : null,
-                    pressed && !saving ? styles.pressedState : null,
-                  ]}
-                >
-                  <Text style={styles.primaryButtonText}>
-                    {saving ? "GUARDANDO..." : "GUARDAR PARA NUEVAS LIGAS"}
-                  </Text>
-                </Pressable>
-
-                <View style={styles.disabledAction}>
-                  <Text style={styles.disabledActionTitle}>Aplicar a ligas activas</Text>
-                  <Text style={styles.disabledActionText}>
-                    Lo dejamos separado para desarrollarlo con seleccion manual de ligas y evitar
-                    cambios masivos por error.
-                  </Text>
-                </View>
-              </View>
-              ) : null}
-
-              {activeModule === "ligas" && activeLeagueArea === "debts" ? (
-                <View style={styles.card}>
-                  <View style={styles.cardHeaderRow}>
-                    <View>
-                      <Text style={styles.cardEyebrow}>LIGAS</Text>
-                      <Text style={styles.cardTitle}>Deudas Individuales</Text>
-                    </View>
-                    <Ionicons color={colors.primaryDark} name="people-outline" size={24} />
-                  </View>
-
-                  {loadingLeagues ? (
-                    <View style={styles.loadingBox}>
-                      <ActivityIndicator color={colors.primaryDark} />
-                      <Text style={styles.loadingText}>Calculando deudas...</Text>
-                    </View>
-                  ) : null}
-
-                  <View style={styles.searchWrap}>
-                    <Ionicons color={colors.textMuted} name="search-outline" size={18} />
-                    <TextInput
-                      onChangeText={setLeagueDebtSearch}
-                      placeholder="Buscar por jugador o categoria"
-                      placeholderTextColor={colors.textMuted}
-                      style={styles.searchInput}
-                      value={leagueDebtSearch}
-                    />
-                  </View>
-
-                  {!loadingLeagues && !filteredLeagueDebtors.length ? (
-                    <View style={styles.emptyBox}>
-                      <Text style={styles.emptyTitle}>
-                        {leagueDebtSearch.trim() ? "Sin resultados" : "Sin deudas registradas"}
-                      </Text>
-                      <Text style={styles.emptyText}>
-                        {leagueDebtSearch.trim()
-                          ? "No encontramos jugadores o categorias que coincidan con tu busqueda."
-                          : "Cuando haya fechas impagas en tus ligas, van a aparecer agrupadas por jugador."}
-                      </Text>
-                    </View>
-                  ) : null}
-
-                  {!loadingLeagues
-                    ? filteredLeagueDebtors.map((debtor) => {
-                        const debtorKey = String(debtor.playerId || debtor.playerName);
-                        const isExpanded = expandedDebtorIds.includes(debtorKey);
-                        const leagueCount = debtor.leagueDetails.length;
-                        const roundCount = debtor.pendingRounds.length;
-
-                        return (
-                          <Pressable
-                            key={debtorKey}
-                            onPress={() => toggleDebtorDetails(debtorKey)}
-                            style={({ pressed }) => [
-                              styles.debtorCard,
-                              pressed ? styles.debtorCardPressed : null,
-                            ]}
-                          >
-                            <View style={styles.debtorHeader}>
-                              <AvatarBadge color={colors.primaryDark} size={36} uri={debtor.playerPhoto} />
-                              <View style={styles.debtorCopy}>
-                                <Text numberOfLines={1} style={styles.debtorName}>
-                                  {debtor.playerName}
-                                </Text>
-                                <Text numberOfLines={1} style={styles.debtorLeague}>
-                                  {leagueCount === 1
-                                    ? debtor.leagueDetails[0]?.leagueName || "Liga"
-                                    : `${leagueCount} ligas con deuda`}
-                                </Text>
-                              </View>
-                              <Text style={styles.debtorAmount}>{formatCurrency(debtor.amount)}</Text>
-                              <Ionicons
-                                color={colors.textMuted}
-                                name={isExpanded ? "chevron-up" : "chevron-down"}
-                                size={18}
-                                style={styles.debtorChevron}
-                              />
-                            </View>
-                            <Text style={styles.debtorDetail}>Total fechas impagas: {roundCount}</Text>
-
-                            {isExpanded ? (
-                              <View style={styles.debtorDetailList}>
-                                {debtor.leagueDetails.map((detail) => (
-                                  <View key={detail.leagueId} style={styles.debtorLeagueDetail}>
-                                    <View style={styles.debtorLeagueDetailHeader}>
-                                      <Text numberOfLines={1} style={styles.debtorLeagueDetailTitle}>
-                                        {detail.leagueName}
-                                      </Text>
-                                      <Text style={styles.debtorLeagueDetailAmount}>
-                                        {formatCurrency(detail.amount)}
-                                      </Text>
-                                    </View>
-                                    {detail.category ? (
-                                      <Text style={styles.debtorLeagueCategory}>{detail.category}</Text>
-                                    ) : null}
-                                    <Text style={styles.debtorLeagueDetailText}>
-                                      Fechas impagas: {detail.pendingRounds.join(", ")}
-                                    </Text>
-                                  </View>
-                                ))}
-                              </View>
-                            ) : null}
-                          </Pressable>
-                        );
-                      })
-                    : null}
-                </View>
-              ) : null}
-
-              {activeModule === "ligas" && activeLeagueArea === "history" ? (
-                <View style={styles.card}>
-                  <View style={styles.cardHeaderRow}>
-                    <View>
-                      <Text style={styles.cardEyebrow}>LIGAS</Text>
-                      <Text style={styles.cardTitle}>Historial de Pagos</Text>
-                    </View>
-                    <Ionicons color={colors.primaryDark} name="receipt-outline" size={24} />
-                  </View>
-
-                  {loadingLeagues ? (
-                    <View style={styles.loadingBox}>
-                      <ActivityIndicator color={colors.primaryDark} />
-                      <Text style={styles.loadingText}>Armando historial...</Text>
-                    </View>
-                  ) : null}
-
-                  {!loadingLeagues && !leaguePaymentHistory.length ? (
-                    <View style={styles.emptyBox}>
-                      <Text style={styles.emptyTitle}>Sin pagos registrados</Text>
-                      <Text style={styles.emptyText}>
-                        Cuando marques pagos en tus ligas, van a aparecer agrupados por jugador.
-                      </Text>
-                    </View>
-                  ) : null}
-
-                  {!loadingLeagues
-                    ? leaguePaymentHistory.map((history) => {
-                        const historyKey = String(history.playerId || history.playerName);
-                        const isExpanded = expandedHistoryIds.includes(historyKey);
-                        const leagueCount = history.leagueDetails.length;
-
-                        return (
-                          <Pressable
-                            key={historyKey}
-                            onPress={() => toggleHistoryDetails(historyKey)}
-                            style={({ pressed }) => [
-                              styles.historyCard,
-                              pressed ? styles.debtorCardPressed : null,
-                            ]}
-                          >
-                            <View style={styles.debtorHeader}>
-                              <View style={styles.historyAvatar}>
-                                <Text style={styles.debtorAvatarText}>
-                                  {String(history.playerName || "J").charAt(0).toUpperCase()}
-                                </Text>
-                              </View>
-                              <View style={styles.debtorCopy}>
-                                <Text numberOfLines={1} style={styles.debtorName}>
-                                  {history.playerName}
-                                </Text>
-                                <Text numberOfLines={1} style={styles.debtorLeague}>
-                                  {leagueCount === 1
-                                    ? history.leagueDetails[0]?.leagueName || "Liga"
-                                    : `${leagueCount} ligas con pagos`}
-                                </Text>
-                              </View>
-                              <Text style={styles.historyAmount}>{formatCurrency(history.amount)}</Text>
-                              <Ionicons
-                                color={colors.textMuted}
-                                name={isExpanded ? "chevron-up" : "chevron-down"}
-                                size={18}
-                                style={styles.debtorChevron}
-                              />
-                            </View>
-                            <Text style={styles.debtorDetail}>
-                              Total pagos registrados: {history.paymentCount}
-                            </Text>
-
-                            {isExpanded ? (
-                              <View style={styles.debtorDetailList}>
-                                {history.leagueDetails.map((detail) => (
-                                  <View key={detail.leagueId} style={styles.historyLeagueDetail}>
-                                    <View style={styles.debtorLeagueDetailHeader}>
-                                      <Text numberOfLines={1} style={styles.debtorLeagueDetailTitle}>
-                                        {detail.leagueName}
-                                      </Text>
-                                      <Text style={styles.historyLeagueDetailAmount}>
-                                        {formatCurrency(detail.amount)}
-                                      </Text>
-                                    </View>
-                                    {detail.payments.map((payment, index) => {
-                                      const confirmedDate = formatShortDate(payment.confirmedAtMillis);
-
-                                      return (
-                                        <Text
-                                          key={`${detail.leagueId}-${payment.roundTitle}-${index}`}
-                                          style={styles.historyPaymentLine}
-                                        >
-                                          {payment.roundTitle} · {getPaymentMethodLabel(payment.method)}
-                                          {confirmedDate ? ` · ${confirmedDate}` : ""}
-                                        </Text>
-                                      );
-                                    })}
-                                  </View>
-                                ))}
-                              </View>
-                            ) : null}
-                          </Pressable>
-                        );
-                      })
-                    : null}
-                </View>
-              ) : null}
-
-              {activeModule === "ligas" && activeLeagueArea === "reminders" ? (
-                <View style={styles.card}>
-                  <View style={styles.cardHeaderRow}>
-                    <View>
-                      <Text style={styles.cardEyebrow}>LIGAS</Text>
-                      <Text style={styles.cardTitle}>Recordatorios de deuda</Text>
-                    </View>
-                    <Ionicons color={colors.primaryDark} name="notifications-outline" size={24} />
-                  </View>
-
-                  <Text style={styles.helperText}>
-                    Aca aparecen los jugadores con pagos pendientes de fechas ya jugadas. El envio
-                    del recordatorio es siempre manual.
-                  </Text>
-
-                  {loadingLeagues ? (
-                    <View style={styles.loadingBox}>
-                      <ActivityIndicator color={colors.primaryDark} />
-                      <Text style={styles.loadingText}>Buscando recordatorios...</Text>
-                    </View>
-                  ) : null}
-
-                  {!loadingLeagues && !reminderItems.length ? (
-                    <View style={styles.emptyBox}>
-                      <Text style={styles.emptyTitle}>Sin recordatorios pendientes</Text>
-                      <Text style={styles.emptyText}>
-                        Cuando una fecha jugada tenga pagos pendientes, apareceran aca.
-                      </Text>
-                    </View>
-                  ) : null}
-
-                  {!loadingLeagues
-                    ? reminderItems.map((item) => (
-                        <View key={item.id} style={styles.reminderCard}>
-                          <View style={styles.reminderHeader}>
-                            <View style={styles.reminderBadge}>
-                              <Text style={styles.reminderBadgeText}>{item.stage.label}</Text>
-                            </View>
-                            <View style={styles.reminderCopy}>
-                              <Text numberOfLines={1} style={styles.debtorName}>
-                                {item.playerName}
-                              </Text>
-                              <Text numberOfLines={1} style={styles.debtorLeague}>
-                                {item.league?.nombre || "Liga"} · {item.round?.title || "Fecha"}
-                              </Text>
-                            </View>
-                          </View>
-                          <Pressable
-                            disabled={sendingReminderId === item.id}
-                            onPress={() => handleSendReminder(item)}
-                            style={({ pressed }) => [
-                              styles.reminderButton,
-                              sendingReminderId === item.id ? styles.primaryButtonDisabled : null,
-                              pressed && sendingReminderId !== item.id ? styles.pressedState : null,
-                            ]}
-                          >
-                            <Text style={styles.reminderButtonText}>
-                              {sendingReminderId === item.id ? "ENVIANDO..." : "ENVIAR RECORDATORIO"}
-                            </Text>
-                          </Pressable>
-                        </View>
-                      ))
-                    : null}
-                </View>
-              ) : null}
-
-              {activeModule === "torneos" && activeTournamentArea === "debts" ? (
-                <View style={styles.card}>
-                  <View style={styles.cardHeaderRow}>
-                    <View>
-                      <Text style={styles.cardEyebrow}>TORNEOS</Text>
-                      <Text style={styles.cardTitle}>Deudas Individuales</Text>
-                    </View>
-                    <Ionicons color={colors.primaryDark} name="people-outline" size={24} />
-                  </View>
-
-                  {loadingTournaments ? (
-                    <View style={styles.loadingBox}>
-                      <ActivityIndicator color={colors.primaryDark} />
-                      <Text style={styles.loadingText}>Calculando deudas...</Text>
-                    </View>
-                  ) : null}
-
-                  <View style={styles.searchWrap}>
-                    <Ionicons color={colors.textMuted} name="search-outline" size={18} />
-                    <TextInput
-                      onChangeText={setTournamentDebtSearch}
-                      placeholder="Buscar por jugador o torneo"
-                      placeholderTextColor={colors.textMuted}
-                      style={styles.searchInput}
-                      value={tournamentDebtSearch}
-                    />
-                  </View>
-
-                  {!loadingTournaments && !filteredTournamentDebtors.length ? (
-                    <View style={styles.emptyBox}>
-                      <Text style={styles.emptyTitle}>
-                        {tournamentDebtSearch.trim() ? "Sin resultados" : "Sin deudas registradas"}
-                      </Text>
-                      <Text style={styles.emptyText}>
-                        {tournamentDebtSearch.trim()
-                          ? "No encontramos jugadores o torneos que coincidan con tu busqueda."
-                          : "Cuando haya inscripciones impagas en tus torneos, van a aparecer agrupadas por jugador."}
-                      </Text>
-                    </View>
-                  ) : null}
-
-                  {!loadingTournaments
-                    ? filteredTournamentDebtors.map((debtor) => {
-                        const debtorKey = String(debtor.playerId || debtor.playerName);
-                        const isExpanded = expandedTournamentDebtorIds.includes(debtorKey);
-
-                        return (
-                          <Pressable
-                            key={debtorKey}
-                            onPress={() => toggleTournamentDebtorDetails(debtorKey)}
-                            style={({ pressed }) => [
-                              styles.debtorCard,
-                              pressed ? styles.debtorCardPressed : null,
-                            ]}
-                          >
-                            <View style={styles.debtorHeader}>
-                              <AvatarBadge color={colors.primaryDark} size={36} uri={debtor.playerPhoto} />
-                              <View style={styles.debtorCopy}>
-                                <Text numberOfLines={1} style={styles.debtorName}>
-                                  {debtor.playerName}
-                                </Text>
-                                <Text numberOfLines={1} style={styles.debtorLeague}>
-                                  {debtor.tournamentDetails.length === 1
-                                    ? debtor.tournamentDetails[0]?.tournamentName || "Torneo"
-                                    : `${debtor.tournamentDetails.length} torneos con deuda`}
-                                </Text>
-                              </View>
-                              <Text style={styles.debtorAmount}>{formatCurrency(debtor.amount)}</Text>
-                              <Ionicons
-                                color={colors.textMuted}
-                                name={isExpanded ? "chevron-up" : "chevron-down"}
-                                size={18}
-                                style={styles.debtorChevron}
-                              />
-                            </View>
-                            <Text style={styles.debtorDetail}>INSCRIPCION IMPAGA</Text>
-
-                            {isExpanded ? (
-                              <View style={styles.debtorDetailList}>
-                                {debtor.tournamentDetails.map((detail) => (
-                                  <View key={detail.tournamentId} style={styles.debtorLeagueDetail}>
-                                    <View style={styles.debtorLeagueDetailHeader}>
-                                      <Text numberOfLines={1} style={styles.debtorLeagueDetailTitle}>
-                                        {detail.tournamentName}
-                                      </Text>
-                                      <Text style={styles.debtorLeagueDetailAmount}>
-                                        {formatCurrency(detail.amount)}
-                                      </Text>
-                                    </View>
-                                    {detail.pairLabel ? (
-                                      <Text style={styles.debtorLeagueCategory}>{detail.pairLabel}</Text>
-                                    ) : null}
-                                    <Text style={styles.debtorLeagueDetailText}>
-                                      Estado pendiente: {[...new Set(detail.statuses)].join(", ")}
-                                    </Text>
-                                  </View>
-                                ))}
-                              </View>
-                            ) : null}
-                          </Pressable>
-                        );
-                      })
-                    : null}
-                </View>
-              ) : null}
-
-              {activeModule === "torneos" && activeTournamentArea === "history" ? (
-                <View style={styles.card}>
-                  <View style={styles.cardHeaderRow}>
-                    <View>
-                      <Text style={styles.cardEyebrow}>TORNEOS</Text>
-                      <Text style={styles.cardTitle}>Historial de Pagos</Text>
-                    </View>
-                    <Ionicons color={colors.primaryDark} name="receipt-outline" size={24} />
-                  </View>
-
-                  <Text style={styles.helperText}>
-                    Se muestran los pagos aprobados de los ultimos 30 dias.
-                  </Text>
-
-                  {loadingTournaments ? (
-                    <View style={styles.loadingBox}>
-                      <ActivityIndicator color={colors.primaryDark} />
-                      <Text style={styles.loadingText}>Armando historial...</Text>
-                    </View>
-                  ) : null}
-
-                  {!loadingTournaments && !tournamentPaymentHistory.length ? (
-                    <View style={styles.emptyBox}>
-                      <Text style={styles.emptyTitle}>Sin pagos registrados</Text>
-                      <Text style={styles.emptyText}>
-                        Cuando registres pagos aprobados en tus torneos, van a aparecer aca.
-                      </Text>
-                    </View>
-                  ) : null}
-
-                  {!loadingTournaments
-                    ? tournamentPaymentHistory.map((history) => {
-                        const historyKey = String(history.playerId || history.playerName);
-                        const isExpanded = expandedTournamentHistoryIds.includes(historyKey);
-
-                        return (
-                          <Pressable
-                            key={historyKey}
-                            onPress={() => toggleTournamentHistoryDetails(historyKey)}
-                            style={({ pressed }) => [
-                              styles.historyCard,
-                              pressed ? styles.debtorCardPressed : null,
-                            ]}
-                          >
-                            <View style={styles.debtorHeader}>
-                              <View style={styles.historyAvatar}>
-                                <Text style={styles.debtorAvatarText}>
-                                  {String(history.playerName || "J").charAt(0).toUpperCase()}
-                                </Text>
-                              </View>
-                              <View style={styles.debtorCopy}>
-                                <Text numberOfLines={1} style={styles.debtorName}>
-                                  {history.playerName}
-                                </Text>
-                                <Text numberOfLines={1} style={styles.debtorLeague}>
-                                  {history.tournamentDetails.length === 1
-                                    ? history.tournamentDetails[0]?.tournamentName || "Torneo"
-                                    : `${history.tournamentDetails.length} torneos con pagos`}
-                                </Text>
-                              </View>
-                              <Text style={styles.historyAmount}>{formatCurrency(history.amount)}</Text>
-                              <Ionicons
-                                color={colors.textMuted}
-                                name={isExpanded ? "chevron-up" : "chevron-down"}
-                                size={18}
-                                style={styles.debtorChevron}
-                              />
-                            </View>
-                            <Text style={styles.debtorDetail}>
-                              Total pagos registrados: {history.paymentCount}
-                            </Text>
-
-                            {isExpanded ? (
-                              <View style={styles.debtorDetailList}>
-                                {history.tournamentDetails.map((detail) => (
-                                  <View key={detail.tournamentId} style={styles.historyLeagueDetail}>
-                                    <View style={styles.debtorLeagueDetailHeader}>
-                                      <Text numberOfLines={1} style={styles.debtorLeagueDetailTitle}>
-                                        {detail.tournamentName}
-                                      </Text>
-                                      <Text style={styles.historyLeagueDetailAmount}>
-                                        {formatCurrency(detail.amount)}
-                                      </Text>
-                                    </View>
-                                    {detail.payments.map((payment, index) => {
-                                      const confirmedDate = formatShortDate(payment.confirmedAtMillis);
-
-                                      return (
-                                        <Text
-                                          key={`${detail.tournamentId}-${payment.pairLabel}-${index}`}
-                                          style={styles.historyPaymentLine}
-                                        >
-                                          {payment.pairLabel || "Inscripcion"} · {getPaymentMethodLabel(payment.method)}
-                                          {confirmedDate ? ` · ${confirmedDate}` : ""}
-                                        </Text>
-                                      );
-                                    })}
-                                  </View>
-                                ))}
-                              </View>
-                            ) : null}
-                          </Pressable>
-                        );
-                      })
-                    : null}
-                </View>
-              ) : null}
-
-              {activeModule === "torneos" && activeTournamentArea === "reminders" ? (
-                <View style={styles.card}>
-                  <View style={styles.cardHeaderRow}>
-                    <View>
-                      <Text style={styles.cardEyebrow}>TORNEOS</Text>
-                      <Text style={styles.cardTitle}>Recordatorios de deuda</Text>
-                    </View>
-                    <Ionicons color={colors.primaryDark} name="notifications-outline" size={24} />
-                  </View>
-
-                  <Text style={styles.helperText}>
-                    Aca podes enviar recordatorios manuales a inscripciones pendientes de pago.
-                  </Text>
-
-                  <View style={styles.searchWrap}>
-                    <Ionicons color={colors.textMuted} name="search-outline" size={18} />
-                    <TextInput
-                      onChangeText={setTournamentReminderSearch}
-                      placeholder="Buscar por jugador o torneo"
-                      placeholderTextColor={colors.textMuted}
-                      style={styles.searchInput}
-                      value={tournamentReminderSearch}
-                    />
-                  </View>
-
-                  {loadingTournaments ? (
-                    <View style={styles.loadingBox}>
-                      <ActivityIndicator color={colors.primaryDark} />
-                      <Text style={styles.loadingText}>Buscando recordatorios...</Text>
-                    </View>
-                  ) : null}
-
-                  {!loadingTournaments && !tournamentReminderItems.length ? (
-                    <View style={styles.emptyBox}>
-                      <Text style={styles.emptyTitle}>
-                        {tournamentReminderSearch.trim() ? "Sin resultados" : "Sin recordatorios pendientes"}
-                      </Text>
-                      <Text style={styles.emptyText}>
-                        {tournamentReminderSearch.trim()
-                          ? "No encontramos inscripciones impagas que coincidan con tu busqueda."
-                          : "Cuando haya inscripciones impagas en tus torneos, apareceran aca."}
-                      </Text>
-                    </View>
-                  ) : null}
-
-                  {!loadingTournaments
-                    ? tournamentReminderItems.map((item) => (
-                        <View key={item.id} style={styles.reminderCard}>
-                          <View style={styles.reminderHeader}>
-                            <View style={styles.reminderBadge}>
-                              <Text style={styles.reminderBadgeText}>PENDIENTE</Text>
-                            </View>
-                            <View style={styles.reminderCopy}>
-                              <Text numberOfLines={1} style={styles.debtorName}>
-                                {item.playerName}
-                              </Text>
-                              <Text numberOfLines={1} style={styles.debtorLeague}>
-                                {item.tournament?.name || "Torneo"} · {item.registration?.pairLabel || "Inscripcion"}
-                              </Text>
-                            </View>
-                          </View>
-                          <Pressable
-                            disabled={sendingReminderId === item.id}
-                            onPress={() => handleSendTournamentReminder(item)}
-                            style={({ pressed }) => [
-                              styles.reminderButton,
-                              sendingReminderId === item.id ? styles.primaryButtonDisabled : null,
-                              pressed && sendingReminderId !== item.id ? styles.pressedState : null,
-                            ]}
-                          >
-                            <Text style={styles.reminderButtonText}>
-                              {sendingReminderId === item.id ? "ENVIANDO..." : "ENVIAR RECORDATORIO"}
-                            </Text>
-                          </Pressable>
-                        </View>
-                      ))
-                    : null}
-                </View>
-              ) : null}
-
-              {activeModule === "torneos" && activeTournamentArea === "cash" ? (
-                <View style={styles.card}>
-                  <View style={styles.cardHeaderRow}>
-                    <View>
-                      <Text style={styles.cardEyebrow}>TORNEOS</Text>
-                      <Text style={styles.cardTitle}>Caja de Torneos</Text>
-                    </View>
-                    <Ionicons color={colors.primaryDark} name="cash-outline" size={24} />
-                  </View>
-
-                  {loadingTournaments ? (
-                    <View style={styles.loadingBox}>
-                      <ActivityIndicator color={colors.primaryDark} />
-                      <Text style={styles.loadingText}>Calculando caja...</Text>
-                    </View>
-                  ) : null}
-
-                  {!loadingTournaments ? (
-                    <>
-                      <View style={styles.cashSummaryGrid}>
-                        <View style={styles.cashSummaryBlock}>
-                          <Text style={styles.cashSummaryTitle}>HOY</Text>
-                          <View style={styles.cashMetricRow}>
-                            <Text style={styles.cashMetricLabel}>Ingresos</Text>
-                            <Text style={styles.cashIncomeAmount}>
-                              {formatCurrency(tournamentCashSummary.today.income)}
-                            </Text>
-                          </View>
-                          <View style={styles.cashMetricRow}>
-                            <Text style={styles.cashMetricLabel}>Impagos</Text>
-                            <Text style={styles.cashPendingAmount}>
-                              {formatCurrency(tournamentCashSummary.today.pending)}
-                            </Text>
-                          </View>
-                        </View>
-
-                        <View style={styles.cashSummaryBlock}>
-                          <Text style={styles.cashSummaryTitle}>ULTIMOS 7 DIAS</Text>
-                          {tournamentCashSummary.daily.map((day) => (
-                            <View key={day.key} style={styles.cashDailyRow}>
-                              <Text style={styles.cashDailyLabel}>{day.label}</Text>
-                              <View style={styles.cashDailyAmounts}>
-                                <Text style={styles.cashDailyIncome}>
-                                  Ingresos {formatCurrency(day.income)}
-                                </Text>
-                                <Text style={styles.cashDailyPending}>
-                                  Impagos {formatCurrency(day.pending)}
-                                </Text>
-                              </View>
-                            </View>
-                          ))}
-                        </View>
-                      </View>
-
-                      <Text style={styles.helperText}>
-                        Los ingresos se toman de pagos aprobados. Los impagos reflejan inscripciones pendientes o rechazadas con importe cargado.
-                      </Text>
-                    </>
-                  ) : null}
-                </View>
-              ) : null}
-            </>
-          )}
-        </ScrollView>
-      </KeyboardAvoidingView>
+          </Pressable>
+        );
+      })}
+    </View>
+
+    {activeFinanceTab === "cobros" ? renderCobrosTab() : null}
+    {activeFinanceTab === "history" ? renderHistoryTab() : null}
+    {activeFinanceTab === "summary" ? renderSummaryTab() : null}
+    {activeFinanceTab === "settings" ? renderSettingsTab() : null}
+  </>
+)}
+      </ScrollView>
+    </KeyboardAvoidingView>
 
       <BottomQuickActionsBar />
       <FeedbackModal
@@ -2800,6 +3042,63 @@ const styles = StyleSheet.create({
     minHeight: 44,
     paddingVertical: 0,
   },
+  searchFilterButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  searchFilterButtonActive: {
+    backgroundColor: colors.primaryDark,
+    borderColor: colors.primaryDark,
+  },
+  advancedFiltersPanel: {
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#D8E3ED",
+    backgroundColor: "#F8FBFD",
+    padding: spacing.md,
+    gap: spacing.sm,
+  },
+  advancedFiltersSection: {
+    gap: spacing.xs,
+  },
+  advancedFiltersLabel: {
+    color: colors.text,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  advancedFiltersChipRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.xs,
+  },
+  advancedFilterChip: {
+    minHeight: 32,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#D3DEE8",
+    backgroundColor: colors.surface,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: spacing.md,
+  },
+  advancedFilterChipActive: {
+    backgroundColor: "#E7F1F8",
+    borderColor: "#9DBAD0",
+  },
+  advancedFilterChipText: {
+    color: "#5B7385",
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  advancedFilterChipTextActive: {
+    color: "#2E607F",
+  },
   emptyTitle: {
     color: colors.text,
     fontSize: 15,
@@ -3021,9 +3320,330 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 17,
   },
+  financeTabsRow: {
+    flexDirection: "row",
+    gap: spacing.sm,
+    justifyContent: "space-between",
+  },
+  financeTabButton: {
+    width: "23%",
+    minHeight: 64,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+    paddingHorizontal: spacing.xs,
+    paddingVertical: spacing.xs,
+  },
+  financeTabButtonActive: {
+    backgroundColor: colors.primaryDark,
+    borderColor: colors.primaryDark,
+  },
+  financeTabButtonText: {
+    color: colors.text,
+    fontSize: 11,
+    fontWeight: "800",
+    textAlign: "center",
+  },
+  financeTabButtonTextActive: {
+    color: colors.surface,
+  },
+  financeFilterRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.xs,
+  },
+  compactFilterChip: {
+    minHeight: 34,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.background,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: spacing.md,
+  },
+  compactFilterChipActive: {
+    backgroundColor: "#E5F4EF",
+    borderColor: "#A7D6C4",
+  },
+  compactFilterChipText: {
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  compactFilterChipTextActive: {
+    color: colors.primaryDark,
+  },
+  sourceFilterGrid: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: spacing.sm,
+  },
+  sourceFilterSquare: {
+    width: "31%",
+    minHeight: 62,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#C6DAD0",
+    backgroundColor: "#F4FAF7",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingHorizontal: spacing.xs,
+    paddingVertical: spacing.xs,
+  },
+  sourceFilterSquareActive: {
+    backgroundColor: "#DCEFE6",
+    borderColor: "#7FB89D",
+  },
+  sourceFilterCheck: {
+    width: 18,
+    height: 18,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#A8C8B7",
+    backgroundColor: "#EEF6F1",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  sourceFilterCheckActive: {
+    backgroundColor: colors.primaryDark,
+    borderColor: colors.primaryDark,
+  },
+  sourceFilterSquareText: {
+    color: "#456A5C",
+    fontSize: 12,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  sourceFilterSquareTextActive: {
+    color: "#1E5642",
+  },
+  statusFilterChip: {
+    minHeight: 34,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#D8E3ED",
+    backgroundColor: "#F7FAFD",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: spacing.md,
+  },
+  statusFilterChipActive: {
+    backgroundColor: "#E9F1F9",
+    borderColor: "#AFC7DE",
+  },
+  statusFilterChipText: {
+    color: "#567287",
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  statusFilterChipTextActive: {
+    color: "#2E607F",
+  },
+  collectionCard: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.background,
+    padding: spacing.md,
+    gap: spacing.sm,
+  },
+  collectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+  },
+  collectionCopy: {
+    flex: 1,
+    gap: 2,
+  },
+  collectionAmountText: {
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  collectionMetaRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.xs,
+  },
+  collectionStatusPill: {
+    minHeight: 28,
+    borderRadius: 999,
+    paddingHorizontal: spacing.sm,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  collectionStatusPillPending: {
+    backgroundColor: "#FFF0EE",
+  },
+  collectionStatusPillPendingText: {
+    color: "#B24343",
+    fontSize: 11,
+    fontWeight: "900",
+  },
+  collectionStatusPillReview: {
+    backgroundColor: "#EEF6FF",
+  },
+  collectionStatusPillReviewText: {
+    color: "#2A6DA8",
+    fontSize: 11,
+    fontWeight: "900",
+  },
+  collectionSourceRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.xs,
+  },
+  collectionSourceChip: {
+    minHeight: 24,
+    borderRadius: 999,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: spacing.sm,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  collectionSourceChipActive: {
+    backgroundColor: "#E5F4EF",
+    borderColor: "#A7D6C4",
+  },
+  collectionSourceChipText: {
+    color: colors.textMuted,
+    fontSize: 11,
+    fontWeight: "800",
+  },
+  collectionSourceChipTextActive: {
+    color: colors.primaryDark,
+  },
+  collectionDetailList: {
+    gap: spacing.xs,
+  },
+  collectionDetailItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    paddingTop: spacing.sm,
+  },
+  collectionDetailCopy: {
+    flex: 1,
+    gap: 2,
+  },
+  collectionDetailTitle: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  collectionDetailText: {
+    color: colors.textMuted,
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  collectionDetailRight: {
+    alignItems: "flex-end",
+    gap: spacing.xs,
+  },
+  collectionDetailAmount: {
+    color: "#B24343",
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  collectionActionButton: {
+    minHeight: 28,
+    borderRadius: 999,
+    backgroundColor: colors.primaryDark,
+    paddingHorizontal: spacing.sm,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  collectionActionButtonText: {
+    color: colors.surface,
+    fontSize: 11,
+    fontWeight: "900",
+  },
+  historyLineCard: {
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.background,
+    padding: spacing.md,
+    gap: spacing.xs,
+  },
+  historyLineTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.sm,
+  },
+  historyLinePlayer: {
+    flex: 1,
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  historyLineAmount: {
+    color: "#197B59",
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  historyLineText: {
+    color: colors.text,
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  historyLineMeta: {
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  summaryMiniGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.sm,
+  },
+  summaryMiniCard: {
+    width: "48%",
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.background,
+    padding: spacing.md,
+    gap: 4,
+  },
+  summaryMiniLabel: {
+    color: colors.textMuted,
+    fontSize: 11,
+    fontWeight: "800",
+    textTransform: "uppercase",
+  },
+  summaryMiniValue: {
+    color: colors.text,
+    fontSize: 17,
+    fontWeight: "900",
+  },
+  summaryMiniValueWarning: {
+    color: "#B24343",
+  },
+  summaryMiniValueInfo: {
+    color: "#1E6A8F",
+  },
   pressedState: {
     opacity: 0.92,
     transform: [{ scale: 0.99 }],
   },
 });
+
+
+
+
+
 

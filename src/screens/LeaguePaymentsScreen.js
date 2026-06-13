@@ -32,6 +32,7 @@ import {
   resolveLeaguePaymentRounds,
   updateLeagueRoundPayments,
 } from "../services/leaguesService";
+import { normalizeMercadoPagoConfig } from "../services/mercadoPagoConfigService";
 import { sendChatMessage } from "../services/chatService";
 import { storage } from "../../services/firebaseConfig";
 
@@ -43,7 +44,7 @@ const STATUS_META = {
     accent: "#D26A2C",
   },
   informo_transferencia: {
-    label: "Verificar pago",
+    label: "Pago a Verificar",
     tint: "#FFF9E6",
     border: "#E5D07F",
     accent: "#8C6A05",
@@ -192,9 +193,12 @@ function getPaymentAmountSummary(entries = [], amountPerEntry = 0) {
 }
 
 function getPaymentAmountSummaryItems(summary = {}) {
+  const paidTotal = Number(summary.cash || 0) + Number(summary.transfer || 0);
+
   return [
     { key: "cash", label: "Efectivo", value: summary.cash || 0 },
     { key: "transfer", label: "Transferencia", value: summary.transfer || 0 },
+    { key: "paid_total", label: "Pagados", value: paidTotal },
     { key: "pending", label: "Impagos", value: summary.pending || 0 },
   ];
 }
@@ -406,6 +410,8 @@ function formatCompactPlayerName(value = "") {
 export default function LeaguePaymentsScreen({ navigation, route }) {
   const { userData } = useAuth();
   const leagueId = route?.params?.leagueId || "";
+  const focusPlayerId = String(route?.params?.focusPlayerId || "").trim().toLowerCase();
+  const focusPlayerName = String(route?.params?.focusPlayerName || "").trim().toLowerCase();
   const fallbackLeagueName = route?.params?.leagueName || "Liga";
   const [league, setLeague] = useState(null);
   const [roundPaymentsDraft, setRoundPaymentsDraft] = useState([]);
@@ -421,6 +427,7 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
   const [entryMenuVisible, setEntryMenuVisible] = useState(false);
   const [methodPickerVisible, setMethodPickerVisible] = useState(false);
   const [proofReviewVisible, setProofReviewVisible] = useState(false);
+  const [transferProofPickerVisible, setTransferProofPickerVisible] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState({
@@ -481,6 +488,10 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
   const leagueName = league?.nombre || fallbackLeagueName;
   const hasFixture = Array.isArray(league?.fixture?.rounds) && league.fixture.rounds.length > 0;
   const leagueRoundPrice = getPositiveMoneyValue(league?.paymentConfig?.roundPricePerPlayer);
+  const leagueMercadoPagoConfig = useMemo(
+    () => normalizeMercadoPagoConfig(league?.paymentConfig?.mercadoPago),
+    [league?.paymentConfig?.mercadoPago]
+  );
   const defaultRoundPrice = getPositiveMoneyValue(userData?.leaguePaymentDefaults?.roundPricePerPlayer);
   const roundPricePerPlayer = leagueRoundPrice || defaultRoundPrice;
   const roundPriceLabel = roundPricePerPlayer > 0 ? `${formatCurrency(roundPricePerPlayer)} por jugador` : "";
@@ -559,6 +570,7 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
     setEntryMenuVisible(false);
     setMethodPickerVisible(false);
     setProofReviewVisible(false);
+    setTransferProofPickerVisible(false);
   };
 
   const openReminderCenter = () => {
@@ -751,6 +763,11 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
     closeEntryMenu();
   };
 
+  const openTransferProofPicker = () => {
+    setMethodPickerVisible(false);
+    setTransferProofPickerVisible(true);
+  };
+
   const confirmTransferPayment = () => {
     if (!selectedRound || !selectedEntry) return;
     updateEntry(selectedRound.roundId, selectedEntry.participantId, {
@@ -789,10 +806,12 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
     }
   };
 
-  const handleUploadProof = async (round, entry, proofType = "any") => {
+  const handleUploadProof = async (round, entry, proofType = "any", options = {}) => {
     if (!round || !entry) {
       return;
     }
+
+    const markAsPaid = options?.markAsPaid === true;
 
     try {
       const pickerType =
@@ -857,16 +876,16 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
         round.roundId,
         entry.participantId,
         {
-          paymentStatus: "informo_transferencia",
+          paymentStatus: markAsPaid ? "pagado" : "informo_transferencia",
           paymentMethod: "transferencia",
           proofUrl,
           proofFileName: fileName,
           proofUploadedAtMillis: Date.now(),
           proofUploadedBy: actor.id,
           proofUploadedByName: actor.name,
-          confirmedAtMillis: 0,
-          confirmedBy: "",
-          confirmedByName: "",
+          confirmedAtMillis: markAsPaid ? Date.now() : 0,
+          confirmedBy: markAsPaid ? actor.id : "",
+          confirmedByName: markAsPaid ? actor.name : "",
           rejectedAtMillis: 0,
           rejectedBy: "",
           rejectedByName: "",
@@ -886,10 +905,16 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
       );
       setFeedback({
         visible: true,
-        title: "Comprobante enviado",
-        message: "El organizador ya puede revisarlo y confirmar el pago.",
+        title: markAsPaid ? "Pago actualizado" : "Comprobante enviado",
+        message: markAsPaid
+          ? "El pago quedo marcado como transferencia y el comprobante se guardo correctamente."
+          : "El organizador ya puede revisarlo y confirmar el pago.",
         tone: "success",
       });
+
+      if (markAsPaid) {
+        closeEntryMenu();
+      }
     } catch (error) {
       setFeedback({
         visible: true,
@@ -900,6 +925,28 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleOpenMercadoPagoInfo = () => {
+    showFeedback(
+      "Mercado Pago disponible",
+      "Esta liga ya quedo preparada para cobrar con Checkout Pro usando credenciales de prueba.",
+      "default"
+    );
+  };
+
+  const handleOrganizerTransferSelection = async (shouldUploadProof = false) => {
+    if (!selectedRound || !selectedEntry) {
+      return;
+    }
+
+    if (!shouldUploadProof) {
+      markPaidWithMethod("transferencia");
+      return;
+    }
+
+    setTransferProofPickerVisible(false);
+    await handleUploadProof(selectedRound, selectedEntry, "any", { markAsPaid: true });
   };
 
   const handleOpenWhatsAppReminder = async () => {
@@ -996,9 +1043,19 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
     const methodLabel = getPaymentMethodLabel(entry);
     const hasProof = Boolean(entry.proofUrl);
     const updatedLabel = formatUpdatedAt(entry.updatedAtMillis);
+    const isFocused =
+      (!!focusPlayerId &&
+        [entry.participantId, ...(entry.playerIds || []), ...(entry.players || []).flatMap((player) => [player?.linkedUserId, player?.id])]
+          .filter(Boolean)
+          .some((value) => String(value).trim().toLowerCase() === focusPlayerId)) ||
+      (!!focusPlayerName &&
+        String(entry.participantLabel || "").trim().toLowerCase() === focusPlayerName);
 
     return (
-      <View key={`${round.roundId}-${entry.participantId}`} style={styles.entryRow}>
+      <View
+        key={`${round.roundId}-${entry.participantId}`}
+        style={[styles.entryRow, isFocused ? styles.focusedPaymentRow : null]}
+      >
         <View style={[styles.entryAccentBar, { backgroundColor: statusMeta.accent }]} />
 
         <View style={styles.entryCopy}>
@@ -1029,8 +1086,8 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
             </View>
             {methodLabel ? <Text style={styles.entryMetaChip}>{methodLabel}</Text> : null}
             {hasProof ? (
-              <Text style={styles.entryMetaChip}>
-                Comprobante {formatUpdatedAt(entry.proofUploadedAtMillis)}
+              <Text style={styles.entryProofChip}>
+                Comprobante adjuntado · {formatUpdatedAt(entry.proofUploadedAtMillis)}
               </Text>
             ) : null}
           </View>
@@ -1101,9 +1158,21 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
   const renderPaymentTableRow = (round, entry) => {
     const statusMeta = getStatusMeta(entry.paymentStatus);
     const methodLabel = getPaymentMethodLabel(entry);
+    const statusLabel =
+      entry.paymentStatus === "informo_transferencia" ? "Pago a\nVerificar" : statusMeta.label;
+    const isFocused =
+      (!!focusPlayerId &&
+        [entry.participantId, ...(entry.playerIds || []), ...(entry.players || []).flatMap((player) => [player?.linkedUserId, player?.id])]
+          .filter(Boolean)
+          .some((value) => String(value).trim().toLowerCase() === focusPlayerId)) ||
+      (!!focusPlayerName &&
+        String(entry.participantLabel || "").trim().toLowerCase() === focusPlayerName);
 
     return (
-      <View key={`${round.roundId}-${entry.participantId}`} style={styles.paymentTableRow}>
+      <View
+        key={`${round.roundId}-${entry.participantId}`}
+        style={[styles.paymentTableRow, isFocused ? styles.focusedPaymentTableRow : null]}
+      >
         <View style={styles.paymentTablePlayerCell}>
           {entry.pairLabel ? (
             <Text numberOfLines={1} style={styles.paymentTablePairLabel}>
@@ -1113,16 +1182,11 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
           <Text numberOfLines={1} style={styles.paymentTablePlayerName}>
             {formatCompactPlayerName(entry.participantLabel)}
           </Text>
-          {entry.pairMateLabel ? (
-            <Text numberOfLines={1} style={styles.paymentTablePlayerMate}>
-              con {formatCompactPlayerName(entry.pairMateLabel)}
-            </Text>
-          ) : null}
         </View>
 
         <View style={styles.paymentTableStatusCell}>
-          <Text style={[styles.paymentTableStatusText, { color: statusMeta.accent }]}>
-            {statusMeta.label}
+          <Text numberOfLines={2} style={[styles.paymentTableStatusText, { color: statusMeta.accent }]}>
+            {statusLabel}
           </Text>
         </View>
 
@@ -1329,11 +1393,7 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
                       <Text style={styles.inlineCounterText}>Impagos {roundSummary.pending}</Text>
                     </View>
                   </>
-                ) : (
-                  <View style={[styles.inlineCounter, styles.inlineCounterWarning]}>
-                    <Text style={styles.inlineCounterText}>Tu pago de esta fecha</Text>
-                  </View>
-                )}
+                ) : null}
               </View>
 
               {isExpanded ? (
@@ -1375,16 +1435,25 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
                         Adjunta el comprobante en imagen o PDF. El organizador lo revisa y confirma el pago.
                       </Text>
                       <View style={styles.playerPaymentHelpActions}>
-                        {playerPrimaryEntry?.proofUrl ? (
+                        {leagueMercadoPagoConfig.enabled ? (
                           <Pressable
-                            onPress={() => handleOpenProof(playerPrimaryEntry.proofUrl)}
+                            onPress={handleOpenMercadoPagoInfo}
                             style={({ pressed }) => [
-                              styles.playerSecondaryButton,
+                              styles.playerSoftActionButton,
                               styles.playerPaymentHelpButton,
+                              styles.playerMercadoPagoButton,
                               pressed ? styles.pressedState : null,
                             ]}
                           >
-                            <Text style={styles.playerSecondaryButtonText}>Ver comprobante</Text>
+                            <Ionicons color="#1A7F5A" name="wallet-outline" size={14} />
+                            <Text
+                              style={[
+                                styles.playerSoftActionButtonText,
+                                styles.playerMercadoPagoButtonText,
+                              ]}
+                            >
+                              Mercado Pago
+                            </Text>
                           </Pressable>
                         ) : null}
                         {playerPrimaryEntry?.paymentStatus !== "pagado" ? (
@@ -1392,14 +1461,14 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
                             disabled={saving}
                             onPress={() => handleUploadProof(round, playerPrimaryEntry)}
                             style={({ pressed }) => [
-                              styles.proofUploadButton,
+                              styles.playerSoftActionButton,
                               styles.playerPaymentHelpButton,
                               saving ? styles.saveButtonDisabled : null,
                               pressed && !saving ? styles.pressedState : null,
                             ]}
                           >
-                            <Ionicons color={colors.surface} name="attach-outline" size={14} />
-                            <Text style={styles.proofUploadButtonText}>Comprobante</Text>
+                            <Ionicons color={colors.primaryDark} name="attach-outline" size={14} />
+                            <Text style={styles.playerSoftActionButtonText}>Enviar Comprobante</Text>
                           </Pressable>
                         ) : null}
                       </View>
@@ -1417,6 +1486,7 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
                             key={`${round.roundId}-${item.key}`}
                             style={[
                               styles.amountSummaryItem,
+                              item.key === "paid_total" ? styles.amountSummaryItemSuccess : null,
                               item.key === "pending" ? styles.amountSummaryItemDanger : null,
                             ]}
                           >
@@ -1424,6 +1494,7 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
                             <Text
                               style={[
                                 styles.amountSummaryValue,
+                                item.key === "paid_total" ? styles.amountSummaryValueSuccess : null,
                                 item.key === "pending" ? styles.amountSummaryValueDanger : null,
                               ]}
                             >
@@ -1452,6 +1523,7 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
                   key={`global-${item.key}`}
                   style={[
                     styles.amountSummaryItem,
+                    item.key === "paid_total" ? styles.amountSummaryItemSuccess : null,
                     item.key === "pending" ? styles.amountSummaryItemDanger : null,
                   ]}
                 >
@@ -1459,6 +1531,7 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
                   <Text
                     style={[
                       styles.amountSummaryValue,
+                      item.key === "paid_total" ? styles.amountSummaryValueSuccess : null,
                       item.key === "pending" ? styles.amountSummaryValueDanger : null,
                     ]}
                   >
@@ -1881,7 +1954,11 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
             {PAYMENT_METHOD_OPTIONS.map((option) => (
               <Pressable
                 key={option.key}
-                onPress={() => markPaidWithMethod(option.key)}
+                onPress={() =>
+                  option.key === "transferencia"
+                    ? openTransferProofPicker()
+                    : markPaidWithMethod(option.key)
+                }
                 style={({ pressed }) => [styles.modalAction, pressed ? styles.pressedState : null]}
               >
                 <Text style={styles.modalActionText}>{option.label}</Text>
@@ -1890,6 +1967,44 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
             <View style={styles.modalActionDisabled}>
               <Text style={styles.modalActionDisabledText}>Mercado Pago proximamente</Text>
             </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        animationType="fade"
+        transparent
+        visible={transferProofPickerVisible}
+        onRequestClose={() => setTransferProofPickerVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <Pressable
+            style={styles.modalBackdrop}
+            onPress={() => setTransferProofPickerVisible(false)}
+          />
+          <View style={styles.modalCardSmall}>
+            <Text style={styles.modalTitle}>Transferencia</Text>
+            <Text style={styles.modalSubtitle}>
+              El comprobante puede cargarse ahora o dejarse sin adjuntar.
+            </Text>
+            <Pressable
+              onPress={() => handleOrganizerTransferSelection(false)}
+              style={({ pressed }) => [styles.modalAction, pressed ? styles.pressedState : null]}
+            >
+              <Text style={styles.modalActionText}>Marcar sin comprobante</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => handleOrganizerTransferSelection(true)}
+              style={({ pressed }) => [styles.modalAction, pressed ? styles.pressedState : null]}
+            >
+              <Text style={styles.modalActionText}>Cargar comprobante</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => setTransferProofPickerVisible(false)}
+              style={({ pressed }) => [styles.modalCloseButton, pressed ? styles.pressedState : null]}
+            >
+              <Text style={styles.modalCloseButtonText}>Cerrar</Text>
+            </Pressable>
           </View>
         </View>
       </Modal>
@@ -1982,23 +2097,20 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   roundTitleValueRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    flexWrap: "wrap",
-    gap: spacing.xs,
+    width: "100%",
   },
   roundTitle: {
     backgroundColor: "#2D6B8F",
-    borderRadius: 8,
+    borderRadius: 10,
     color: colors.surface,
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: "900",
-    minHeight: 26,
+    minHeight: 34,
     overflow: "hidden",
-    paddingHorizontal: 9,
-    paddingVertical: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
     textAlign: "center",
+    width: "100%",
   },
   roundDatePillReprogrammed: {
     backgroundColor: "#1E7F4D",
@@ -2106,6 +2218,9 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#EEF2F0",
   },
+  focusedPaymentTableRow: {
+    backgroundColor: "#F1FAF5",
+  },
   paymentTablePlayerCell: {
     flex: 2.9,
     justifyContent: "center",
@@ -2138,18 +2253,19 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingLeft: 0,
     paddingRight: 2,
-    marginLeft: -110,
+    marginLeft: -122,
   },
   paymentTableStatusHeader: {
     flex: 1.1,
     textAlign: "left",
     paddingLeft: 0,
-    marginLeft: -110,
+    marginLeft: -122,
   },
   paymentTableStatusText: {
     fontSize: 10,
     fontWeight: "900",
     textAlign: "left",
+    lineHeight: 11,
   },
   paymentTableMethodCell: {
     flex: 0.95,
@@ -2305,6 +2421,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.xs,
   },
+  amountSummaryItemSuccess: {
+    backgroundColor: "#EEF9F1",
+    borderColor: "#B7DFBF",
+  },
   amountSummaryItemDanger: {
     backgroundColor: "#FFF4E8",
     borderColor: "#F2C997",
@@ -2321,6 +2441,9 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     textAlign: "center",
   },
+  amountSummaryValueSuccess: {
+    color: "#237547",
+  },
   amountSummaryValueDanger: {
     color: "#C8581F",
   },
@@ -2335,6 +2458,10 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "stretch",
     gap: spacing.sm,
+  },
+  focusedPaymentRow: {
+    borderColor: "#8BCDB0",
+    backgroundColor: "#F1FAF5",
   },
   entryAccentBar: {
     width: 5,
@@ -2402,6 +2529,16 @@ const styles = StyleSheet.create({
     color: "#4F635B",
     fontSize: 11,
     fontWeight: "700",
+    overflow: "hidden",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  entryProofChip: {
+    backgroundColor: "#EAF4FF",
+    borderRadius: 999,
+    color: "#2F648D",
+    fontSize: 11,
+    fontWeight: "800",
     overflow: "hidden",
     paddingHorizontal: 8,
     paddingVertical: 3,
@@ -2512,19 +2649,36 @@ const styles = StyleSheet.create({
     minWidth: 50,
   },
   playerSecondaryButton: {
-    minHeight: 32,
+    minHeight: 30,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: colors.primaryDark,
-    backgroundColor: colors.surface,
+    borderColor: "#C9D7D0",
+    backgroundColor: "#F7FAF8",
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 10,
   },
   playerSecondaryButtonText: {
-    color: colors.primaryDark,
+    color: "#496358",
     fontSize: 11,
-    fontWeight: "900",
+    fontWeight: "800",
+  },
+  playerSoftActionButton: {
+    minHeight: 30,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#C9D7D0",
+    backgroundColor: "#F7FAF8",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 5,
+    paddingHorizontal: 10,
+  },
+  playerSoftActionButtonText: {
+    color: "#496358",
+    fontSize: 11,
+    fontWeight: "800",
   },
   playerPaymentHelpCard: {
     borderRadius: 14,
@@ -2550,6 +2704,13 @@ const styles = StyleSheet.create({
   },
   playerPaymentHelpButton: {
     alignSelf: "stretch",
+  },
+  playerMercadoPagoButton: {
+    backgroundColor: "#F3FBF7",
+    borderColor: "#BFE5CD",
+  },
+  playerMercadoPagoButtonText: {
+    color: "#1A7F5A",
   },
   footerSummaryCard: {
     backgroundColor: "#EEF6FF",

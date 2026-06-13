@@ -967,8 +967,8 @@ export default function HomeScreen({ navigation, route }) {
               <Text style={styles.financeIconText}>$</Text>
             </View>
             <View style={styles.financeCopy}>
-              <Text style={styles.financeTitle}>FINANZAS</Text>
-              <Text style={styles.financeText}>Pagos, valores y caja del organizador</Text>
+              <Text style={styles.financeTitle}>CENTRO DE COBROS</Text>
+              <Text style={styles.financeText}>Cobros, deudas y control de pagos</Text>
             </View>
           </Pressable>
         ) : null}

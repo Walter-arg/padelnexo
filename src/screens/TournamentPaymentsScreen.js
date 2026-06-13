@@ -168,6 +168,8 @@ export default function TournamentPaymentsScreen({ navigation, route }) {
   const { userData } = useAuth();
   const tournamentId = route?.params?.tournamentId || "";
   const fallbackTournamentName = route?.params?.tournamentName || "Torneo";
+  const focusPlayerId = String(route?.params?.focusPlayerId || "").trim().toLowerCase();
+  const focusPlayerName = String(route?.params?.focusPlayerName || "").trim().toLowerCase();
   const [tournament, setTournament] = useState(null);
   const [registrations, setRegistrations] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -439,9 +441,19 @@ export default function TournamentPaymentsScreen({ navigation, route }) {
                       const paymentStatusMeta = getTournamentPaymentStatusMeta(payment);
                       const paymentKey = `${registration.id}-${payment.playerId || payment.userId}`;
                       const isSaving = savingKey.startsWith(paymentKey);
+                      const isFocused =
+                        (!!focusPlayerId &&
+                          [payment.playerId, payment.userId, player.playerId]
+                            .filter(Boolean)
+                            .some((value) => String(value).trim().toLowerCase() === focusPlayerId)) ||
+                        (!!focusPlayerName &&
+                          String(player.playerName || "").trim().toLowerCase() === focusPlayerName);
 
                       return (
-                        <View key={paymentKey} style={styles.playerCard}>
+                        <View
+                          key={paymentKey}
+                          style={[styles.playerCard, isFocused ? styles.focusedPlayerCard : null]}
+                        >
                           <View style={styles.playerHeader}>
                             <View style={styles.playerIdentityRow}>
                               <View style={styles.playerIdentityMain}>
@@ -720,6 +732,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     padding: spacing.sm,
     gap: spacing.sm,
+  },
+  focusedPlayerCard: {
+    backgroundColor: "#F1FAF5",
+    borderColor: "#8BCDB0",
   },
   playerHeader: {
     gap: spacing.sm,

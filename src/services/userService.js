@@ -153,6 +153,22 @@ function mapDocToUserData(uid, profileDoc = {}, fallbackEmail = "") {
   const availability = profileDoc.availability
     ? normalizeAvailability(profileDoc.availability)
     : buildAvailabilityFromLegacy(profileDoc.disponibilidadDias, profileDoc.disponibilidadHoraria);
+  const mercadoPagoConfig =
+    profileDoc.mercadoPagoConfig && typeof profileDoc.mercadoPagoConfig === "object"
+      ? {
+          enabled: profileDoc.mercadoPagoConfig.enabled === true,
+          accountLinked: profileDoc.mercadoPagoConfig.accountLinked === true,
+          autoEnableNewPayments: profileDoc.mercadoPagoConfig.autoEnableNewPayments === true,
+          accountDisplayName: profileDoc.mercadoPagoConfig.accountDisplayName || "",
+          connectionStatus: profileDoc.mercadoPagoConfig.connectionStatus || "checkout_pro_test",
+        }
+      : {
+          enabled: false,
+          accountLinked: false,
+          autoEnableNewPayments: false,
+          accountDisplayName: "",
+          connectionStatus: "checkout_pro_test",
+        };
 
   return {
     uid,
@@ -184,6 +200,7 @@ function mapDocToUserData(uid, profileDoc = {}, fallbackEmail = "") {
     organizerStatus: profileDoc.organizerStatus || roleData.organizerStatus,
     leagueDefaults: profileDoc.leagueDefaults || null,
     leaguePaymentDefaults: profileDoc.leaguePaymentDefaults || null,
+    mercadoPagoConfig,
     tournamentFixtureDefaults: profileDoc.tournamentFixtureDefaults || null,
     availability,
     complejos,
@@ -595,6 +612,18 @@ export async function updateUserProfile(uid, updates) {
 
   if (updates.leaguePaymentDefaults && typeof updates.leaguePaymentDefaults === "object") {
     payload.leaguePaymentDefaults = updates.leaguePaymentDefaults;
+  }
+
+  if (updates.mercadoPagoConfig && typeof updates.mercadoPagoConfig === "object") {
+    payload.mercadoPagoConfig = {
+      enabled: updates.mercadoPagoConfig.enabled === true,
+      accountLinked: updates.mercadoPagoConfig.accountLinked === true,
+      autoEnableNewPayments: updates.mercadoPagoConfig.autoEnableNewPayments === true,
+      accountDisplayName: String(updates.mercadoPagoConfig.accountDisplayName || "").trim(),
+      connectionStatus:
+        String(updates.mercadoPagoConfig.connectionStatus || "checkout_pro_test").trim() ||
+        "checkout_pro_test",
+    };
   }
 
   if (updates.tournamentFixtureDefaults && typeof updates.tournamentFixtureDefaults === "object") {

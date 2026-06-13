@@ -12,6 +12,7 @@ import {
 } from "../../services/firebaseFirestore";
 
 import { db } from "../../services/firebaseConfig";
+import { buildPublicationMercadoPagoConfig } from "./mercadoPagoConfigService";
 import { ORGANIZER_ROLE, ORGANIZER_STATUS } from "./roleService";
 
 const DEFAULT_SLOTS_BY_DAY = {
@@ -323,6 +324,19 @@ export async function getOrganizerTurnosConfig(organizerId = "", userData = {}) 
   return {
     organizerId,
     requiresOrganizerApproval: storedConfig?.requiresOrganizerApproval !== false,
+    mercadoPagoConfig: (() => {
+      const baseConfig = buildPublicationMercadoPagoConfig(userData?.mercadoPagoConfig);
+      const storedMercadoPagoConfig =
+        storedConfig?.mercadoPagoConfig && typeof storedConfig.mercadoPagoConfig === "object"
+          ? storedConfig.mercadoPagoConfig
+          : {};
+
+      return {
+        ...baseConfig,
+        ...storedMercadoPagoConfig,
+        enabled: storedMercadoPagoConfig.enabled === true || baseConfig.enabled === true,
+      };
+    })(),
     complexes: (Array.isArray(userData?.complejos) ? userData.complejos : []).map((complex, index) => {
       const storedComplexes = storedConfig?.complexes || [];
       const complexKey = buildComplexKey(complex);
@@ -343,6 +357,9 @@ export async function saveOrganizerTurnosConfig(organizerId = "", config = {}) {
     {
       organizerId,
       requiresOrganizerApproval: config.requiresOrganizerApproval !== false,
+      mercadoPagoConfig: {
+        ...buildPublicationMercadoPagoConfig(config.mercadoPagoConfig),
+      },
       complexes: config.complexes || [],
       updatedAt: serverTimestamp(),
     },
@@ -364,8 +381,13 @@ export async function listBookableComplexes() {
   reservationsSnapshot.docs.forEach((reservationDoc) => {
     const reservation = reservationDoc.data() || {};
     const status = String(reservation.status || "");
+    const createdAtMillis = getMillisFromTimestamp(reservation.createdAt);
+    const pendingPaymentExpired =
+      status === "pending_payment" &&
+      createdAtMillis > 0 &&
+      Date.now() - createdAtMillis > 1000 * 60 * 20;
 
-    if (["cancelled", "rejected"].includes(status)) {
+    if (["cancelled", "rejected"].includes(status) || pendingPaymentExpired) {
       return;
     }
 
@@ -412,10 +434,25 @@ export async function listBookableComplexes() {
         return {
           ...complex,
           organizerId: organizer.organizerId,
-      organizerName: organizer.organizerName,
-      organizerLogoUrl: organizer.organizerLogoUrl,
-      requiresOrganizerApproval: configsByOrganizer.get(organizer.organizerId)?.requiresOrganizerApproval !== false,
-      organizerCity: organizer.organizerCity,
+          organizerName: organizer.organizerName,
+          organizerLogoUrl: organizer.organizerLogoUrl,
+          requiresOrganizerApproval:
+            configsByOrganizer.get(organizer.organizerId)?.requiresOrganizerApproval !== false,
+          mercadoPagoConfig: (() => {
+            const baseConfig = buildPublicationMercadoPagoConfig(
+              docSnapshot.data()?.mercadoPagoConfig
+            );
+            const storedMercadoPagoConfig =
+              configsByOrganizer.get(organizer.organizerId)?.mercadoPagoConfig || {};
+
+            return {
+              ...baseConfig,
+              ...storedMercadoPagoConfig,
+              enabled:
+                storedMercadoPagoConfig.enabled === true || baseConfig.enabled === true,
+            };
+          })(),
+          organizerCity: organizer.organizerCity,
           organizerProvince: organizer.organizerProvince,
           availableCourts,
         };
@@ -426,12 +463,25 @@ export async function listBookableComplexes() {
 
 export async function createTurnoReservation(payload = {}) {
   const requiresOrganizerApproval = payload.requiresOrganizerApproval !== false;
+  const isMercadoPagoReservation = payload.paymentMethod === "mercado_pago";
+  const createdByOrganizer = payload.createdByOrganizer === true;
   const reservationRef = await addDoc(collection(db, "turnoReservations"), {
     ...payload,
+    createdByOrganizer,
+    organizerNotificationUnread: !createdByOrganizer,
     requiresOrganizerApproval,
-    status: requiresOrganizerApproval ? "pending_organizer_confirmation" : "confirmed",
-    confirmedAt: requiresOrganizerApproval ? null : serverTimestamp(),
-    paymentStatus: payload.paymentMethod === "transferencia" ? "in_review" : "pending_cash",
+    status: isMercadoPagoReservation
+      ? "pending_payment"
+      : requiresOrganizerApproval
+        ? "pending_organizer_confirmation"
+        : "confirmed",
+    confirmedAt: !isMercadoPagoReservation && !requiresOrganizerApproval ? serverTimestamp() : null,
+    paymentStatus:
+      payload.paymentMethod === "transferencia"
+        ? "in_review"
+        : payload.paymentMethod === "mercado_pago"
+        ? "pending"
+        : "pending_cash",
     createdAt: serverTimestamp(),
   });
 
@@ -471,12 +521,27 @@ export async function listOrganizerTurnoReservations(organizerId = "") {
     });
 }
 
+export async function getTurnoReservationById(reservationId = "") {
+  if (!reservationId) {
+    return null;
+  }
+
+  const snapshot = await getDoc(doc(db, "turnoReservations", reservationId));
+
+  if (!snapshot.exists()) {
+    return null;
+  }
+
+  return mapTurnoReservationDoc(snapshot);
+}
+
 export async function updateTurnoReservationStatus(reservationId = "", status = "") {
   if (!reservationId || !status) {
     throw new Error("No encontramos la reserva.");
   }
 
   await updateDoc(doc(db, "turnoReservations", reservationId), {
+    organizerNotificationUnread: false,
     status,
     updatedAt: serverTimestamp(),
     ...(status === "confirmed" ? { confirmedAt: serverTimestamp() } : {}),
@@ -485,4 +550,61 @@ export async function updateTurnoReservationStatus(reservationId = "", status = 
   });
 
   return { id: reservationId, status };
+}
+
+export async function markTurnoReservationNotificationRead(reservationId = "") {
+  if (!reservationId) {
+    throw new Error("No encontramos la reserva.");
+  }
+
+  await updateDoc(doc(db, "turnoReservations", reservationId), {
+    organizerNotificationUnread: false,
+    updatedAt: serverTimestamp(),
+  });
+
+  return { id: reservationId, organizerNotificationUnread: false };
+}
+
+export async function cancelPendingMercadoPagoReservation(
+  reservationId = "",
+  cancellationReason = "payment_not_completed"
+) {
+  if (!reservationId) {
+    throw new Error("No encontramos la reserva.");
+  }
+
+  const reservationRef = doc(db, "turnoReservations", reservationId);
+  const snapshot = await getDoc(reservationRef);
+
+  if (!snapshot.exists()) {
+    return { id: reservationId, status: "missing" };
+  }
+
+  const data = snapshot.data() || {};
+  const currentStatus = String(data.status || "").trim().toLowerCase();
+  const paymentStatus = String(data.paymentStatus || "").trim().toLowerCase();
+  const paymentMethod = String(data.paymentMethod || "").trim().toLowerCase();
+
+  if (paymentMethod !== "mercado_pago") {
+    return { id: reservationId, status: currentStatus || "unchanged" };
+  }
+
+  if (paymentStatus === "pagado" || currentStatus === "confirmed") {
+    return { id: reservationId, status: currentStatus || "confirmed" };
+  }
+
+  if (currentStatus !== "pending_payment") {
+    return { id: reservationId, status: currentStatus || "unchanged" };
+  }
+
+  await updateDoc(reservationRef, {
+    status: "cancelled",
+    paymentStatus: "payment_cancelled",
+    mercadoPagoStatus: "cancelled",
+    mercadoPagoStatusDetail: String(cancellationReason || "payment_not_completed").trim(),
+    cancelledAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+
+  return { id: reservationId, status: "cancelled" };
 }

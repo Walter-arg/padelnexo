@@ -24,8 +24,17 @@ import BottomQuickActionsBar, {
 import FeedbackModal from "../components/FeedbackModal";
 import SectionFilterBar from "../components/SectionFilterBar";
 import SectionHeader from "../components/SectionHeader";
+import { getMercadoPagoReturnUrls } from "../config/mercadoPago";
 import { colors, spacing } from "../config/theme";
 import { useAuth } from "../context/AuthContext";
+import {
+  buildPublicationMercadoPagoConfig,
+  normalizeMercadoPagoConfig,
+} from "../services/mercadoPagoConfigService";
+import {
+  createTurnoMercadoPagoPreference,
+  persistPendingTurnoCheckout,
+} from "../services/mercadoPagoCheckoutService";
 import { sendChatMessage } from "../services/chatService";
 import {
   calculateDistanceKm,
@@ -43,10 +52,11 @@ import {
   saveOrganizerTurnosConfig,
   updateTurnoReservationStatus,
 } from "../services/turnosService";
+import { sendTurnoReservationStatusMessage } from "../services/turnosNotificationsService";
 import { storage } from "../../services/firebaseConfig";
 
 const DURATIONS = [60, 90];
-const PAYMENT_METHODS = [
+const BASE_PAYMENT_METHODS = [
   { key: "efectivo", label: "Efectivo" },
   { key: "transferencia", label: "Transferencia" },
 ];
@@ -58,6 +68,7 @@ const HALF_HOUR_SLOTS = Array.from({ length: 32 }, (_, index) => {
   return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
 });
 const SLOT_ROW_SIZE = 4;
+const SAME_DAY_BOOKING_TOLERANCE_MINUTES = 15;
 const COMPLEX_MANAGEMENT_COLORS = [
   { background: "#EEF6FF", border: "#8FC6EC", text: "#155B86" },
   { background: "#F1FBFF", border: "#9EDCF3", text: "#2095BD" },
@@ -252,10 +263,34 @@ function getCourtSlotsForDate(court = {}, day = {}) {
   return Array.isArray(dateSlots) ? dateSlots : getCourtSlots(court, day.dayKey);
 }
 
+function isPastSlotForDay(day = {}, slot = "") {
+  const slotMinutes = parseSlotToMinutes(slot);
+
+  if (slotMinutes === null || !day?.dateMillis) {
+    return false;
+  }
+
+  const now = new Date();
+  const today = new Date(now);
+  today.setHours(0, 0, 0, 0);
+
+  if (Number(day.dateMillis) !== today.getTime()) {
+    return false;
+  }
+
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+
+  return currentMinutes > slotMinutes + SAME_DAY_BOOKING_TOLERANCE_MINUTES;
+}
+
+function getReservableCourtSlots(court = {}, day = {}) {
+  return getCourtSlotsForDate(court, day).filter((slot) => !isPastSlotForDay(day, slot));
+}
+
 function getAvailableCourtSlots(court = {}, day = {}) {
   const reservedSlots = new Set(court?.reservedSlotsByDate?.[String(day.dateMillis)] || []);
 
-  return getCourtSlotsForDate(court, day).filter((slot) => !reservedSlots.has(slot));
+  return getReservableCourtSlots(court, day).filter((slot) => !reservedSlots.has(slot));
 }
 
 function parseSlotToMinutes(slot = "") {
@@ -291,7 +326,7 @@ function buildSlotBlocks(slot = "", durationMinutes = 60) {
 }
 
 function isDurationAvailable(court = {}, day = {}, slot = "", durationMinutes = 60) {
-  const configuredSlotSet = new Set(getCourtSlotsForDate(court, day));
+  const configuredSlotSet = new Set(getReservableCourtSlots(court, day));
   const reservedSlotSet = new Set(court?.reservedSlotsByDate?.[String(day.dateMillis)] || []);
 
   return (
@@ -408,6 +443,10 @@ async function uploadTurnoProof(asset = {}, playerId = "") {
 export default function TurnosScreen({ navigation }) {
   const { userData } = useAuth();
   const canManageTurnos = isApprovedOrganizer(userData);
+  const organizerMercadoPagoConfig = useMemo(
+    () => normalizeMercadoPagoConfig(userData?.mercadoPagoConfig),
+    [userData?.mercadoPagoConfig]
+  );
   const currentUserId = userData?.uid || userData?.id || "";
   const [activeLocations, setActiveLocations] = useState([]);
   const [complexes, setComplexes] = useState([]);
@@ -652,6 +691,26 @@ export default function TurnosScreen({ navigation }) {
     () => selectedComplex?.availableCourts?.find((court) => court.id === selectedCourtId) || null,
     [selectedComplex, selectedCourtId]
   );
+  const selectedComplexMercadoPagoConfig = useMemo(
+    () =>
+      selectedComplex?.mercadoPagoConfig
+        ? {
+            ...buildPublicationMercadoPagoConfig(organizerMercadoPagoConfig),
+            ...selectedComplex.mercadoPagoConfig,
+          }
+        : buildPublicationMercadoPagoConfig(organizerMercadoPagoConfig),
+    [organizerMercadoPagoConfig, selectedComplex?.mercadoPagoConfig]
+  );
+  const paymentMethods = useMemo(() => {
+    if (!canManageTurnos && selectedComplexMercadoPagoConfig.enabled) {
+      return [
+        ...BASE_PAYMENT_METHODS,
+        { key: "mercado_pago", label: "Mercado Pago" },
+      ];
+    }
+
+    return BASE_PAYMENT_METHODS;
+  }, [canManageTurnos, selectedComplexMercadoPagoConfig.enabled]);
   const selectedDay = useMemo(
     () => days.find((day) => day.id === selectedDayId) || days[0],
     [days, selectedDayId]
@@ -661,7 +720,7 @@ export default function TurnosScreen({ navigation }) {
     [selectedCourt, selectedDay]
   );
   const allCourtSlots = useMemo(
-    () => getCourtSlotsForDate(selectedCourt, selectedDay),
+    () => getReservableCourtSlots(selectedCourt, selectedDay),
     [selectedCourt, selectedDay]
   );
   const availableSlotSet = useMemo(() => new Set(availableSlots), [availableSlots]);
@@ -1178,6 +1237,14 @@ export default function TurnosScreen({ navigation }) {
     setReceiptAsset(result.assets?.[0] || null);
   };
 
+  const handleOpenMercadoPagoInfo = () => {
+    showFeedback(
+      "Mercado Pago disponible",
+      "Esta sede ya quedo preparada para cobrar con Checkout Pro usando credenciales de prueba.",
+      "default"
+    );
+  };
+
   const getReservationPlayer = () => {
     if (canManageTurnos) {
       return selectedReservationPlayer;
@@ -1462,11 +1529,63 @@ export default function TurnosScreen({ navigation }) {
         playerId: reservationPlayer.id || "",
         playerName: reservationPlayer.name,
         playerCountryCode: reservationPlayer.countryCode || "+54",
+        playerEmail: userData?.email || "",
         playerPhone: reservationPlayer.phone || "",
         playerType: reservationPlayer.type || "registered",
       };
 
-      await createTurnoReservation(reservationPayload);
+      const createdReservation = await createTurnoReservation(reservationPayload);
+      const createdReservationWithId = {
+        ...createdReservation,
+        ...reservationPayload,
+      };
+
+      if (paymentMethod === "mercado_pago") {
+        const returnUrls = getMercadoPagoReturnUrls();
+        const checkout = await createTurnoMercadoPagoPreference({
+          reservationId: createdReservation.id,
+          organizerId: reservationPayload.organizerId,
+          organizerName: reservationPayload.organizerName,
+          complexName: reservationPayload.complexName,
+          courtName: reservationPayload.courtName,
+          dateLabel: reservationPayload.dateLabel,
+          time: reservationPayload.time,
+          amount: reservationPayload.price,
+          payerEmail: reservationPayload.playerEmail,
+          payerName: reservationPayload.playerName,
+          successUrl: returnUrls.successUrl,
+          failureUrl: returnUrls.failureUrl,
+          pendingUrl: returnUrls.pendingUrl,
+        });
+
+        if (!checkout.checkoutUrl) {
+          throw new Error("No pudimos obtener el link de pago de Mercado Pago.");
+        }
+
+        await persistPendingTurnoCheckout({
+          preferenceId: checkout.preferenceId,
+          reservationId: createdReservation.id,
+          status: "pending",
+        });
+
+        setSummaryVisible(false);
+        setSelectedSlot("");
+        setReceiptAsset(null);
+        await loadData();
+        await Linking.openURL(checkout.checkoutUrl);
+        return;
+      }
+
+      if (reservationPayload.playerId) {
+        try {
+          await sendTurnoReservationStatusMessage(createdReservationWithId, {
+            organizerId: reservationPayload.organizerId,
+            organizerName: reservationPayload.complexName,
+          });
+        } catch (error) {
+          // La reserva ya quedo creada; si falla la notificacion interna no bloqueamos el flujo.
+        }
+      }
 
       setSummaryVisible(false);
       setSelectedSlot("");
@@ -1479,22 +1598,9 @@ export default function TurnosScreen({ navigation }) {
       const paymentConfirmationText =
         paymentMethod === "transferencia"
           ? "Metodo de pago: Transferencia - Pago a verificar."
+          : paymentMethod === "mercado_pago"
+          ? "Metodo de pago: Mercado Pago - Reserva pendiente hasta completar el cobro."
           : "Metodo de pago: Efectivo - El pago se realizara en el complejo.";
-
-      if (canManageTurnos && reservationPayload.playerId) {
-        try {
-          await sendChatMessage({
-            currentUserId,
-            currentUserName:
-              reservationPayload.complexName || userData?.clubName || userData?.name || "Organizador",
-            otherUserId: reservationPayload.playerId,
-            otherUserName: reservationPayload.playerName || "Jugador",
-            text: buildReservationConfirmationText(reservationPayload, { boldTitle: true }),
-          });
-        } catch (error) {
-          // La reserva ya quedo confirmada; si el chat falla, no bloqueamos el alta.
-        }
-      }
 
       if (
         canManageTurnos &&
@@ -2249,6 +2355,21 @@ export default function TurnosScreen({ navigation }) {
                 </Text>
               </Pressable>
             </View>
+            <View style={styles.mercadoPagoStatusCard}>
+              <View style={styles.mercadoPagoStatusHeader}>
+                <Ionicons
+                  color={organizerConfig?.mercadoPagoConfig?.enabled ? "#1A7F5A" : "#7B8794"}
+                  name="wallet-outline"
+                  size={18}
+                />
+                <Text style={styles.mercadoPagoStatusTitle}>Mercado Pago</Text>
+              </View>
+              <Text style={styles.mercadoPagoStatusText}>
+                {organizerConfig?.mercadoPagoConfig?.enabled
+                  ? "Los turnos nuevos de esta sede ya quedan preparados para cobrar tambien con Mercado Pago."
+                  : "Activalo desde el perfil del organizador para cobrar tambien con Mercado Pago en reservas nuevas."}
+              </Text>
+            </View>
             <Pressable
               disabled={savingConfig}
               onPress={handleSaveConfig}
@@ -2547,7 +2668,7 @@ export default function TurnosScreen({ navigation }) {
 
             <Text style={styles.summarySectionTitle}>Metodo de pago</Text>
             <View style={styles.paymentRow}>
-              {PAYMENT_METHODS.map((method) => {
+              {paymentMethods.map((method) => {
                 const isSelected = paymentMethod === method.key;
 
                 return (
@@ -2571,6 +2692,38 @@ export default function TurnosScreen({ navigation }) {
                 );
               })}
             </View>
+            {!canManageTurnos && selectedComplexMercadoPagoConfig.enabled ? (
+              <Pressable
+                onPress={handleOpenMercadoPagoInfo}
+                style={({ pressed }) => [
+                  styles.mercadoPagoActionButton,
+                  pressed ? styles.pressedState : null,
+                ]}
+              >
+                <Ionicons color="#1A7F5A" name="wallet-outline" size={17} />
+                <Text style={styles.mercadoPagoActionButtonText}>Mercado Pago</Text>
+              </Pressable>
+            ) : null}
+            <View style={styles.mercadoPagoSummaryHint}>
+              <Ionicons
+                color={selectedComplexMercadoPagoConfig.enabled ? "#1A7F5A" : "#7B8794"}
+                name="wallet-outline"
+                size={16}
+              />
+                <Text style={styles.mercadoPagoSummaryHintText}>
+                {selectedComplexMercadoPagoConfig.enabled
+                  ? "Esta sede tambien queda preparada para cobrar con Mercado Pago."
+                  : "Por ahora esta reserva se gestiona con efectivo o transferencia."}
+              </Text>
+            </View>
+            {paymentMethod === "mercado_pago" ? (
+              <View style={styles.mercadoPagoCheckoutHint}>
+                <Ionicons color="#1A7F5A" name="open-outline" size={16} />
+                <Text style={styles.mercadoPagoCheckoutHintText}>
+                  Al confirmar, se abrira Mercado Pago para completar el pago del turno.
+                </Text>
+              </View>
+            ) : null}
             {paymentMethod === "transferencia" ? (
               <Pressable onPress={handlePickReceipt} style={styles.receiptButton}>
                 <Ionicons color={colors.primaryDark} name="document-attach-outline" size={18} />
@@ -3361,6 +3514,34 @@ const styles = StyleSheet.create({
   },
   approvalToggleTextActive: {
     color: "#1E6B45",
+  },
+  mercadoPagoStatusCard: {
+    backgroundColor: "#F7FAFD",
+    borderColor: "#D8E4EC",
+    borderRadius: 16,
+    borderWidth: 1,
+    marginBottom: spacing.sm,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
+  },
+  mercadoPagoStatusHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "center",
+    marginBottom: 6,
+  },
+  mercadoPagoStatusTitle: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: "800",
+    marginLeft: 6,
+  },
+  mercadoPagoStatusText: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "600",
+    lineHeight: 18,
+    textAlign: "center",
   },
   organizerComplexSelect: {
     alignItems: "center",
@@ -4698,6 +4879,64 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     textAlign: "center",
     textTransform: "uppercase",
+  },
+  mercadoPagoSummaryHint: {
+    alignItems: "center",
+    backgroundColor: "#F7FAFD",
+    borderColor: "#D8E4EC",
+    borderRadius: 14,
+    borderWidth: 1,
+    flexDirection: "row",
+    marginBottom: spacing.sm,
+    marginTop: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
+  },
+  mercadoPagoSummaryHintText: {
+    color: colors.muted,
+    flex: 1,
+    fontSize: 12,
+    fontWeight: "600",
+    lineHeight: 17,
+    marginLeft: 8,
+  },
+  mercadoPagoActionButton: {
+    alignItems: "center",
+    backgroundColor: "#F3FBF7",
+    borderColor: "#BFE5CD",
+    borderRadius: 999,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: spacing.xs,
+    justifyContent: "center",
+    marginTop: spacing.xs,
+    marginBottom: spacing.sm,
+    minHeight: 40,
+    paddingHorizontal: spacing.md,
+  },
+  mercadoPagoActionButtonText: {
+    color: "#1A7F5A",
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  mercadoPagoCheckoutHint: {
+    alignItems: "center",
+    backgroundColor: "#F3FBF7",
+    borderColor: "#BFE5CD",
+    borderRadius: 12,
+    borderWidth: 1,
+    flexDirection: "row",
+    marginBottom: spacing.sm,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
+  },
+  mercadoPagoCheckoutHintText: {
+    color: "#1A7F5A",
+    flex: 1,
+    fontSize: 12,
+    fontWeight: "700",
+    lineHeight: 17,
+    marginLeft: 8,
   },
   paymentRow: {
     flexDirection: "row",

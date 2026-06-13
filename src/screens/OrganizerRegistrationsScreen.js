@@ -22,11 +22,16 @@ import { useAuth } from "../context/AuthContext";
 import { sendChatMessage } from "../services/chatService";
 import {
   getOrganizerRegistrationsSummary,
+  hasUnreadTurnoReservationNotification,
   isActionableLeagueRegistration,
+  isPendingTurnoNotification,
   isActionableTurnoReservation,
   isActionableTournamentRegistration,
 } from "../services/organizerTasksService";
-import { updateTurnoReservationStatus } from "../services/turnosService";
+import {
+  markTurnoReservationNotificationRead,
+  updateTurnoReservationStatus,
+} from "../services/turnosService";
 import { formatPlayerShortName } from "../utils/playerDisplayName";
 
 function getLeagueStatusLabel(status = "") {
@@ -81,6 +86,18 @@ function getTurnoStatusLabel(reservation = {}) {
   return "PENDIENTE";
 }
 
+function getTurnoPaymentMethodLabel(paymentMethod = "") {
+  if (paymentMethod === "mercado_pago") {
+    return "Mercado Pago";
+  }
+
+  if (paymentMethod === "transferencia") {
+    return "Transferencia";
+  }
+
+  return "Efectivo";
+}
+
 function getEntryMillis(entry = {}) {
   return entry.createdAtMillis || entry.updatedAtMillis || 0;
 }
@@ -101,7 +118,7 @@ function getLatestNotificationSection({
     })),
   ];
   const pendingRegistrationEntries = registrationEntries.filter((entry) => entry.actionable);
-  const pendingTurnoEntries = turnoReservations.filter(isActionableTurnoReservation);
+  const pendingTurnoEntries = turnoReservations.filter(isPendingTurnoNotification);
   const entriesToCompare =
     pendingRegistrationEntries.length || pendingTurnoEntries.length
       ? [
@@ -168,6 +185,7 @@ export default function OrganizerRegistrationsScreen({ navigation }) {
   const [activeFilter, setActiveFilter] = useState("pending");
   const [contactMenu, setContactMenu] = useState(null);
   const [runningTurnoAction, setRunningTurnoAction] = useState("");
+  const [runningReadAction, setRunningReadAction] = useState("");
 
   const loadScreen = useCallback(async () => {
     const summary = await getOrganizerRegistrationsSummary(userData?.uid || "");
@@ -230,7 +248,11 @@ export default function OrganizerRegistrationsScreen({ navigation }) {
 
   const visibleEntries = activeFilter === "pending" ? pendingEntries : allEntries;
   const pendingTurnos = useMemo(
-    () => turnoReservations.filter(isActionableTurnoReservation),
+    () => turnoReservations.filter(isPendingTurnoNotification),
+    [turnoReservations]
+  );
+  const unreadTurnosCount = useMemo(
+    () => turnoReservations.filter(hasUnreadTurnoReservationNotification).length,
     [turnoReservations]
   );
   const visibleTurnos = activeFilter === "pending" ? pendingTurnos : turnoReservations;
@@ -272,6 +294,16 @@ export default function OrganizerRegistrationsScreen({ navigation }) {
       await loadScreen();
     } finally {
       setRunningTurnoAction("");
+    }
+  };
+
+  const handleMarkTurnoAsRead = async (reservation) => {
+    try {
+      setRunningReadAction(reservation.id);
+      await markTurnoReservationNotificationRead(reservation.id);
+      await loadScreen();
+    } finally {
+      setRunningReadAction("");
     }
   };
 
@@ -428,6 +460,7 @@ export default function OrganizerRegistrationsScreen({ navigation }) {
 
   const renderTurno = ({ item }) => {
     const actionable = isActionableTurnoReservation(item);
+    const isUnread = hasUnreadTurnoReservationNotification(item);
     const statusLabel = getTurnoStatusLabel(item);
     const durationLabel = `${item.durationMinutes || 60} min`;
     const contact = getTurnoContact(item);
@@ -475,12 +508,32 @@ export default function OrganizerRegistrationsScreen({ navigation }) {
 
         <View style={styles.reviewRow}>
           <Text style={styles.reviewText}>
-            {actionable ? "Reserva pendiente de aprobacion" : "Reserva registrada"}
+            {actionable
+              ? "Reserva pendiente de aprobacion"
+              : isUnread
+                ? "Nueva reserva registrada"
+                : "Reserva registrada"}
           </Text>
           <Text style={styles.turnoPaymentText}>
-            {item.paymentMethod === "transferencia" ? "Transferencia" : "Efectivo"}
+            {getTurnoPaymentMethodLabel(item.paymentMethod)}
           </Text>
         </View>
+
+        {isUnread ? (
+          <Pressable
+            disabled={runningReadAction === item.id}
+            onPress={() => handleMarkTurnoAsRead(item)}
+            style={[
+              styles.markReadButton,
+              runningReadAction === item.id ? styles.markReadButtonDisabled : null,
+            ]}
+          >
+            <Ionicons color="#1E5F86" name="checkmark-done-outline" size={15} />
+            <Text style={styles.markReadButtonText}>
+              {runningReadAction === item.id ? "Marcando..." : "Marcar como leida"}
+            </Text>
+          </Pressable>
+        ) : null}
 
         {actionable ? (
           <View style={styles.turnoActionsRow}>
@@ -504,14 +557,21 @@ export default function OrganizerRegistrationsScreen({ navigation }) {
             </Pressable>
           </View>
         ) : null}
-        <View style={[styles.statusChip, actionable ? styles.statusChipPending : null]}>
+        <View
+          style={[
+            styles.statusChip,
+            actionable ? styles.statusChipPending : null,
+            !actionable && isUnread ? styles.statusChipUnread : null,
+          ]}
+        >
           <Text
             style={[
               styles.statusChipText,
               actionable ? styles.statusChipTextPending : null,
+              !actionable && isUnread ? styles.statusChipTextUnread : null,
             ]}
           >
-            {statusLabel}
+            {actionable ? statusLabel : isUnread ? "NUEVA" : statusLabel}
           </Text>
         </View>
       </View>
@@ -549,6 +609,7 @@ export default function OrganizerRegistrationsScreen({ navigation }) {
               activeSection === "turnos" ? styles.sectionTabActive : null,
             ]}
           >
+            {unreadTurnosCount > 0 ? <View style={styles.sectionTabDot} /> : null}
             <Text
               style={[
                 styles.sectionTabText,
@@ -741,6 +802,18 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingHorizontal: 6,
     paddingVertical: 10,
+    position: "relative",
+  },
+  sectionTabDot: {
+    backgroundColor: "#FF8A00",
+    borderColor: colors.surface,
+    borderRadius: 999,
+    borderWidth: 2,
+    height: 12,
+    position: "absolute",
+    right: 9,
+    top: 7,
+    width: 12,
   },
   sectionTabActive: {
     backgroundColor: "#E7F6EF",
@@ -855,6 +928,12 @@ const styles = StyleSheet.create({
   statusChipTextPending: {
     color: "#C65D00",
   },
+  statusChipUnread: {
+    backgroundColor: "#EAF3FF",
+  },
+  statusChipTextUnread: {
+    color: "#1E5F86",
+  },
   playerRow: {
     alignItems: "center",
     flexDirection: "row",
@@ -902,6 +981,27 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: spacing.sm,
     marginTop: spacing.sm,
+  },
+  markReadButton: {
+    alignItems: "center",
+    alignSelf: "flex-start",
+    backgroundColor: "#EEF6FF",
+    borderColor: "#BBD7F2",
+    borderRadius: 999,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 6,
+    marginTop: spacing.sm,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+  markReadButtonDisabled: {
+    opacity: 0.6,
+  },
+  markReadButtonText: {
+    color: "#1E5F86",
+    fontSize: 11,
+    fontWeight: "900",
   },
   turnoActionButton: {
     alignItems: "center",

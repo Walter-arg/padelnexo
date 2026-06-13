@@ -195,6 +195,8 @@ export default function BottomQuickActionsBar() {
                 ) : null}
               </View>
             )}
+            showBadge={pendingRegistrationsCount > 0}
+            badgeTone="important"
           />
         ) : null}
       </View>

@@ -4,3 +4,4 @@ node_modules
 npm-debug.*
 dist
 LOGO PADEL NEXO.png
+.env

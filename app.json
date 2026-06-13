@@ -3,6 +3,9 @@
     "name": "PadelNexo",
     "slug": "padelnexo",
     "version": "1.0.0",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
     "scheme": "com.padelnexo.app",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -15,11 +18,32 @@
     "assetBundlePatterns": [
       "**/*"
     ],
+    "updates": {
+      "url": "https://u.expo.dev/70621faf-0db4-4145-b973-4803e2eb209d",
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 0
+    },
     "android": {
       "package": "com.padelnexo.app",
       "permissions": [
         "INTERNET",
         "ACCESS_NETWORK_STATE"
+      ],
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "data": [
+            {
+              "scheme": "com.padelnexo.app",
+              "host": "checkout",
+              "pathPrefix": "/"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        }
       ],
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
@@ -30,6 +54,10 @@
       "supportsTablet": true
     },
     "extra": {
+      "mercadoPago": {
+        "turnosCheckoutUrl": "https://southamerica-east1-padelnexo-7e4d5.cloudfunctions.net/mercadoPagoCreateTurnoPreference",
+        "turnosSyncUrl": "https://us-central1-padelnexo-7e4d5.cloudfunctions.net/mercadoPagoSyncTurnoPayment"
+      },
       "eas": {
         "projectId": "70621faf-0db4-4145-b973-4803e2eb209d"
       }

@@ -23,6 +23,10 @@ import SelectField from "../components/SelectField";
 import { canAccessAdminPanel } from "../config/admin";
 import { colors, spacing } from "../config/theme";
 import { useAuth } from "../context/AuthContext";
+import {
+  buildPublicationMercadoPagoConfig,
+  normalizeMercadoPagoConfig,
+} from "../services/mercadoPagoConfigService";
 import { isApprovedOrganizer } from "../services/roleService";
 import {
   createMultipleTournaments,
@@ -651,6 +655,20 @@ export default function CreateTournamentScreen({ navigation, route }) {
   const { updateProfile, user, userData } = useAuth();
   const editingTournament = route?.params?.tournament || null;
   const isEditingDraft = Boolean(editingTournament?.id);
+  const organizerMercadoPagoConfig = useMemo(
+    () => normalizeMercadoPagoConfig(userData?.mercadoPagoConfig),
+    [userData?.mercadoPagoConfig]
+  );
+  const tournamentMercadoPagoConfig = useMemo(
+    () =>
+      isEditingDraft
+        ? {
+            ...buildPublicationMercadoPagoConfig(organizerMercadoPagoConfig),
+            ...(editingTournament?.mercadoPagoConfig || {}),
+          }
+        : buildPublicationMercadoPagoConfig(organizerMercadoPagoConfig),
+    [editingTournament?.mercadoPagoConfig, isEditingDraft, organizerMercadoPagoConfig]
+  );
   const returnToTournamentDetail = Boolean(route?.params?.returnToTournamentDetail);
   const [form, setForm] = useState(() =>
     isEditingDraft ? buildFormFromTournament(editingTournament, userData) : buildInitialForm(userData)
@@ -1733,6 +1751,23 @@ export default function CreateTournamentScreen({ navigation, route }) {
             placeholder="padelnexo.torneo"
             value={form.paymentAlias}
           />
+          <View style={styles.mercadoPagoStatusCard}>
+            <View style={styles.mercadoPagoStatusHeader}>
+              <Ionicons
+                color={tournamentMercadoPagoConfig.enabled ? "#1A7F5A" : "#7B8794"}
+                name="wallet-outline"
+                size={18}
+              />
+              <Text style={styles.mercadoPagoStatusTitle}>Mercado Pago</Text>
+            </View>
+            <Text style={styles.mercadoPagoStatusText}>
+              {tournamentMercadoPagoConfig.enabled
+                ? isEditingDraft
+                  ? "Este torneo queda preparado para cobrar tambien con Mercado Pago."
+                  : "Tus proximos torneos pueden quedar preparados para cobrar tambien con Mercado Pago."
+                : "Activalo desde el perfil del organizador para cobrar tambien con Mercado Pago en torneos nuevos."}
+            </Text>
+          </View>
         </View>
 
         <View style={styles.sectionCard}>
@@ -2180,6 +2215,34 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     lineHeight: 18,
     marginBottom: spacing.md,
+    textAlign: "center",
+  },
+  mercadoPagoStatusCard: {
+    backgroundColor: "#F7FAFD",
+    borderColor: "#D8E4EC",
+    borderRadius: 14,
+    borderWidth: 1,
+    marginTop: spacing.sm,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
+  },
+  mercadoPagoStatusHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "center",
+    marginBottom: 6,
+  },
+  mercadoPagoStatusTitle: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: "800",
+    marginLeft: 6,
+  },
+  mercadoPagoStatusText: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "600",
+    lineHeight: 18,
     textAlign: "center",
   },
   dateField: {

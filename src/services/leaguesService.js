@@ -12,6 +12,7 @@ import {
 
 import { db } from "../../services/firebaseConfig";
 import { canAccessAdminPanel } from "../config/admin";
+import { buildPublicationMercadoPagoConfig } from "./mercadoPagoConfigService";
 import { formatPlayerShortName, formatTeamShortLabel } from "../utils/playerDisplayName";
 
 export const LEAGUE_BRANCH_OPTIONS = [
@@ -470,6 +471,7 @@ function normalizePaymentConfig({
   registrationFeeAmount,
   roundPricePerPlayer,
   paymentConfig,
+  organizerMercadoPagoConfig,
 } = {}) {
   const currentConfig = paymentConfig || {};
   const hasRegistrationFee =
@@ -487,6 +489,15 @@ function normalizePaymentConfig({
       roundPricePerPlayer ?? currentConfig.roundPricePerPlayer,
       0
     ),
+    mercadoPago: {
+      ...buildPublicationMercadoPagoConfig(organizerMercadoPagoConfig),
+      ...(currentConfig.mercadoPago && typeof currentConfig.mercadoPago === "object"
+        ? currentConfig.mercadoPago
+        : {}),
+      enabled:
+        currentConfig?.mercadoPago?.enabled === true ||
+        buildPublicationMercadoPagoConfig(organizerMercadoPagoConfig).enabled,
+    },
   };
 }
 
@@ -774,6 +785,8 @@ export function buildLeaguePayload({
     registrationFeeEnabled,
     registrationFeeAmount,
     roundPricePerPlayer,
+    paymentConfig,
+    organizerMercadoPagoConfig: organizer?.mercadoPagoConfig,
   });
 
   return {

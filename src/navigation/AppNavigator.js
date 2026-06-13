@@ -21,6 +21,7 @@ import LeagueStandingsScreen from "../screens/LeagueStandingsScreen";
 import LigasHubScreen from "../screens/LigasHubScreen";
 import LoginScreen from "../screens/LoginScreen";
 import MensajesScreen from "../screens/MensajesScreen";
+import MercadoPagoReturnScreen from "../screens/MercadoPagoReturnScreen";
 import MyLeaguesScreen from "../screens/MyLeaguesScreen";
 import OrganizerRegistrationsScreen from "../screens/OrganizerRegistrationsScreen";
 import OrganizerReplacementsScreen from "../screens/OrganizerReplacementsScreen";
@@ -294,6 +295,11 @@ export default function AppNavigator() {
         options={{
           headerShown: false,
         }}
+      />
+      <Stack.Screen
+        component={MercadoPagoReturnScreen}
+        name="MercadoPagoReturn"
+        options={{ headerShown: false }}
       />
       <Stack.Screen
         component={PlayerDetailScreen}

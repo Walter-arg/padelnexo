@@ -37,6 +37,10 @@ import {
   normalizeLeagueDefaults,
   updateLeague,
 } from "../services/leaguesService";
+import {
+  buildPublicationMercadoPagoConfig,
+  normalizeMercadoPagoConfig,
+} from "../services/mercadoPagoConfigService";
 import { isApprovedOrganizer } from "../services/roleService";
 
 const CATEGORY_FORMAT_OPTIONS = [
@@ -392,6 +396,20 @@ export default function CreateLeagueScreen({ navigation, route }) {
   });
   const [loadingLeague, setLoadingLeague] = useState(isEditing);
   const [editingLeague, setEditingLeague] = useState(null);
+  const organizerMercadoPagoConfig = useMemo(
+    () => normalizeMercadoPagoConfig(userData?.mercadoPagoConfig),
+    [userData?.mercadoPagoConfig]
+  );
+  const leagueMercadoPagoConfig = useMemo(
+    () =>
+      isEditing
+        ? {
+            ...buildPublicationMercadoPagoConfig(organizerMercadoPagoConfig),
+            ...(editingLeague?.paymentConfig?.mercadoPago || {}),
+          }
+        : buildPublicationMercadoPagoConfig(organizerMercadoPagoConfig),
+    [editingLeague?.paymentConfig?.mercadoPago, isEditing, organizerMercadoPagoConfig]
+  );
   const [activeTimeSlotIndex, setActiveTimeSlotIndex] = useState(-1);
   const [timePickerVisible, setTimePickerVisible] = useState(false);
 
@@ -1424,6 +1442,23 @@ export default function CreateLeagueScreen({ navigation, route }) {
                 : "Estos importes se aplican solo a esta liga y no modifican tus valores predeterminados."
               : "Estos importes se guardan como predeterminados para tus proximas ligas."}
           </Text>
+          <View style={styles.mercadoPagoStatusCard}>
+            <View style={styles.mercadoPagoStatusHeader}>
+              <Ionicons
+                color={leagueMercadoPagoConfig.enabled ? "#1A7F5A" : "#7B8794"}
+                name="wallet-outline"
+                size={18}
+              />
+              <Text style={styles.mercadoPagoStatusTitle}>Mercado Pago</Text>
+            </View>
+            <Text style={styles.mercadoPagoStatusText}>
+              {leagueMercadoPagoConfig.enabled
+                ? isEditing
+                  ? "Esta liga queda preparada para cobrar tambien con Mercado Pago."
+                  : "Tus proximas ligas pueden quedar preparadas para cobrar tambien con Mercado Pago."
+                : "Activalo desde el perfil del organizador para cobrar tambien con Mercado Pago en ligas nuevas."}
+            </Text>
+          </View>
         </View>
 
         <Pressable
@@ -1968,6 +2003,34 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     lineHeight: 17,
     marginTop: spacing.sm,
+    textAlign: "center",
+  },
+  mercadoPagoStatusCard: {
+    backgroundColor: "#F7FAFD",
+    borderColor: "#D8E4EC",
+    borderRadius: 14,
+    borderWidth: 1,
+    marginTop: spacing.sm,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
+  },
+  mercadoPagoStatusHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "center",
+    marginBottom: 6,
+  },
+  mercadoPagoStatusTitle: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: "800",
+    marginLeft: 6,
+  },
+  mercadoPagoStatusText: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "600",
+    lineHeight: 18,
     textAlign: "center",
   },
   sumPreview: {

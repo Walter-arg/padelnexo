@@ -23,6 +23,7 @@ import {
   LEAGUE_SUM_RULE_OPTIONS,
   LEAGUE_SUM_TARGET_OPTIONS,
 } from "./leaguesService";
+import { buildPublicationMercadoPagoConfig } from "./mercadoPagoConfigService";
 import { buildTournamentDayOptions, normalizeTournamentAvailability } from "./tournamentAvailabilityService";
 
 export const TOURNAMENT_STATUS_OPTIONS = [
@@ -431,6 +432,9 @@ function buildTournamentPayload(organizer, payload = {}, batchId = "") {
     pairConfirmationMode: normalizePairConfirmationMode(payload.pairConfirmationMode),
     entryFee,
     paymentMethods: normalizePaymentMethods(payload.paymentMethods),
+    mercadoPagoConfig: buildPublicationMercadoPagoConfig(
+      payload.mercadoPagoConfig || organizer?.mercadoPagoConfig
+    ),
     paymentAlias: normalizeString(payload.paymentAlias),
     playDays,
     groupStageDays,

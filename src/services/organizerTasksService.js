@@ -74,6 +74,17 @@ export function isActionableTurnoReservation(reservation = {}) {
   return reservation.status === "pending_organizer_confirmation";
 }
 
+export function hasUnreadTurnoReservationNotification(reservation = {}) {
+  return reservation.organizerNotificationUnread === true;
+}
+
+export function isPendingTurnoNotification(reservation = {}) {
+  return (
+    isActionableTurnoReservation(reservation) ||
+    hasUnreadTurnoReservationNotification(reservation)
+  );
+}
+
 function mapLeagueRegistrationRequest(docSnapshot) {
   const data = docSnapshot.data() || {};
 
@@ -237,10 +248,14 @@ export async function getOrganizerRegistrationsSummary(organizerId = "") {
     enrichTurnoReservationWithUsers(reservation, usersById)
   );
 
+  const turnoNotificationCount = enrichedTurnoReservations.filter(
+    isPendingTurnoNotification
+  ).length;
+
   const count =
     enrichedLeagueRequests.filter(isActionableLeagueRegistration).length +
     enrichedTournamentRequests.filter(isActionableTournamentRegistration).length +
-    enrichedTurnoReservations.filter(isActionableTurnoReservation).length;
+    turnoNotificationCount;
 
   return {
     count,

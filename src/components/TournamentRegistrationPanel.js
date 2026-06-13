@@ -21,6 +21,7 @@ import AvailabilitySummary from "./AvailabilitySummary";
 import SelectField from "./SelectField";
 import { colors, spacing } from "../config/theme";
 import { LEAGUE_CATEGORY_OPTIONS } from "../services/leaguesService";
+import { normalizeMercadoPagoConfig } from "../services/mercadoPagoConfigService";
 import { listPlayers } from "../services/playersService";
 import { getTournamentAvailabilitySummaryItems } from "../services/tournamentAvailabilityService";
 import { hasProfileImage } from "../utils/defaultProfileImage";
@@ -524,6 +525,10 @@ export default function TournamentRegistrationPanel({
   const requiresTransferReceipt =
     Number(tournament?.entryFee || 0) > 0 &&
     (tournament?.paymentMethods || []).includes("transferencia");
+  const tournamentMercadoPagoConfig = useMemo(
+    () => normalizeMercadoPagoConfig(tournament?.mercadoPagoConfig),
+    [tournament?.mercadoPagoConfig]
+  );
   const canSubmitManualPairRequest =
     !isOrganizerPaymentEditor &&
     tournament?.pairConfirmationMode === "manual" &&
@@ -803,6 +808,14 @@ export default function TournamentRegistrationPanel({
     }
 
     setReceiptAsset(nextAsset);
+  };
+
+  const handleOpenMercadoPagoInfo = () => {
+    showFeedback(
+      "Mercado Pago disponible",
+      "Este torneo ya quedo preparado para cobrar con Checkout Pro usando credenciales de prueba.",
+      "default"
+    );
   };
 
   const handleCreateGuestPlayer = () => {
@@ -1463,6 +1476,18 @@ export default function TournamentRegistrationPanel({
               <Text style={styles.blockTextCentered}>
                 Alias: {tournament?.paymentAlias || "Alias a confirmar por organizador"}
               </Text>
+              {tournamentMercadoPagoConfig.enabled ? (
+                <Pressable
+                  onPress={handleOpenMercadoPagoInfo}
+                  style={({ pressed }) => [
+                    styles.mercadoPagoInfoButton,
+                    pressed ? styles.receiptPickerButtonPressed : null,
+                  ]}
+                >
+                  <Ionicons color="#1A7F5A" name="wallet-outline" size={18} />
+                  <Text style={styles.mercadoPagoInfoButtonText}>Mercado Pago</Text>
+                </Pressable>
+              ) : null}
               {availablePayments.length > 1 ? (
                 <View style={styles.paymentTargetsRow}>
                   {availablePayments.map((payment) => {
@@ -2080,6 +2105,24 @@ const styles = StyleSheet.create({
   },
   receiptPickerButtonText: {
     color: colors.primary,
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  mercadoPagoInfoButton: {
+    alignItems: "center",
+    backgroundColor: "#F3FBF7",
+    borderColor: "#BFE5CD",
+    borderRadius: 16,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: spacing.xs,
+    justifyContent: "center",
+    marginTop: spacing.sm,
+    minHeight: 44,
+    paddingHorizontal: spacing.sm,
+  },
+  mercadoPagoInfoButtonText: {
+    color: "#1A7F5A",
     fontSize: 13,
     fontWeight: "800",
   },

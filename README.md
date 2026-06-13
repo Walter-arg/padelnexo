@@ -26,6 +26,14 @@ Copiar la estructura de este proyecto dentro de la carpeta creada por Expo.
 npx expo start
 ```
 
+## Variables de entorno
+
+Para pruebas de Mercado Pago Checkout Pro en frontend:
+
+```bash
+EXPO_PUBLIC_MERCADO_PAGO_PUBLIC_KEY=APP_USR-xxxxxxxxxxxxxxxxxxxxxxxx
+```
+
 ## 5. Abrir en Expo Go
 
 - Instalar Expo Go en el celular.

@@ -19,9 +19,14 @@ import {
   sexOptions,
 } from "../data/profileOptions";
 import { canAccessAdminPanel } from "../config/admin";
+import { hasMercadoPagoCheckoutRuntimeConfig, hasMercadoPagoPublicKey } from "../config/mercadoPago";
 import { colors, spacing } from "../config/theme";
 import { useAuth } from "../context/AuthContext";
 import { phoneCountryOptions } from "../data/phoneCountryOptions";
+import {
+  normalizeMercadoPagoConfig,
+  DEFAULT_MERCADO_PAGO_CONFIG,
+} from "../services/mercadoPagoConfigService";
 import {
   getAccountTypeLabel,
   isApprovedOrganizer,
@@ -38,6 +43,8 @@ import OrganizerRequestModal from "./OrganizerRequestModal";
 import SelectField from "./SelectField";
 
 const DESCRIPTION_MAX_LENGTH = 100;
+
+const defaultMercadoPagoConfig = DEFAULT_MERCADO_PAGO_CONFIG;
 
 const defaultProfile = {
   name: "",
@@ -59,6 +66,7 @@ const defaultProfile = {
   organizerStatus: "none",
   complejos: [],
   localidad: null,
+  mercadoPagoConfig: defaultMercadoPagoConfig,
 };
 
 const categoryOptions = playerCategories.map((option) => ({
@@ -157,6 +165,8 @@ export default function ProfileModal({
   const [loading, setLoading] = useState(false);
   const isApprovedAccount = isApprovedOrganizer(profile);
   const showOrganizerHint = isPendingOrganizer(profile) || isRejectedOrganizer(profile);
+  const mercadoPagoRuntimeReady = hasMercadoPagoCheckoutRuntimeConfig();
+  const mercadoPagoPublicKeyReady = hasMercadoPagoPublicKey();
 
   const showFeedback = (title, message, tone = "default") => {
     setFeedback({
@@ -181,6 +191,7 @@ export default function ProfileModal({
       setProfile({
         ...defaultProfile,
         ...user,
+        mercadoPagoConfig: normalizeMercadoPagoConfig(user.mercadoPagoConfig),
         city: parsedLocalidad?.nombre || user.city || "",
         province: parsedLocalidad?.provincia || user.province || "",
         localidad: parsedLocalidad,
@@ -191,6 +202,30 @@ export default function ProfileModal({
 
   const updateField = (field, value) => {
     setProfile((current) => ({ ...current, [field]: value }));
+  };
+
+  const updateMercadoPagoField = (field, value) => {
+    setProfile((current) => ({
+      ...current,
+      mercadoPagoConfig: {
+        ...normalizeMercadoPagoConfig(current.mercadoPagoConfig),
+        [field]: value,
+      },
+    }));
+  };
+
+  const handleMercadoPagoToggle = (field) => {
+    if (!mercadoPagoRuntimeReady) {
+      showFeedback(
+        "Falta configurar Mercado Pago",
+        "Para esta etapa de pruebas necesitas una Public Key en la app y la URL del backend para crear preferencias.",
+        "warning"
+      );
+      return;
+    }
+
+    const normalizedConfig = normalizeMercadoPagoConfig(profile.mercadoPagoConfig);
+    updateMercadoPagoField(field, !normalizedConfig[field]);
   };
 
   const handlePickImage = async () => {
@@ -522,6 +557,109 @@ export default function ProfileModal({
                       <Text style={styles.complexAddress}>{complex.direccion}</Text>
                     </View>
                   ))}
+
+                  <View style={styles.mercadoPagoSection}>
+                    <View style={styles.mercadoPagoHeader}>
+                      <View style={styles.mercadoPagoHeaderCopy}>
+                        <Text style={styles.mercadoPagoTitle}>Cobros y pagos</Text>
+                        <Text style={styles.mercadoPagoSubtitle}>Mercado Pago</Text>
+                      </View>
+                      <View
+                        style={[
+                          styles.mercadoPagoStatusBadge,
+                          mercadoPagoRuntimeReady
+                            ? styles.mercadoPagoStatusBadgeLinked
+                            : styles.mercadoPagoStatusBadgePending,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.mercadoPagoStatusText,
+                            mercadoPagoRuntimeReady
+                              ? styles.mercadoPagoStatusTextLinked
+                              : styles.mercadoPagoStatusTextPending,
+                          ]}
+                        >
+                          {mercadoPagoRuntimeReady ? "Checkout Pro listo" : "Configuracion pendiente"}
+                        </Text>
+                      </View>
+                    </View>
+
+                    <View style={styles.mercadoPagoInfoCard}>
+                      <Text style={styles.mercadoPagoInfoLabel}>Modo actual</Text>
+                      <Text style={styles.mercadoPagoInfoValue}>
+                        {mercadoPagoRuntimeReady
+                          ? "Checkout Pro de prueba activo"
+                          : "Falta completar la configuracion de prueba"}
+                      </Text>
+                    </View>
+
+                    <View style={styles.mercadoPagoInfoCard}>
+                      <Text style={styles.mercadoPagoInfoLabel}>Public Key</Text>
+                      <Text style={styles.mercadoPagoInfoValue}>
+                        {mercadoPagoPublicKeyReady ? "Cargada correctamente" : "Pendiente"}
+                      </Text>
+                    </View>
+
+                    <View style={styles.mercadoPagoToggleRow}>
+                      <Text style={styles.mercadoPagoToggleLabel}>Activar cobro con Mercado Pago</Text>
+                      <Pressable
+                        onPress={() => handleMercadoPagoToggle("enabled")}
+                        style={({ pressed }) => [
+                          styles.mercadoPagoToggleButton,
+                          normalizeMercadoPagoConfig(profile.mercadoPagoConfig).enabled
+                            ? styles.mercadoPagoToggleButtonActive
+                            : styles.mercadoPagoToggleButtonInactive,
+                          pressed ? styles.mercadoPagoToggleButtonPressed : null,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.mercadoPagoToggleButtonText,
+                            normalizeMercadoPagoConfig(profile.mercadoPagoConfig).enabled
+                              ? styles.mercadoPagoToggleButtonTextActive
+                              : styles.mercadoPagoToggleButtonTextInactive,
+                          ]}
+                        >
+                          {normalizeMercadoPagoConfig(profile.mercadoPagoConfig).enabled ? "ON" : "OFF"}
+                        </Text>
+                      </Pressable>
+                    </View>
+
+                    <View style={styles.mercadoPagoToggleRow}>
+                      <Text style={styles.mercadoPagoToggleLabel}>
+                        Activar por defecto en nuevas publicaciones
+                      </Text>
+                      <Pressable
+                        onPress={() => handleMercadoPagoToggle("autoEnableNewPayments")}
+                        style={({ pressed }) => [
+                          styles.mercadoPagoToggleButton,
+                          normalizeMercadoPagoConfig(profile.mercadoPagoConfig).autoEnableNewPayments
+                            ? styles.mercadoPagoToggleButtonActive
+                            : styles.mercadoPagoToggleButtonInactive,
+                          pressed ? styles.mercadoPagoToggleButtonPressed : null,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.mercadoPagoToggleButtonText,
+                            normalizeMercadoPagoConfig(profile.mercadoPagoConfig).autoEnableNewPayments
+                              ? styles.mercadoPagoToggleButtonTextActive
+                              : styles.mercadoPagoToggleButtonTextInactive,
+                          ]}
+                        >
+                          {normalizeMercadoPagoConfig(profile.mercadoPagoConfig).autoEnableNewPayments
+                            ? "ON"
+                            : "OFF"}
+                        </Text>
+                      </Pressable>
+                    </View>
+
+                    <Text style={styles.mercadoPagoHelpText}>
+                      En esta etapa PadelNexo usa Checkout Pro con credenciales de prueba. La
+                      vinculacion OAuth por organizador queda reservada para una etapa futura.
+                    </Text>
+                  </View>
                 </View>
               ) : null}
 
@@ -1008,6 +1146,143 @@ const styles = StyleSheet.create({
   },
   complexesSection: {
     marginBottom: spacing.md,
+  },
+  mercadoPagoSection: {
+    backgroundColor: "#F7FAFD",
+    borderColor: "#D7E3EC",
+    borderRadius: 18,
+    borderWidth: 1,
+    marginBottom: spacing.md,
+    padding: spacing.md,
+  },
+  mercadoPagoHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.sm,
+    justifyContent: "space-between",
+    marginBottom: spacing.sm,
+  },
+  mercadoPagoHeaderCopy: {
+    flex: 1,
+    gap: 2,
+  },
+  mercadoPagoTitle: {
+    color: colors.text,
+    fontSize: 18,
+    fontWeight: "800",
+  },
+  mercadoPagoSubtitle: {
+    color: "#3C6E91",
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  mercadoPagoStatusBadge: {
+    borderRadius: 999,
+    borderWidth: 1,
+    minHeight: 28,
+    paddingHorizontal: spacing.sm,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  mercadoPagoStatusBadgeLinked: {
+    backgroundColor: "#EEF9F1",
+    borderColor: "#B7DFBF",
+  },
+  mercadoPagoStatusBadgePending: {
+    backgroundColor: "#FFF9E6",
+    borderColor: "#E5D07F",
+  },
+  mercadoPagoStatusText: {
+    fontSize: 11,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  mercadoPagoStatusTextLinked: {
+    color: "#237547",
+  },
+  mercadoPagoStatusTextPending: {
+    color: "#8C6A05",
+  },
+  mercadoPagoInfoCard: {
+    backgroundColor: "#FFFFFF",
+    borderColor: "#D7E3EC",
+    borderRadius: 14,
+    borderWidth: 1,
+    marginBottom: spacing.sm,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+  },
+  mercadoPagoInfoLabel: {
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: "700",
+    marginBottom: 2,
+    textTransform: "uppercase",
+  },
+  mercadoPagoInfoValue: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: "800",
+  },
+  mercadoPagoLinkButton: {
+    marginBottom: spacing.sm,
+    minHeight: 40,
+  },
+  mercadoPagoLinkButtonText: {
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  mercadoPagoToggleRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.sm,
+    justifyContent: "space-between",
+    marginBottom: spacing.xs,
+    paddingVertical: 2,
+  },
+  mercadoPagoToggleLabel: {
+    color: colors.text,
+    flex: 1,
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  mercadoPagoToggleButton: {
+    alignItems: "center",
+    borderRadius: 12,
+    borderWidth: 1,
+    justifyContent: "center",
+    minHeight: 34,
+    minWidth: 74,
+    paddingHorizontal: spacing.sm,
+  },
+  mercadoPagoToggleButtonActive: {
+    backgroundColor: "#E8F5EE",
+    borderColor: "#B8DCC7",
+  },
+  mercadoPagoToggleButtonInactive: {
+    backgroundColor: "#F3F5F7",
+    borderColor: "#D4DBE2",
+  },
+  mercadoPagoToggleButtonPressed: {
+    opacity: 0.86,
+  },
+  mercadoPagoToggleButtonText: {
+    fontSize: 11,
+    fontWeight: "900",
+    textAlign: "center",
+    textTransform: "uppercase",
+  },
+  mercadoPagoToggleButtonTextActive: {
+    color: colors.primaryDark,
+  },
+  mercadoPagoToggleButtonTextInactive: {
+    color: "#667482",
+  },
+  mercadoPagoHelpText: {
+    color: colors.muted,
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: spacing.xs,
   },
   complexesHeader: {
     alignItems: "center",
