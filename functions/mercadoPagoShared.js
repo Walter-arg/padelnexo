@@ -1,12 +1,20 @@
 const admin = require("firebase-admin");
 const { logger } = require("firebase-functions/v2");
-const { MercadoPagoConfig, OAuth, Preference } = require("mercadopago");
 
 const OAUTH_SESSIONS_COLLECTION = "mercadoPagoOauthSessions";
 const MERCADO_PAGO_ACCOUNTS_COLLECTION = "mercadoPagoAccounts";
 
 let adminApp = null;
 let db = null;
+let mercadoPagoSdk = null;
+
+function getMercadoPagoSdk() {
+  if (!mercadoPagoSdk) {
+    mercadoPagoSdk = require("mercadopago");
+  }
+
+  return mercadoPagoSdk;
+}
 
 function getDb() {
   if (!adminApp) {
@@ -110,6 +118,7 @@ async function mercadoPagoRequest(path, options = {}) {
 
 function getMercadoPagoSdkClient() {
   const accessToken = logMercadoPagoAccessTokenLoaded("sdkClient");
+  const { MercadoPagoConfig } = getMercadoPagoSdk();
 
   return new MercadoPagoConfig({
     accessToken,
@@ -118,10 +127,14 @@ function getMercadoPagoSdkClient() {
 }
 
 function getMercadoPagoOAuthClient() {
+  const { OAuth } = getMercadoPagoSdk();
+
   return new OAuth(getMercadoPagoSdkClient());
 }
 
 function getMercadoPagoPreferenceClient() {
+  const { Preference } = getMercadoPagoSdk();
+
   return new Preference(getMercadoPagoSdkClient());
 }
 

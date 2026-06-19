@@ -3,6 +3,10 @@ import Constants from "expo-constants";
 const defaultMercadoPagoConfig = {
   publicKey: "",
   scheme: "com.padelnexo.app",
+  leaguesCheckoutUrl: "",
+  leaguesSyncUrl: "",
+  tournamentsCheckoutUrl: "",
+  tournamentsSyncUrl: "",
   turnosCheckoutUrl: "",
   turnosSyncUrl: "",
 };
@@ -30,6 +34,10 @@ export function getMercadoPagoConfig() {
     scheme:
       String(Constants.expoConfig?.scheme || configured.scheme || defaultMercadoPagoConfig.scheme).trim() ||
       defaultMercadoPagoConfig.scheme,
+    leaguesCheckoutUrl: String(configured.leaguesCheckoutUrl || "").trim(),
+    leaguesSyncUrl: String(configured.leaguesSyncUrl || "").trim(),
+    tournamentsCheckoutUrl: String(configured.tournamentsCheckoutUrl || "").trim(),
+    tournamentsSyncUrl: String(configured.tournamentsSyncUrl || "").trim(),
     turnosCheckoutUrl: String(configured.turnosCheckoutUrl || "").trim(),
     turnosSyncUrl: String(configured.turnosSyncUrl || "").trim(),
   };
@@ -47,10 +55,34 @@ export function hasTurnosCheckoutConfig() {
   return Boolean(config.turnosCheckoutUrl);
 }
 
+export function hasLeaguesCheckoutConfig() {
+  const config = getMercadoPagoConfig();
+
+  return Boolean(config.leaguesCheckoutUrl);
+}
+
 export function hasTurnosSyncConfig() {
   const config = getMercadoPagoConfig();
 
   return Boolean(config.turnosSyncUrl);
+}
+
+export function hasTournamentsCheckoutConfig() {
+  const config = getMercadoPagoConfig();
+
+  return Boolean(config.tournamentsCheckoutUrl);
+}
+
+export function hasTournamentsSyncConfig() {
+  const config = getMercadoPagoConfig();
+
+  return Boolean(config.tournamentsSyncUrl);
+}
+
+export function hasLeaguesSyncConfig() {
+  const config = getMercadoPagoConfig();
+
+  return Boolean(config.leaguesSyncUrl);
 }
 
 export function hasMercadoPagoCheckoutRuntimeConfig() {

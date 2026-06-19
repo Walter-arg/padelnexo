@@ -334,6 +334,7 @@ function buildPayloadFromForm(
     fixedCategoryB: categoryMode === "sum_fixed" ? categorySource.fixedCategoryB : "",
     pairConfirmationMode: form.pairConfirmationMode,
     paymentMethods: parseMoneyInput(form.entryFee) > 0 ? ["transferencia"] : [],
+    mercadoPagoConfig: form.mercadoPagoConfig || organizer?.mercadoPagoConfig || {},
     paymentAlias: String(form.paymentAlias || "").trim(),
     tournamentRuleSet: form.tournamentRuleSet || "fap",
     entryFee: parseMoneyInput(form.entryFee),
@@ -663,10 +664,10 @@ export default function CreateTournamentScreen({ navigation, route }) {
     () =>
       isEditingDraft
         ? {
-            ...buildPublicationMercadoPagoConfig(organizerMercadoPagoConfig),
+            ...buildPublicationMercadoPagoConfig(organizerMercadoPagoConfig, "torneos"),
             ...(editingTournament?.mercadoPagoConfig || {}),
           }
-        : buildPublicationMercadoPagoConfig(organizerMercadoPagoConfig),
+        : buildPublicationMercadoPagoConfig(organizerMercadoPagoConfig, "torneos"),
     [editingTournament?.mercadoPagoConfig, isEditingDraft, organizerMercadoPagoConfig]
   );
   const returnToTournamentDetail = Boolean(route?.params?.returnToTournamentDetail);
@@ -1072,6 +1073,7 @@ export default function CreateTournamentScreen({ navigation, route }) {
         uid: organizerUid,
         name: userData?.name || "Organizador",
         organizerLogoUrl: userData?.organizerLogoUrl || "",
+        mercadoPagoConfig: organizerMercadoPagoConfig,
       };
       let nextCoverImage = String(form.coverImage || "").trim();
 
@@ -1083,6 +1085,7 @@ export default function CreateTournamentScreen({ navigation, route }) {
         {
           ...form,
           coverImage: nextCoverImage,
+          mercadoPagoConfig: tournamentMercadoPagoConfig,
         },
         organizer,
         allVenueOptions,

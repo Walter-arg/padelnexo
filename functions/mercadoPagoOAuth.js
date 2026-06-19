@@ -253,6 +253,11 @@ const mercadoPagoOAuthComplete = onRequest({ invoker: "public" }, async (req, re
           accountDisplayName,
           accountLinked: true,
           autoEnableNewPayments: currentConfig.autoEnableNewPayments === true,
+          categories: currentConfig.categories || {
+            turnos: true,
+            ligas: true,
+            torneos: true,
+          },
           connectionStatus: "linked",
         },
       },

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   Image,
   KeyboardAvoidingView,
+  Linking,
   Modal,
   Platform,
   Pressable,
@@ -20,6 +21,11 @@ import AvailabilityEditor from "./AvailabilityEditor";
 import AvailabilitySummary from "./AvailabilitySummary";
 import SelectField from "./SelectField";
 import { colors, spacing } from "../config/theme";
+import { getMercadoPagoReturnUrls } from "../config/mercadoPago";
+import {
+  createTournamentMercadoPagoPreference,
+  persistPendingMercadoPagoCheckout,
+} from "../services/mercadoPagoCheckoutService";
 import { LEAGUE_CATEGORY_OPTIONS } from "../services/leaguesService";
 import { normalizeMercadoPagoConfig } from "../services/mercadoPagoConfigService";
 import { listPlayers } from "../services/playersService";
@@ -117,6 +123,27 @@ function areAssetsEqual(left = null, right = null) {
     String(left.uri || "") === String(right.uri || "") &&
     String(left.fileName || "") === String(right.fileName || "")
   );
+}
+
+function appendCheckoutQueryParams(baseUrl = "", params = {}) {
+  const normalizedBaseUrl = String(baseUrl || "").trim();
+
+  if (!normalizedBaseUrl) {
+    return "";
+  }
+
+  const queryParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    const normalizedValue = String(value || "").trim();
+
+    if (normalizedValue) {
+      queryParams.set(key, normalizedValue);
+    }
+  });
+
+  const queryString = queryParams.toString();
+  return queryString ? `${normalizedBaseUrl}?${queryString}` : normalizedBaseUrl;
 }
 
 function buildCategoryWarning(tournament = {}, player1 = null, player2 = null) {
@@ -302,10 +329,31 @@ export default function TournamentRegistrationPanel({
     [currentUser?.uid, playersSource]
   );
 
-  const availablePayments = useMemo(
+  const registrationPayments = useMemo(
     () => (Array.isArray(registration?.payments) ? registration.payments.filter(Boolean) : []),
     [registration?.payments]
   );
+  const isOrganizerPaymentEditor = isOrganizerCreating || isOrganizerEditing;
+  const tournamentMercadoPagoConfig = useMemo(
+    () => normalizeMercadoPagoConfig(tournament?.mercadoPagoConfig),
+    [tournament?.mercadoPagoConfig]
+  );
+  const tournamentMercadoPagoEnabled = useMemo(
+    () =>
+      tournamentMercadoPagoConfig.enabled === true &&
+      tournamentMercadoPagoConfig.categories?.torneos !== false,
+    [tournamentMercadoPagoConfig]
+  );
+  const availablePayments = useMemo(() => {
+    if (isOrganizerPaymentEditor) {
+      return registrationPayments;
+    }
+
+    return registrationPayments.filter((payment) => {
+      const paymentPlayerId = payment?.playerId || payment?.userId || "";
+      return normalizeText(paymentPlayerId) === normalizeText(currentUser?.uid);
+    });
+  }, [currentUser?.uid, isOrganizerPaymentEditor, registrationPayments]);
 
   const effectivePaymentPlayerId = paymentTargetPlayerId || currentUser?.uid || "";
 
@@ -320,7 +368,32 @@ export default function TournamentRegistrationPanel({
   );
 
   const hasExistingReceipt = Boolean(currentPlayerPayment?.receiptUrl);
-  const isOrganizerPaymentEditor = isOrganizerCreating || isOrganizerEditing;
+  const canStartTournamentMercadoPagoPayment = useMemo(() => {
+    if (isOrganizerPaymentEditor) {
+      return false;
+    }
+
+    if (!registration?.id || !currentPlayerPayment) {
+      return false;
+    }
+
+    const paymentStatus = String(currentPlayerPayment?.status || "").trim().toLowerCase();
+    const mercadoPagoStatus = String(currentPlayerPayment?.mercadoPagoStatus || "")
+      .trim()
+      .toLowerCase();
+
+    if (paymentStatus === "approved" || mercadoPagoStatus === "approved") {
+      return false;
+    }
+
+    return tournamentMercadoPagoEnabled && Number(tournament?.entryFee || 0) > 0;
+  }, [
+    currentPlayerPayment,
+    isOrganizerPaymentEditor,
+    registration?.id,
+    tournament?.entryFee,
+    tournamentMercadoPagoEnabled,
+  ]);
   const withdrawalStatus = registration?.withdrawalStatus || "none";
   const canRequestWithdrawal = Boolean(
     registration && !isOrganizerPaymentEditor && withdrawalStatus === "none"
@@ -524,11 +597,8 @@ export default function TournamentRegistrationPanel({
 
   const requiresTransferReceipt =
     Number(tournament?.entryFee || 0) > 0 &&
-    (tournament?.paymentMethods || []).includes("transferencia");
-  const tournamentMercadoPagoConfig = useMemo(
-    () => normalizeMercadoPagoConfig(tournament?.mercadoPagoConfig),
-    [tournament?.mercadoPagoConfig]
-  );
+    (tournament?.paymentMethods || []).includes("transferencia") &&
+    !tournamentMercadoPagoEnabled;
   const canSubmitManualPairRequest =
     !isOrganizerPaymentEditor &&
     tournament?.pairConfirmationMode === "manual" &&
@@ -707,6 +777,12 @@ export default function TournamentRegistrationPanel({
         title: "Pagos",
         description: isOrganizerPaymentEditor
           ? "Opcional"
+          : tournamentMercadoPagoEnabled
+          ? currentPlayerPayment?.status === "approved"
+            ? "Pago aprobado"
+            : currentPlayerPayment?.status === "in_review"
+            ? "Pago en revision"
+            : "Mercado Pago habilitado"
           : requiresTransferReceipt
           ? receiptAsset?.uri || hasExistingReceipt
             ? "Comprobante adjunto"
@@ -714,11 +790,14 @@ export default function TournamentRegistrationPanel({
           : "No requerido",
         ready: isOrganizerPaymentEditor
           ? organizerPaymentsReady
+          : tournamentMercadoPagoEnabled
+          ? currentPlayerPayment?.status === "approved"
           : !requiresTransferReceipt || Boolean(receiptAsset?.uri || hasExistingReceipt),
       },
     ];
   }, [
     availabilityItems,
+    currentPlayerPayment?.status,
     hasExistingReceipt,
     isOrganizerCreating,
     isOrganizerPaymentEditor,
@@ -727,6 +806,7 @@ export default function TournamentRegistrationPanel({
     requiresTransferReceipt,
     selectedPartner,
     selectedPlayer1,
+    tournamentMercadoPagoEnabled,
   ]);
 
   const handleOpenPlayerPicker = (slotKey) => {
@@ -810,14 +890,6 @@ export default function TournamentRegistrationPanel({
     setReceiptAsset(nextAsset);
   };
 
-  const handleOpenMercadoPagoInfo = () => {
-    showFeedback(
-      "Mercado Pago disponible",
-      "Este torneo ya quedo preparado para cobrar con Checkout Pro usando credenciales de prueba.",
-      "default"
-    );
-  };
-
   const handleCreateGuestPlayer = () => {
     const trimmedName = String(guestName || "").trim();
     const trimmedLastName = String(guestLastName || "").trim();
@@ -852,6 +924,80 @@ export default function TournamentRegistrationPanel({
     setGuestLastName("");
     setGuestCategory("");
     setGuestSex("Masculino");
+  };
+
+  const handleStartTournamentMercadoPagoPayment = async () => {
+    if (!registration?.id || !currentPlayerPayment) {
+      showFeedback(
+        "Falta la inscripcion",
+        "Primero necesitamos una inscripcion guardada para iniciar el pago.",
+        "warning"
+      );
+      return;
+    }
+
+    if (!canStartTournamentMercadoPagoPayment) {
+      showFeedback(
+        "Mercado Pago no disponible",
+        "Este torneo todavia no tiene habilitado el cobro con Mercado Pago para este pago.",
+        "warning"
+      );
+      return;
+    }
+
+    try {
+      setSubmitting(true);
+      const returnUrls = getMercadoPagoReturnUrls();
+      const returnParams = {
+        tournamentId: tournament?.id || "",
+        registrationId: registration.id,
+        playerId:
+          currentPlayerPayment?.playerId || currentPlayerPayment?.userId || currentUser?.uid || "",
+        source: "tournaments",
+      };
+      const checkout = await createTournamentMercadoPagoPreference({
+        amount: Number(currentPlayerPayment?.amount || tournament?.entryFee || 0),
+        tournamentId: tournament?.id || "",
+        tournamentName: tournament?.name || "Torneo",
+        organizerId: String(tournament?.organizerId || "").trim(),
+        organizerName: String(tournament?.venueLabel || tournament?.organizerName || "").trim(),
+        registrationId: registration.id,
+        registrationLabel: registration?.pairLabel || "Inscripcion",
+        playerId:
+          currentPlayerPayment?.playerId || currentPlayerPayment?.userId || currentUser?.uid || "",
+        playerLabel: currentPlayerPayment?.playerName || currentUser?.name || "Jugador",
+        payerEmail: String(currentUser?.email || "").trim(),
+        payerName: currentPlayerPayment?.playerName || currentUser?.name || "Jugador",
+        successUrl: appendCheckoutQueryParams(returnUrls.successUrl, returnParams),
+        failureUrl: appendCheckoutQueryParams(returnUrls.failureUrl, returnParams),
+        pendingUrl: appendCheckoutQueryParams(returnUrls.pendingUrl, returnParams),
+      });
+
+      if (!checkout.checkoutUrl) {
+        throw new Error("No pudimos obtener el link de pago de Mercado Pago.");
+      }
+
+      await persistPendingMercadoPagoCheckout({
+        externalReference: checkout.externalReference || "",
+        preferenceId: checkout.preferenceId,
+        source: "tournaments",
+        status: "pending",
+        tournamentId: tournament?.id || "",
+        registrationId: registration.id,
+        playerId:
+          currentPlayerPayment?.playerId || currentPlayerPayment?.userId || currentUser?.uid || "",
+      });
+
+      await Linking.openURL(checkout.checkoutUrl);
+    } catch (error) {
+      showFeedback(
+        "No pudimos iniciar el pago",
+        error?.message || "Intenta nuevamente en unos instantes.",
+        "danger"
+      );
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const handleRequestWithdrawal = async () => {
@@ -1471,23 +1617,31 @@ export default function TournamentRegistrationPanel({
                 </View>
               ) : null}
             </>
-          ) : requiresTransferReceipt ? (
+          ) : tournamentMercadoPagoEnabled ? (
+            <View style={styles.registrationHintCard}>
+              <Ionicons color={colors.primaryDark} name="wallet-outline" size={18} />
+              <Text style={styles.registrationHintText}>
+                El organizador habilito Mercado Pago para este torneo. La transferencia queda desactivada.
+              </Text>
+            </View>
+          ) : null}
+          {!isOrganizerPaymentEditor && currentPlayerPayment?.status ? (
+            <Text style={styles.paymentStatusText}>
+              Estado del pago: {getPaymentStatusLabel(currentPlayerPayment.status)}
+            </Text>
+          ) : null}
+          {!isOrganizerPaymentEditor && canStartTournamentMercadoPagoPayment ? (
+            <AppButton
+              onPress={handleStartTournamentMercadoPagoPayment}
+              style={styles.sectionButton}
+              title={submitting ? "ABRIENDO..." : "PAGAR CON MERCADO PAGO"}
+            />
+          ) : null}
+          {tournamentMercadoPagoEnabled ? null : requiresTransferReceipt ? (
             <>
               <Text style={styles.blockTextCentered}>
                 Alias: {tournament?.paymentAlias || "Alias a confirmar por organizador"}
               </Text>
-              {tournamentMercadoPagoConfig.enabled ? (
-                <Pressable
-                  onPress={handleOpenMercadoPagoInfo}
-                  style={({ pressed }) => [
-                    styles.mercadoPagoInfoButton,
-                    pressed ? styles.receiptPickerButtonPressed : null,
-                  ]}
-                >
-                  <Ionicons color="#1A7F5A" name="wallet-outline" size={18} />
-                  <Text style={styles.mercadoPagoInfoButtonText}>Mercado Pago</Text>
-                </Pressable>
-              ) : null}
               {availablePayments.length > 1 ? (
                 <View style={styles.paymentTargetsRow}>
                   {availablePayments.map((payment) => {

@@ -490,13 +490,13 @@ function normalizePaymentConfig({
       0
     ),
     mercadoPago: {
-      ...buildPublicationMercadoPagoConfig(organizerMercadoPagoConfig),
+      ...buildPublicationMercadoPagoConfig(organizerMercadoPagoConfig, "ligas"),
       ...(currentConfig.mercadoPago && typeof currentConfig.mercadoPago === "object"
         ? currentConfig.mercadoPago
         : {}),
       enabled:
         currentConfig?.mercadoPago?.enabled === true ||
-        buildPublicationMercadoPagoConfig(organizerMercadoPagoConfig).enabled,
+        buildPublicationMercadoPagoConfig(organizerMercadoPagoConfig, "ligas").enabled,
     },
   };
 }
@@ -676,6 +676,12 @@ function normalizeRoundPayments(roundPayments = []) {
           playerIds: Array.isArray(entry?.playerIds) ? entry.playerIds.filter(Boolean) : [],
           paymentStatus: entry?.paymentStatus || "pendiente",
           paymentMethod: entry?.paymentMethod || "",
+          mercadoPagoPreferenceId: entry?.mercadoPagoPreferenceId || "",
+          mercadoPagoCheckoutUrl: entry?.mercadoPagoCheckoutUrl || "",
+          mercadoPagoPaymentId: entry?.mercadoPagoPaymentId || "",
+          mercadoPagoStatus: entry?.mercadoPagoStatus || "",
+          mercadoPagoStatusDetail: entry?.mercadoPagoStatusDetail || "",
+          paymentGateway: entry?.paymentGateway || "",
           proofUrl: entry?.proofUrl || "",
           proofFileName: entry?.proofFileName || "",
           proofUploadedAtMillis: normalizeCount(entry?.proofUploadedAtMillis, 0),
@@ -954,6 +960,9 @@ export function mapLeagueDoc(docSnapshot) {
   const scheduleConfig = normalizeScheduleConfig({ scheduleConfig: data.scheduleConfig || {} });
   const fixtureConfig = normalizeFixtureConfig({ fixtureConfig: data.fixtureConfig || {} });
   const teamType = data.teamType || "pair";
+  const paymentConfig = normalizePaymentConfig({
+    paymentConfig: data.paymentConfig || {},
+  });
 
   return {
     id: docSnapshot.id,
@@ -1016,6 +1025,7 @@ export function mapLeagueDoc(docSnapshot) {
       winByTwo: normalizeBoolean(data?.superTieBreakSettings?.winByTwo, false),
     },
     scoringSettings: normalizeScoringSettings(data.scoringSettings, teamType),
+    paymentConfig,
     organizerId: data.organizerId || data.createdBy || "",
     organizerName: data.organizerName || data.createdByName || "",
     createdAt: data.createdAt || null,
@@ -1885,6 +1895,12 @@ export function resolveLeaguePaymentRounds(league = {}) {
           completedAtMillis: normalizeCount(participant.completedAtMillis, 0),
           paymentStatus: storedEntry?.paymentStatus || "pendiente",
           paymentMethod: storedEntry?.paymentMethod || "",
+          mercadoPagoPreferenceId: storedEntry?.mercadoPagoPreferenceId || "",
+          mercadoPagoCheckoutUrl: storedEntry?.mercadoPagoCheckoutUrl || "",
+          mercadoPagoPaymentId: storedEntry?.mercadoPagoPaymentId || "",
+          mercadoPagoStatus: storedEntry?.mercadoPagoStatus || "",
+          mercadoPagoStatusDetail: storedEntry?.mercadoPagoStatusDetail || "",
+          paymentGateway: storedEntry?.paymentGateway || "",
           proofUrl: storedEntry?.proofUrl || "",
           proofFileName: storedEntry?.proofFileName || "",
           proofUploadedAtMillis: normalizeCount(storedEntry?.proofUploadedAtMillis, 0),
@@ -1919,7 +1935,10 @@ export function getLeaguePaymentRoundSummary(roundPayments = {}) {
 
       if (entry.paymentStatus === "pagado") {
         summary.paid += 1;
-      } else if (entry.paymentStatus === "informo_transferencia") {
+      } else if (
+        entry.paymentStatus === "informo_transferencia" ||
+        entry.paymentStatus === "in_review"
+      ) {
         summary.transfer += 1;
       } else if (normalizeCount(entry.completedAtMillis, 0) > 0) {
         summary.pending += 1;
@@ -1936,6 +1955,141 @@ export async function updateLeagueRoundPayments(leagueId, roundPayments = []) {
     roundPayments,
     updatedAt: serverTimestamp(),
   });
+}
+
+export async function clearPendingLeagueMercadoPagoAttempt(
+  leagueId,
+  roundId,
+  participantId,
+  cancellationReason = "payment_not_completed"
+) {
+  if (!leagueId || !roundId || !participantId) {
+    throw new Error("Faltan datos para limpiar el intento de Mercado Pago.");
+  }
+
+  const league = await getLeagueById(leagueId);
+  const currentRoundPayments = normalizeRoundPayments(league?.roundPayments);
+  let updated = false;
+
+  const nextRoundPayments = currentRoundPayments.map((round) => {
+    if (String(round?.roundId || "").trim() !== String(roundId || "").trim()) {
+      return round;
+    }
+
+    return {
+      ...round,
+      entries: (Array.isArray(round?.entries) ? round.entries : []).map((entry) => {
+        if (String(entry?.participantId || "").trim() !== String(participantId || "").trim()) {
+          return entry;
+        }
+
+        const mercadoPagoStatus = String(entry?.mercadoPagoStatus || "").trim().toLowerCase();
+        const paymentStatus = String(entry?.paymentStatus || "").trim().toLowerCase();
+
+        if (paymentStatus === "pagado" || mercadoPagoStatus === "approved") {
+          return entry;
+        }
+
+        updated = true;
+
+        return {
+          ...entry,
+          mercadoPagoCheckoutUrl: "",
+          mercadoPagoPaymentId: "",
+          mercadoPagoPreferenceId: "",
+          mercadoPagoStatus: "",
+          mercadoPagoStatusDetail: String(cancellationReason || "payment_not_completed").trim(),
+          paymentGateway: "",
+          paymentMethod: "",
+          paymentStatus: "pendiente",
+          updatedAtMillis: Date.now(),
+        };
+      }),
+    };
+  });
+
+  if (!updated) {
+    return { leagueId, participantId, roundId, status: "unchanged" };
+  }
+
+  await updateLeagueRoundPayments(leagueId, nextRoundPayments);
+
+  return { leagueId, participantId, roundId, status: "cleared" };
+}
+
+export async function clearPendingLeagueMercadoPagoAttempts(
+  leagueId,
+  targets = [],
+  cancellationReason = "payment_not_completed"
+) {
+  const normalizedTargets = Array.isArray(targets)
+    ? targets
+        .map((target) => ({
+          participantId: String(target?.participantId || "").trim(),
+          roundId: String(target?.roundId || "").trim(),
+        }))
+        .filter((target) => target.roundId && target.participantId)
+    : [];
+
+  if (!leagueId || !normalizedTargets.length) {
+    throw new Error("Faltan datos para limpiar los intentos de Mercado Pago.");
+  }
+
+  const league = await getLeagueById(leagueId);
+  const currentRoundPayments = normalizeRoundPayments(league?.roundPayments);
+  let updated = false;
+
+  const nextRoundPayments = currentRoundPayments.map((round) => {
+    const roundTargets = normalizedTargets.filter(
+      (target) => target.roundId === String(round?.roundId || "").trim()
+    );
+
+    if (!roundTargets.length) {
+      return round;
+    }
+
+    return {
+      ...round,
+      entries: (Array.isArray(round?.entries) ? round.entries : []).map((entry) => {
+        const participantId = String(entry?.participantId || "").trim();
+        const shouldClear = roundTargets.some((target) => target.participantId === participantId);
+
+        if (!shouldClear) {
+          return entry;
+        }
+
+        const mercadoPagoStatus = String(entry?.mercadoPagoStatus || "").trim().toLowerCase();
+        const paymentStatus = String(entry?.paymentStatus || "").trim().toLowerCase();
+
+        if (paymentStatus === "pagado" || mercadoPagoStatus === "approved") {
+          return entry;
+        }
+
+        updated = true;
+
+        return {
+          ...entry,
+          mercadoPagoCheckoutUrl: "",
+          mercadoPagoPaymentId: "",
+          mercadoPagoPreferenceId: "",
+          mercadoPagoStatus: "",
+          mercadoPagoStatusDetail: String(cancellationReason || "payment_not_completed").trim(),
+          paymentGateway: "",
+          paymentMethod: "",
+          paymentStatus: "pendiente",
+          updatedAtMillis: Date.now(),
+        };
+      }),
+    };
+  });
+
+  if (!updated) {
+    return { leagueId, status: "unchanged" };
+  }
+
+  await updateLeagueRoundPayments(leagueId, nextRoundPayments);
+
+  return { leagueId, status: "cleared" };
 }
 
 function formatSuspensionDateLabel(value = 0) {

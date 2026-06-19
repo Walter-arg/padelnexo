@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Linking,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -9,6 +10,7 @@ import {
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
 import { useFocusEffect } from "@react-navigation/native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -21,6 +23,8 @@ import SectionHeader from "../components/SectionHeader";
 import TournamentHeaderCard from "../components/TournamentHeaderCard";
 import { colors, spacing } from "../config/theme";
 import { useAuth } from "../context/AuthContext";
+import { sendChatMessage } from "../services/chatService";
+import { sendTournamentPaymentReminderPushAsync } from "../services/pushNotificationsService";
 import {
   getTournamentById,
   listTournamentRegistrations,
@@ -60,9 +64,9 @@ function getTournamentPaymentStatusMeta(payment = {}) {
 
   if (payment.status === "approved" && payment.method === "transferencia") {
     return {
-      accent: "#1E5C89",
-      background: "#EFF6FC",
-      border: "#C7DCF1",
+      accent: "#1F7A43",
+      background: "#EEF8F1",
+      border: "#C5E5CF",
       icon: payment.receiptUrl ? "document-attach-outline" : "checkmark-circle",
       indicatorColor: "#1F7A43",
       label: payment.receiptUrl ? "Transferencia con comprobante" : "Transferencia cargada",
@@ -101,6 +105,53 @@ function getTournamentPaymentStatusMeta(payment = {}) {
   };
 }
 
+function getTournamentPaymentTableStatusLabel(payment = {}) {
+  if (payment.status === "approved" && payment.method === "efectivo") {
+    return "Pagado";
+  }
+
+  if (payment.status === "approved" && payment.method === "transferencia") {
+    return "Pagado";
+  }
+
+  if (payment.status === "in_review") {
+    return "Pago a\nVerificar";
+  }
+
+  if (payment.status === "rejected") {
+    return "Impago";
+  }
+
+  return "Impago";
+}
+
+function normalizePhoneNumber(value = "") {
+  return String(value || "").replace(/[^\d]/g, "");
+}
+
+function resolveTournamentPlayerPhone(registration = {}, payment = {}, slot = "player1") {
+  const paymentPhone = String(
+    payment?.phone || payment?.telefono || payment?.whatsapp || ""
+  ).trim();
+
+  if (paymentPhone) {
+    return paymentPhone;
+  }
+
+  const slotData = registration?.[slot];
+  const slotPhone = String(
+    slotData?.phone ||
+      slotData?.telefono ||
+      slotData?.celular ||
+      slotData?.whatsapp ||
+      registration?.[`${slot}Phone`] ||
+      registration?.[`${slot}Telefono`] ||
+      ""
+  ).trim();
+
+  return slotPhone;
+}
+
 function buildRegistrationPlayers(registration = {}) {
   const payments = Array.isArray(registration.payments) ? registration.payments : [];
   const paymentByKey = new Map(
@@ -111,6 +162,13 @@ function buildRegistrationPlayers(registration = {}) {
     {
       playerId: registration.player1Id || "player-1",
       playerName: registration.player1Name || "Jugador 1",
+      phone: resolveTournamentPlayerPhone(
+        registration,
+        paymentByKey.get(String(registration.player1Id || "").trim()) ||
+          payments.find((entry) => entry.playerName === registration.player1Name) ||
+          null,
+        "player1"
+      ),
       payment:
         paymentByKey.get(String(registration.player1Id || "").trim()) ||
         payments.find((entry) => entry.playerName === registration.player1Name) ||
@@ -120,6 +178,13 @@ function buildRegistrationPlayers(registration = {}) {
       ? {
           playerId: registration.player2Id || "player-2",
           playerName: registration.player2Name || "Jugador 2",
+          phone: resolveTournamentPlayerPhone(
+            registration,
+            paymentByKey.get(String(registration.player2Id || "").trim()) ||
+              payments.find((entry) => entry.playerName === registration.player2Name) ||
+              null,
+            "player2"
+          ),
           payment:
             paymentByKey.get(String(registration.player2Id || "").trim()) ||
             payments.find((entry) => entry.playerName === registration.player2Name) ||
@@ -164,6 +229,26 @@ function buildSummary(registrations = []) {
   );
 }
 
+function formatCompactPlayerName(value = "") {
+  const parts = String(value || "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+
+  if (!parts.length) {
+    return "Jugador";
+  }
+
+  if (parts.length === 1) {
+    return parts[0];
+  }
+
+  const lastName = parts[parts.length - 1];
+  const firstNameInitial = parts[0].charAt(0).toUpperCase();
+
+  return `${lastName} ${firstNameInitial}.`;
+}
+
 export default function TournamentPaymentsScreen({ navigation, route }) {
   const { userData } = useAuth();
   const tournamentId = route?.params?.tournamentId || "";
@@ -173,7 +258,12 @@ export default function TournamentPaymentsScreen({ navigation, route }) {
   const [tournament, setTournament] = useState(null);
   const [registrations, setRegistrations] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [menuVisible, setMenuVisible] = useState(false);
+  const [menuTarget, setMenuTarget] = useState(null);
+  const [methodPickerVisible, setMethodPickerVisible] = useState(false);
   const [savingKey, setSavingKey] = useState("");
+  const [receiptPickerVisible, setReceiptPickerVisible] = useState(false);
+  const [receiptPickerTarget, setReceiptPickerTarget] = useState(null);
   const [feedback, setFeedback] = useState({
     visible: false,
     title: "",
@@ -231,6 +321,30 @@ export default function TournamentPaymentsScreen({ navigation, route }) {
   const canManage =
     normalizeText(tournament?.organizerId) === normalizeText(organizerId) && Boolean(organizerId);
   const summary = useMemo(() => buildSummary(registrations), [registrations]);
+  const paymentRows = useMemo(
+    () =>
+      registrations.flatMap((registration, index) =>
+        buildRegistrationPlayers(registration).map((player) => {
+          const payment = player.payment || {
+            amount: Number(tournament?.entryFee || 0),
+            method: "",
+            playerId: player.playerId,
+            playerName: player.playerName,
+            receiptUrl: "",
+            status: "pending",
+            userId: player.playerId,
+          };
+
+          return {
+            index,
+            payment,
+            player,
+            registration,
+          };
+        })
+      ),
+    [registrations, tournament?.entryFee]
+  );
 
   const showFeedback = (title, message, tone = "default") => {
     setFeedback({
@@ -239,6 +353,36 @@ export default function TournamentPaymentsScreen({ navigation, route }) {
       message,
       tone,
     });
+  };
+
+  const closeReceiptPicker = () => {
+    setReceiptPickerVisible(false);
+    setReceiptPickerTarget(null);
+  };
+
+  const closeMenu = () => {
+    setMenuVisible(false);
+    setMenuTarget(null);
+  };
+
+  const openMenu = (target) => {
+    setMenuTarget(target);
+    setMenuVisible(true);
+  };
+
+  const openMethodPicker = (target) => {
+    setMenuTarget(target);
+    setMenuVisible(false);
+    setMethodPickerVisible(true);
+  };
+
+  const closeMethodPicker = () => {
+    setMethodPickerVisible(false);
+  };
+
+  const dismissMethodPicker = () => {
+    setMethodPickerVisible(false);
+    setMenuTarget(null);
   };
 
   const handlePickMethod = async (registration, payment, method) => {
@@ -267,31 +411,138 @@ export default function TournamentPaymentsScreen({ navigation, route }) {
     }
   };
 
-  const handleUploadReceipt = async (registration, payment) => {
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+  const handleMarkPending = async () => {
+    if (!menuTarget?.registration || !menuTarget?.payment) {
+      return;
+    }
 
-    if (permission.status !== "granted") {
+    const { payment, registration } = menuTarget;
+    const actionKey = `${registration.id}-${payment.playerId || payment.userId}-pending`;
+
+    try {
+      setSavingKey(actionKey);
+      await recordTournamentOrganizerPayment({
+        tournamentId,
+        registrationId: registration.id,
+        playerId: payment.playerId || payment.userId,
+        organizerId,
+        organizerName: userData?.name || "Organizador",
+        method: "",
+      });
+      await loadTournamentPayments();
+      closeMenu();
+      showFeedback("Pago actualizado", "El jugador quedo marcado como impago.", "success");
+    } catch (error) {
       showFeedback(
-        "Permiso necesario",
-        "Necesitamos acceso a tus fotos para adjuntar el comprobante.",
+        "No pudimos actualizar el pago",
+        error?.message || "Intenta nuevamente en unos instantes.",
+        "danger"
+      );
+    } finally {
+      setSavingKey("");
+    }
+  };
+
+  const handleSendInternalReminder = async () => {
+    if (!menuTarget?.registration || !menuTarget?.payment || !menuTarget?.player?.playerName) {
+      return;
+    }
+
+    const playerUserId = String(menuTarget.payment.userId || "").trim();
+
+    if (!playerUserId) {
+      showFeedback(
+        "Sin usuario vinculado",
+        "Este jugador no tiene usuario vinculado para recibir mensajes internos.",
         "danger"
       );
       return;
     }
 
-    const pickerResult = await ImagePicker.launchImageLibraryAsync({
-      allowsEditing: true,
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.8,
-    });
+    const actionKey = `${menuTarget.registration.id}-${playerUserId}-internal-reminder`;
 
-    if (pickerResult.canceled) {
+    try {
+      setSavingKey(actionKey);
+      await sendChatMessage({
+        currentUserId: organizerId,
+        currentUserName: userData?.name || "Organizador",
+        otherUserId: playerUserId,
+        otherUserName: menuTarget.player.playerName,
+        text: `Hola ${menuTarget.player.playerName}. Te recordamos que sigue pendiente el pago de tu inscripcion en ${tournament?.name || "Torneo"}.`,
+      });
+
+      try {
+        await sendTournamentPaymentReminderPushAsync({
+          playerUserId,
+          registrationId: menuTarget.registration.id,
+          tournamentId,
+          tournamentName: tournament?.name || fallbackTournamentName,
+        });
+      } catch (pushError) {
+        console.log(
+          "[TournamentPaymentsScreen] No se pudo enviar push torneo:",
+          pushError?.message || pushError
+        );
+      }
+
+      closeMenu();
+      showFeedback(
+        "Recordatorio enviado",
+        `Se envio el recordatorio a ${menuTarget.player.playerName}.`,
+        "success"
+      );
+    } catch (error) {
+      showFeedback(
+        "No pudimos enviar el recordatorio",
+        error?.message === "CHAT_BLOCKED"
+          ? "No se puede enviar el mensaje porque la conversacion esta bloqueada."
+          : error?.message || "Intenta nuevamente en unos instantes.",
+        "danger"
+      );
+    } finally {
+      setSavingKey("");
+    }
+  };
+
+  const handleOpenWhatsAppReminder = async () => {
+    if (!menuTarget?.player?.playerName) {
       return;
     }
 
-    const asset = pickerResult.assets?.[0];
+    const normalizedPhone = normalizePhoneNumber(menuTarget?.player?.phone || "");
 
-    if (!asset?.uri) {
+    if (!normalizedPhone) {
+      return;
+    }
+
+    const message = `Hola ${menuTarget.player.playerName}. Te escribimos desde ${tournament?.name || "Torneo"} para ponernos en contacto por tu pago de inscripcion.`;
+    const url = `https://wa.me/${normalizedPhone}?text=${encodeURIComponent(message)}`;
+
+    try {
+      const supported = await Linking.canOpenURL(url);
+
+      if (!supported) {
+        showFeedback(
+          "WhatsApp no disponible",
+          "No pudimos abrir WhatsApp en este dispositivo.",
+          "danger"
+        );
+        return;
+      }
+
+      await Linking.openURL(url);
+      closeMenu();
+    } catch (error) {
+      showFeedback(
+        "No pudimos abrir WhatsApp",
+        "Intenta nuevamente en unos instantes.",
+        "danger"
+      );
+    }
+  };
+
+  const uploadReceiptAsset = async (registration, payment, asset = {}) => {
+    if (!registration || !payment || !asset?.uri) {
       return;
     }
 
@@ -304,7 +555,7 @@ export default function TournamentPaymentsScreen({ navigation, route }) {
         registrationId: registration.id,
         playerId: payment.playerId || payment.userId,
         receiptUri: asset.uri,
-        fileName: asset.fileName || `comprobante-${Date.now()}.jpg`,
+        fileName: asset.fileName || asset.name || `comprobante-${Date.now()}.jpg`,
         method: "transferencia",
         uploadedBy: organizerId,
         uploadedByName: userData?.name || "Organizador",
@@ -332,6 +583,127 @@ export default function TournamentPaymentsScreen({ navigation, route }) {
     } finally {
       setSavingKey("");
     }
+  };
+
+  const openReceiptPicker = (registration, payment) => {
+    setReceiptPickerTarget({ payment, registration });
+    setReceiptPickerVisible(true);
+    setMethodPickerVisible(false);
+    closeMenu();
+  };
+
+  const handlePickReceiptFromGallery = async () => {
+    const target = receiptPickerTarget || menuTarget;
+    if (!target?.registration || !target?.payment) {
+      return;
+    }
+
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+    if (permission.status !== "granted") {
+      showFeedback(
+        "Permiso necesario",
+        "Necesitamos acceso a tus fotos para adjuntar el comprobante.",
+        "danger"
+      );
+      return;
+    }
+
+    const pickerResult = await ImagePicker.launchImageLibraryAsync({
+      allowsEditing: true,
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.8,
+    });
+
+    if (pickerResult.canceled) {
+      return;
+    }
+
+    const asset = pickerResult.assets?.[0];
+
+    if (!asset?.uri) {
+      return;
+    }
+
+    closeReceiptPicker();
+    closeMethodPicker();
+    await uploadReceiptAsset(target.registration, target.payment, asset);
+  };
+
+  const handlePickReceiptFromCamera = async () => {
+    const target = receiptPickerTarget || menuTarget;
+    if (!target?.registration || !target?.payment) {
+      return;
+    }
+
+    const permission = await ImagePicker.requestCameraPermissionsAsync();
+
+    if (permission.status !== "granted") {
+      showFeedback(
+        "Permiso necesario",
+        "Necesitamos acceso a la camara para fotografiar el comprobante.",
+        "danger"
+      );
+      return;
+    }
+
+    const cameraResult = await ImagePicker.launchCameraAsync({
+      allowsEditing: true,
+      cameraType: ImagePicker.CameraType.back,
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.8,
+    });
+
+    if (cameraResult.canceled) {
+      return;
+    }
+
+    const asset = cameraResult.assets?.[0];
+
+    if (!asset?.uri) {
+      return;
+    }
+
+    closeReceiptPicker();
+    closeMethodPicker();
+    await uploadReceiptAsset(target.registration, target.payment, asset);
+  };
+
+  const handlePickReceiptPdf = async () => {
+    const target = receiptPickerTarget || menuTarget;
+    if (!target?.registration || !target?.payment) {
+      return;
+    }
+
+    const result = await DocumentPicker.getDocumentAsync({
+      copyToCacheDirectory: true,
+      multiple: false,
+      type: "application/pdf",
+    });
+
+    if (result.canceled || !result.assets?.length) {
+      return;
+    }
+
+    const asset = result.assets[0];
+
+    if (!asset?.uri) {
+      return;
+    }
+
+    closeReceiptPicker();
+    closeMethodPicker();
+    await uploadReceiptAsset(target.registration, target.payment, asset);
+  };
+
+  const handlePickMethodFromModal = async (method) => {
+    if (!menuTarget?.registration || !menuTarget?.payment) {
+      return;
+    }
+
+    closeMethodPicker();
+    await handlePickMethod(menuTarget.registration, menuTarget.payment, method);
+    closeMenu();
   };
 
   const handleOpenReceipt = async (receiptUrl) => {
@@ -418,173 +790,134 @@ export default function TournamentPaymentsScreen({ navigation, route }) {
                   Esta vista de pagos esta reservada para quien organiza el torneo.
                 </Text>
               </View>
-            ) : registrations.length ? (
-              registrations.map((registration, index) => {
-                const pairPlayers = buildRegistrationPlayers(registration);
+            ) : paymentRows.length ? (
+              <View style={styles.paymentTableCard}>
+                <Text style={styles.paymentTableTitle}>PAGOS DEL TORNEO</Text>
+                <View style={styles.paymentTableHeaderRow}>
+                  <Text style={[styles.paymentTableHeaderText, styles.paymentTablePlayerHeader]}>
+                    JUGADOR
+                  </Text>
+                  <Text style={[styles.paymentTableHeaderText, styles.paymentTableStatusHeader]}>
+                    ESTADO
+                  </Text>
+                  <Text style={[styles.paymentTableHeaderText, styles.paymentTableMethodHeader]}>
+                    MODO
+                  </Text>
+                  <Text style={[styles.paymentTableHeaderText, styles.paymentTableProofHeader]}>
+                    COMP.
+                  </Text>
+                  <Text style={[styles.paymentTableHeaderText, styles.paymentTableAmountHeader]}>
+                    $
+                  </Text>
+                  <Text style={[styles.paymentTableHeaderText, styles.paymentTableActionsHeader]}>
+                    {" "}
+                  </Text>
+                </View>
 
-                return (
-                  <View key={registration.id} style={styles.pairCard}>
-                    <View style={styles.pairHeader}>
-                      <Text style={styles.pairTitle}>{`PAREJA ${index + 1}`}</Text>
-                    </View>
+                {paymentRows.map(({ index, payment, player, registration }) => {
+                  const paymentStatusMeta = getTournamentPaymentStatusMeta(payment);
+                  const paymentTableStatusLabel = getTournamentPaymentTableStatusLabel(payment);
+                  const paymentKey = `${registration.id}-${payment.playerId || payment.userId}`;
+                  const isSaving = savingKey.startsWith(paymentKey);
+                  const isFocused =
+                    (!!focusPlayerId &&
+                      [payment.playerId, payment.userId, player.playerId]
+                        .filter(Boolean)
+                        .some((value) => String(value).trim().toLowerCase() === focusPlayerId)) ||
+                    (!!focusPlayerName &&
+                      String(player.playerName || "").trim().toLowerCase() === focusPlayerName);
 
-                    {pairPlayers.map((player) => {
-                      const payment = player.payment || {
-                        amount: Number(tournament?.entryFee || 0),
-                        method: "",
-                        playerId: player.playerId,
-                        playerName: player.playerName,
-                        receiptUrl: "",
-                        status: "pending",
-                        userId: player.playerId,
-                      };
-                      const paymentStatusMeta = getTournamentPaymentStatusMeta(payment);
-                      const paymentKey = `${registration.id}-${payment.playerId || payment.userId}`;
-                      const isSaving = savingKey.startsWith(paymentKey);
-                      const isFocused =
-                        (!!focusPlayerId &&
-                          [payment.playerId, payment.userId, player.playerId]
-                            .filter(Boolean)
-                            .some((value) => String(value).trim().toLowerCase() === focusPlayerId)) ||
-                        (!!focusPlayerName &&
-                          String(player.playerName || "").trim().toLowerCase() === focusPlayerName);
+                  return (
+                    <View
+                      key={paymentKey}
+                      style={[styles.paymentTableRow, isFocused ? styles.focusedPaymentTableRow : null]}
+                    >
+                      <View style={styles.paymentTablePlayerCell}>
+                        <Text numberOfLines={1} style={styles.paymentTablePairLabel}>
+                          {`PAREJA ${index + 1}`}
+                        </Text>
+                        <Text numberOfLines={1} style={styles.paymentTablePlayerName}>
+                          {formatCompactPlayerName(player.playerName)}
+                        </Text>
+                      </View>
 
-                      return (
-                        <View
-                          key={paymentKey}
-                          style={[styles.playerCard, isFocused ? styles.focusedPlayerCard : null]}
+                      <View style={styles.paymentTableStatusCell}>
+                        <Text
+                          numberOfLines={2}
+                          style={[styles.paymentTableStatusText, { color: paymentStatusMeta.accent }]}
                         >
-                          <View style={styles.playerHeader}>
-                            <View style={styles.playerIdentityRow}>
-                              <View style={styles.playerIdentityMain}>
-                                <View
-                                  style={[
-                                    styles.playerLed,
-                                    { backgroundColor: paymentStatusMeta.indicatorColor },
-                                  ]}
-                                />
-                                <View style={styles.playerCopy}>
-                                  <Text style={styles.playerName}>{player.playerName}</Text>
-                                </View>
-                              </View>
-                              <Text style={styles.playerAmount}>
-                                {payment.amount > 0
-                                  ? formatMoney(payment.amount)
-                                  : "Sin monto configurado"}
-                              </Text>
-                            </View>
+                          {paymentTableStatusLabel}
+                        </Text>
+                      </View>
 
-                            <View style={styles.playerStatusWrap}>
-                              <View
-                                style={[
-                                  styles.paymentStatusChip,
-                                  {
-                                    backgroundColor: paymentStatusMeta.background,
-                                    borderColor: paymentStatusMeta.border,
-                                  },
-                                ]}
-                              >
-                                <Ionicons
-                                  color={paymentStatusMeta.accent}
-                                  name={paymentStatusMeta.icon}
-                                  size={14}
-                                />
-                                <Text
-                                  style={[
-                                    styles.paymentStatusText,
-                                    { color: paymentStatusMeta.accent },
-                                  ]}
-                                >
-                                  {paymentStatusMeta.label}
-                                </Text>
-                              </View>
-                            </View>
-                          </View>
+                      <View style={styles.paymentTableMethodCell}>
+                        <Text numberOfLines={2} style={styles.paymentTableMethodText}>
+                          {payment.method === "efectivo"
+                            ? "Efec."
+                            : payment.method === "transferencia"
+                              ? "Transf."
+                              : "-"}
+                        </Text>
+                      </View>
 
-                          <View style={styles.paymentActionsRow}>
-                            {PAYMENT_METHOD_OPTIONS.map((option) => {
-                              const isActive = payment.method === option.key;
+                      <View style={styles.paymentTableProofCell}>
+                        {payment.receiptUrl ? (
+                          <Pressable
+                            onPress={() => handleOpenReceipt(payment.receiptUrl)}
+                            style={({ pressed }) => [
+                              styles.paymentTableProofButton,
+                              pressed ? styles.pressedState : null,
+                            ]}
+                          >
+                            <Ionicons color={colors.primaryDark} name="document-text-outline" size={14} />
+                          </Pressable>
+                        ) : (
+                          <Text style={styles.paymentTableMutedText}>-</Text>
+                        )}
+                      </View>
 
-                              return (
-                                <Pressable
-                                  key={option.key}
-                                  onPress={() => handlePickMethod(registration, payment, option.key)}
-                                  style={({ pressed }) => [
-                                    styles.methodChip,
-                                    isActive && styles.methodChipActive,
-                                    pressed ? styles.pressedState : null,
-                                  ]}
-                                >
-                                  <Ionicons
-                                    color={isActive ? colors.surface : colors.primaryDark}
-                                    name={option.icon}
-                                    size={15}
-                                  />
-                                  <Text
-                                    style={[
-                                      styles.methodChipText,
-                                      isActive && styles.methodChipTextActive,
-                                    ]}
-                                  >
-                                    {option.label}
-                                  </Text>
-                                </Pressable>
-                              );
-                            })}
-                          </View>
+                      <View style={styles.paymentTableAmountCell}>
+                        <Text numberOfLines={1} style={styles.paymentTableAmountText}>
+                          {payment.amount > 0 ? formatMoney(payment.amount) : "-"}
+                        </Text>
+                      </View>
 
-                          {payment.method === "transferencia" ? (
-                            <View style={styles.transferWrap}>
-                              <Pressable
-                                onPress={() => handleUploadReceipt(registration, payment)}
-                                style={({ pressed }) => [
-                                  styles.receiptButton,
-                                  pressed ? styles.pressedState : null,
-                                ]}
-                              >
-                                <Ionicons
-                                  color={colors.primaryDark}
-                                  name="document-attach-outline"
-                                  size={16}
-                                />
-                                <Text style={styles.receiptButtonText}>
-                                  {payment.receiptUrl
-                                    ? "Cambiar comprobante"
-                                    : "Cargar comprobante"}
-                                </Text>
-                              </Pressable>
-
-                              {payment.receiptUrl ? (
-                                <Pressable
-                                  onPress={() => handleOpenReceipt(payment.receiptUrl)}
-                                  style={({ pressed }) => [
-                                    styles.receiptLinkRow,
-                                    pressed ? styles.pressedState : null,
-                                  ]}
-                                >
-                                  <Ionicons color="#1E5C89" name="open-outline" size={15} />
-                                  <Text style={styles.receiptLinkText}>Ver comprobante</Text>
-                                </Pressable>
-                              ) : (
-                                <Text style={styles.receiptHintText}>
-                                  El comprobante es opcional cuando carga el organizador.
-                                </Text>
-                              )}
-                            </View>
-                          ) : null}
-
-                          {isSaving ? (
-                            <View style={styles.inlineSavingRow}>
-                              <ActivityIndicator color={colors.primaryDark} size="small" />
-                              <Text style={styles.inlineSavingText}>Guardando...</Text>
-                            </View>
-                          ) : null}
+                      <View style={styles.paymentTableActionsCell}>
+                        <View style={styles.paymentTableActionsRow}>
+                          <Pressable
+                            onPress={() => openMethodPicker({ payment, player, registration })}
+                            style={({ pressed }) => [
+                              styles.paymentTableActionButton,
+                              payment.status === "approved" && payment.method === "efectivo"
+                                ? styles.quickPaidButtonPaid
+                                : payment.status === "approved" && payment.method === "transferencia"
+                                  ? styles.quickPaidButtonTransfer
+                                  : styles.quickPaidButtonPending,
+                              pressed ? styles.pressedState : null,
+                            ]}
+                          >
+                            <Ionicons color={colors.surface} name="cash-outline" size={14} />
+                          </Pressable>
+                          <Pressable
+                            onPress={() => openMenu({ payment, player, registration })}
+                            style={({ pressed }) => [
+                              styles.paymentTableMenuButton,
+                              pressed ? styles.pressedState : null,
+                            ]}
+                          >
+                            <Ionicons color={colors.text} name="ellipsis-vertical" size={16} />
+                          </Pressable>
                         </View>
-                      );
-                    })}
-                  </View>
-                );
-              })
+                        {isSaving ? (
+                          <View style={styles.tableInlineSavingWrap}>
+                            <ActivityIndicator color={colors.primaryDark} size="small" />
+                          </View>
+                        ) : null}
+                      </View>
+                    </View>
+                  );
+                })}
+              </View>
             ) : (
               <View style={styles.emptyCard}>
                 <Text style={styles.emptyTitle}>Todavia no hay parejas inscriptas</Text>
@@ -603,6 +936,137 @@ export default function TournamentPaymentsScreen({ navigation, route }) {
 
       <BottomQuickActionsBar />
 
+      <Modal
+        animationType="fade"
+        transparent
+        visible={menuVisible && Boolean(menuTarget)}
+        onRequestClose={closeMenu}
+      >
+        <View style={styles.modalOverlay}>
+          <Pressable style={styles.modalBackdrop} onPress={closeMenu} />
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>{menuTarget?.player?.playerName || "Opciones"}</Text>
+            <Text style={styles.modalSubtitle}>
+              Actualiza el estado o envia un recordatorio rapido.
+            </Text>
+
+            {menuTarget?.payment?.receiptUrl ? (
+              <Pressable
+                onPress={() => handleOpenReceipt(menuTarget?.payment?.receiptUrl)}
+                style={({ pressed }) => [styles.modalAction, pressed ? styles.pressedState : null]}
+              >
+                <Text style={styles.modalActionText}>Ver comprobante</Text>
+              </Pressable>
+            ) : null}
+
+            <Pressable
+              disabled={!normalizePhoneNumber(menuTarget?.player?.phone || "")}
+              onPress={handleOpenWhatsAppReminder}
+              style={({ pressed }) => [
+                styles.modalAction,
+                !normalizePhoneNumber(menuTarget?.player?.phone || "")
+                  ? styles.modalActionDisabled
+                  : null,
+                pressed && normalizePhoneNumber(menuTarget?.player?.phone || "")
+                  ? styles.pressedState
+                  : null,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.modalActionText,
+                  !normalizePhoneNumber(menuTarget?.player?.phone || "")
+                    ? styles.modalActionDisabledText
+                    : null,
+                ]}
+              >
+                Enviar por WhatsApp
+              </Text>
+            </Pressable>
+
+            <Pressable
+              onPress={handleSendInternalReminder}
+              style={({ pressed }) => [styles.modalAction, pressed ? styles.pressedState : null]}
+            >
+              <Text style={styles.modalActionText}>Enviar por mensajeria interna</Text>
+            </Pressable>
+
+            <Pressable
+              onPress={handleMarkPending}
+              style={({ pressed }) => [styles.modalActionDanger, pressed ? styles.pressedState : null]}
+            >
+              <Text style={styles.modalActionDangerText}>Marcar impago</Text>
+            </Pressable>
+
+            <Pressable
+              onPress={closeMenu}
+              style={({ pressed }) => [styles.modalSecondaryButton, pressed ? styles.pressedState : null]}
+            >
+              <Text style={styles.modalSecondaryButtonText}>Cerrar</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        animationType="fade"
+        transparent
+        visible={methodPickerVisible}
+        onRequestClose={dismissMethodPicker}
+      >
+        <View style={styles.modalOverlay}>
+          <Pressable style={styles.modalBackdrop} onPress={dismissMethodPicker} />
+          <View style={styles.modalCardSmall}>
+            <Text style={styles.modalTitle}>Marcar como pagado</Text>
+            <Text style={styles.modalSubtitle}>
+              Elige el metodo y, si es transferencia, puedes cargar el comprobante ahora mismo.
+            </Text>
+
+            <Pressable
+              onPress={() => handlePickMethodFromModal("efectivo")}
+              style={({ pressed }) => [styles.modalAction, pressed ? styles.pressedState : null]}
+            >
+              <Text style={styles.modalActionText}>Efectivo</Text>
+            </Pressable>
+
+            <Pressable
+              onPress={() => handlePickMethodFromModal("transferencia")}
+              style={({ pressed }) => [styles.modalAction, pressed ? styles.pressedState : null]}
+            >
+              <Text style={styles.modalActionText}>Transferencia sin comprobante</Text>
+            </Pressable>
+
+            <Pressable
+              onPress={handlePickReceiptFromGallery}
+              style={({ pressed }) => [styles.modalAction, pressed ? styles.pressedState : null]}
+            >
+              <Text style={styles.modalActionText}>Imagen</Text>
+            </Pressable>
+
+            <Pressable
+              onPress={handlePickReceiptPdf}
+              style={({ pressed }) => [styles.modalAction, pressed ? styles.pressedState : null]}
+            >
+              <Text style={styles.modalActionText}>PDF</Text>
+            </Pressable>
+
+            <Pressable
+              onPress={handlePickReceiptFromCamera}
+              style={({ pressed }) => [styles.modalAction, pressed ? styles.pressedState : null]}
+            >
+              <Text style={styles.modalActionText}>Usar camara</Text>
+            </Pressable>
+
+            <Pressable
+              onPress={dismissMethodPicker}
+              style={({ pressed }) => [styles.modalSecondaryButton, pressed ? styles.pressedState : null]}
+            >
+              <Text style={styles.modalSecondaryButtonText}>Cerrar</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
       <FeedbackModal
         message={feedback.message}
         onClose={() =>
@@ -617,6 +1081,57 @@ export default function TournamentPaymentsScreen({ navigation, route }) {
         tone={feedback.tone}
         visible={feedback.visible}
       />
+
+      <Modal
+        animationType="fade"
+        transparent
+        visible={receiptPickerVisible}
+        onRequestClose={closeReceiptPicker}
+      >
+        <View style={styles.modalOverlay}>
+          <Pressable style={styles.modalBackdrop} onPress={closeReceiptPicker} />
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Adjuntar comprobante</Text>
+            <Text style={styles.modalSubtitle}>
+              Puedes subir una imagen, un PDF o sacar una foto en el momento.
+            </Text>
+
+            <Pressable
+              onPress={handlePickReceiptFromGallery}
+              style={({ pressed }) => [styles.modalAction, pressed ? styles.pressedState : null]}
+            >
+              <Ionicons color={colors.primaryDark} name="image-outline" size={18} />
+              <Text style={styles.modalActionText}>Imagen</Text>
+            </Pressable>
+
+            <Pressable
+              onPress={handlePickReceiptPdf}
+              style={({ pressed }) => [styles.modalAction, pressed ? styles.pressedState : null]}
+            >
+              <Ionicons color={colors.primaryDark} name="document-text-outline" size={18} />
+              <Text style={styles.modalActionText}>PDF</Text>
+            </Pressable>
+
+            <Pressable
+              onPress={handlePickReceiptFromCamera}
+              style={({ pressed }) => [styles.modalAction, pressed ? styles.pressedState : null]}
+            >
+              <Ionicons color={colors.primaryDark} name="camera-outline" size={18} />
+              <Text style={styles.modalActionText}>Usar camara</Text>
+            </Pressable>
+
+            <Pressable
+              onPress={closeReceiptPicker}
+              style={({ pressed }) => [
+                styles.modalSecondaryButton,
+                pressed ? styles.pressedState : null,
+              ]}
+            >
+              <Text style={styles.modalSecondaryButtonText}>Cancelar</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -706,6 +1221,196 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     marginTop: 4,
     textAlign: "center",
+  },
+  paymentTableCard: {
+    backgroundColor: colors.surface,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: 6,
+    paddingTop: 8,
+    paddingBottom: 4,
+    overflow: "hidden",
+  },
+  paymentTableTitle: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: "900",
+    textAlign: "center",
+    marginBottom: spacing.xs,
+  },
+  paymentTableHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingLeft: 3,
+    paddingRight: 4,
+    paddingBottom: spacing.xs,
+  },
+  paymentTableHeaderText: {
+    color: colors.primaryDark,
+    fontSize: 10,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  paymentTableRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    minHeight: 52,
+    paddingLeft: 3,
+    paddingRight: 4,
+    paddingVertical: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: "#EEF2F0",
+  },
+  focusedPaymentTableRow: {
+    backgroundColor: "#F1FAF5",
+  },
+  paymentTablePlayerCell: {
+    flex: 2.9,
+    justifyContent: "center",
+    paddingRight: 6,
+  },
+  paymentTablePlayerHeader: {
+    flex: 2.9,
+    textAlign: "left",
+  },
+  paymentTablePairLabel: {
+    color: "#5C7468",
+    fontSize: 9,
+    fontWeight: "900",
+    marginBottom: 1,
+  },
+  paymentTablePlayerName: {
+    color: colors.text,
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  paymentTableStatusCell: {
+    flex: 1.1,
+    alignItems: "flex-start",
+    justifyContent: "center",
+    paddingLeft: 0,
+    paddingRight: 2,
+    marginLeft: -122,
+  },
+  paymentTableStatusHeader: {
+    flex: 1.1,
+    textAlign: "left",
+    paddingLeft: 0,
+    marginLeft: -122,
+  },
+  paymentTableStatusText: {
+    fontSize: 10,
+    fontWeight: "900",
+    textAlign: "left",
+    lineHeight: 11,
+  },
+  paymentTableMethodCell: {
+    flex: 0.95,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 3,
+    marginLeft: -48,
+  },
+  paymentTableMethodHeader: {
+    flex: 0.95,
+    textAlign: "center",
+    marginLeft: -48,
+  },
+  paymentTableMethodText: {
+    color: colors.text,
+    fontSize: 10,
+    fontWeight: "700",
+    textAlign: "center",
+  },
+  paymentTableProofCell: {
+    flex: 0.75,
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: -20,
+  },
+  paymentTableProofHeader: {
+    flex: 0.75,
+    textAlign: "center",
+    marginLeft: -20,
+  },
+  paymentTableProofButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#BFD2C8",
+    backgroundColor: "#F6FBF8",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  paymentTableAmountCell: {
+    flex: 0.9,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 3,
+    marginLeft: -18,
+  },
+  paymentTableAmountHeader: {
+    flex: 0.9,
+    marginLeft: -18,
+  },
+  paymentTableAmountText: {
+    color: colors.text,
+    fontSize: 9,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  paymentTableActionsCell: {
+    flex: 0.8,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  paymentTableActionsHeader: {
+    flex: 0.8,
+  },
+  paymentTableActionsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+  },
+  paymentTableActionButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  paymentTableMenuButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#D7E0DB",
+    backgroundColor: "#F4F7F6",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  paymentTableMutedText: {
+    color: colors.textMuted,
+    fontSize: 10,
+    fontWeight: "700",
+    textAlign: "center",
+  },
+  tableInlineSavingWrap: {
+    marginTop: 4,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  quickPaidButtonPending: {
+    backgroundColor: "#D26A2C",
+  },
+  quickPaidButtonTransfer: {
+    backgroundColor: "#237547",
+  },
+  quickPaidButtonPaid: {
+    backgroundColor: "#237547",
   },
   pairCard: {
     backgroundColor: colors.surface,
@@ -897,6 +1602,99 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     lineHeight: 20,
     textAlign: "center",
+  },
+  modalOverlay: {
+    flex: 1,
+    justifyContent: "center",
+    padding: spacing.lg,
+  },
+  modalBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(15, 23, 42, 0.32)",
+  },
+  modalCard: {
+    backgroundColor: colors.surface,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: "#DCE7E0",
+    padding: spacing.lg,
+    gap: spacing.sm,
+  },
+  modalCardSmall: {
+    backgroundColor: colors.surface,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "#DCE7E0",
+    padding: spacing.lg,
+    gap: spacing.sm,
+  },
+  modalTitle: {
+    color: colors.text,
+    fontSize: 18,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  modalSubtitle: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "600",
+    lineHeight: 19,
+    textAlign: "center",
+  },
+  modalAction: {
+    minHeight: 46,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#D6E1D9",
+    backgroundColor: "#F7FBF8",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingHorizontal: spacing.md,
+  },
+  modalActionText: {
+    color: colors.primaryDark,
+    fontSize: 14,
+    fontWeight: "800",
+  },
+  modalActionDanger: {
+    minHeight: 44,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#E4B8B8",
+    backgroundColor: "#FFF4F4",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: spacing.md,
+  },
+  modalActionDangerText: {
+    color: "#B24343",
+    fontSize: 14,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  modalActionDisabled: {
+    backgroundColor: "#F4F6F5",
+    borderColor: "#D8DFDB",
+  },
+  modalActionDisabledText: {
+    color: "#98A39D",
+  },
+  modalSecondaryButton: {
+    minHeight: 44,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#D7E2DB",
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: spacing.xs,
+    paddingHorizontal: spacing.md,
+  },
+  modalSecondaryButtonText: {
+    color: colors.muted,
+    fontSize: 14,
+    fontWeight: "800",
   },
   pressedState: {
     opacity: 0.92,

@@ -34,6 +34,7 @@ import {
   sendTournamentPaymentReminderPushAsync,
 } from "../services/pushNotificationsService";
 import { listTournamentRegistrations, listTournaments } from "../services/tournamentsService";
+import { listOrganizerTurnoReservations } from "../services/turnosService";
 
 const FINANCE_MODULES = [
   { key: "ligas", label: "Ligas", icon: "tennisball-outline" },
@@ -212,6 +213,75 @@ function formatFinanceMethodLabel(method = "") {
   }
 
   return method ? String(method) : "Pago confirmado";
+}
+
+function getTurnoFinancePendingStatus(reservation = {}) {
+  const paymentStatus = normalizeText(reservation.paymentStatus);
+  const reservationStatus = normalizeText(reservation.status);
+  const pendingAmount = Number(
+    reservation.paymentPendingAmount ?? reservation.price ?? 0
+  );
+
+  if (["cancelled", "rejected"].includes(reservationStatus)) {
+    return null;
+  }
+
+  if (paymentStatus === "pagado" || pendingAmount <= 0) {
+    return null;
+  }
+
+  if (paymentStatus === "in_review") {
+    return "review";
+  }
+
+  if (
+    ["pending", "pending_cash", "to_be_defined", "payment_required", "pending_payment", "partial_payment"].includes(
+      paymentStatus
+    )
+  ) {
+    return "pending";
+  }
+
+  if (["pending_payment", "pending_organizer_confirmation", "confirmed"].includes(reservationStatus)) {
+    return "pending";
+  }
+
+  return null;
+}
+
+function getTurnoFinanceMethodLabel(method = "", paymentStatus = "") {
+  const normalizedMethod = normalizeText(method);
+  const normalizedStatus = normalizeText(paymentStatus);
+
+  if (normalizedStatus === "to_be_defined" || normalizedMethod === "a_confirmar") {
+    return "A confirmar";
+  }
+
+  return formatFinanceMethodLabel(method || paymentStatus);
+}
+
+function getTurnoFinanceStatusLabel(reservation = {}) {
+  const paidAmount = Number(reservation.paymentPaidAmount || 0);
+  const pendingAmount = Number(reservation.paymentPendingAmount ?? reservation.price ?? 0);
+  const paymentStatus = normalizeText(reservation.paymentStatus);
+
+  if (paymentStatus === "in_review") {
+    return "En revision";
+  }
+
+  if (pendingAmount <= 0) {
+    return "Pagado";
+  }
+
+  if (paidAmount > 0) {
+    return "Parcial";
+  }
+
+  if (paymentStatus === "to_be_defined") {
+    return "A confirmar";
+  }
+
+  return "Pendiente";
 }
 
 function buildFinanceFilterOptions(values = []) {
@@ -1188,6 +1258,63 @@ function buildTournamentCollectionRows(tournaments = [], playerLookup = {}) {
   return rows;
 }
 
+function buildTurnoCollectionRows(reservations = [], playerLookup = {}) {
+  return reservations.flatMap((reservation) => {
+    const amount = Number(
+      reservation.paymentPendingAmount ?? reservation.price ?? 0
+    );
+    const status = getTurnoFinancePendingStatus(reservation);
+
+    if (amount <= 0 || !status) {
+      return [];
+    }
+
+    const playerName = String(reservation.playerName || "").trim() || "Jugador";
+    const playerId =
+      reservation.playerId ||
+      reservation.playerEmail ||
+      normalizeText(playerName) ||
+      reservation.id;
+    const summaryParts = [
+      String(reservation.courtName || "").trim(),
+      String(reservation.dateLabel || "").trim(),
+      String(reservation.time || "").trim(),
+    ].filter(Boolean);
+    const summary = summaryParts.join(" · ");
+
+    return [
+      {
+        amount,
+        eventMillis: Number(
+          reservation.updatedAtMillis ||
+            reservation.confirmedAtMillis ||
+            reservation.createdAtMillis ||
+            reservation.dateMillis ||
+            0
+        ),
+        itemId: `turno-${reservation.id}`,
+        label:
+          status === "review"
+            ? `Comprobante para revisar${summary ? ` · ${summary}` : ""}`
+            : summary || "Reserva de turno",
+        playerId,
+        playerName,
+        playerPhoto: resolveFinancePlayerPhoto(playerLookup, [playerId, playerName]) || "",
+        sourceId: reservation.id,
+        sourceName: reservation.complexName || "Turno",
+        sourceType: "turns",
+        sourceTypeLabel: "Turno",
+        turnPaidAmount: Number(reservation.paymentPaidAmount || 0),
+        turnStatusLabel: getTurnoFinanceStatusLabel(reservation),
+        turnTotalAmount: Number(reservation.paymentTotalAmount ?? reservation.price ?? 0),
+        sourceCategory: "",
+        sourceSex: "",
+        status,
+      },
+    ];
+  });
+}
+
 function buildCollectionRowsByPlayer(items = []) {
   const itemsByPlayer = new Map();
 
@@ -1241,7 +1368,134 @@ function buildCollectionRowsByPlayer(items = []) {
     });
 }
 
-function buildCollectionHistoryRows(leagueHistory = [], tournamentHistory = []) {
+function buildTurnoPaymentHistory(reservations = [], playerLookup = {}) {
+  return reservations
+    .filter(
+      (reservation) =>
+        normalizeText(reservation.paymentStatus) === "pagado" ||
+        Number(reservation.paymentPendingAmount ?? reservation.price ?? 0) <= 0
+    )
+    .map((reservation) => {
+      const amount = Number(
+        reservation.paymentPaidAmount ??
+          reservation.paymentTotalAmount ??
+          reservation.price ??
+          0
+      );
+      const paymentMovements = Array.isArray(reservation.paymentMovements)
+        ? reservation.paymentMovements
+        : [];
+      const movementMethods = [...new Set(paymentMovements.map((movement) => movement?.method).filter(Boolean))];
+      const playerName = String(reservation.playerName || "").trim() || "Jugador";
+      const playerId =
+        reservation.playerId ||
+        reservation.playerEmail ||
+        normalizeText(playerName) ||
+        reservation.id;
+      const dateMillis = Number(
+        paymentMovements[0]?.createdAtMillis ||
+        reservation.updatedAtMillis ||
+          reservation.confirmedAtMillis ||
+          reservation.createdAtMillis ||
+          reservation.dateMillis ||
+          0
+      );
+      const summaryParts = [
+        String(reservation.courtName || "").trim(),
+        String(reservation.dateLabel || "").trim(),
+        String(reservation.time || "").trim(),
+      ].filter(Boolean);
+
+      return {
+        amount,
+        dateMillis,
+        dateLabel: formatShortDate(dateMillis),
+        id: `turn-history-${reservation.id}`,
+        method: reservation.paymentMethod || reservation.paymentStatus || "",
+        methodLabel:
+          movementMethods.length > 1
+            ? "Pago mixto"
+            : getTurnoFinanceMethodLabel(
+                movementMethods[0] || reservation.paymentMethod || "",
+                reservation.paymentStatus || ""
+              ),
+        playerId,
+        playerName,
+        playerPhoto: resolveFinancePlayerPhoto(playerLookup, [playerId, playerName]) || "",
+        sourceCategory: "",
+        sourceName: reservation.complexName || "Turno",
+        sourceSex: "",
+        sourceType: "turns",
+        sourceTypeLabel: "Turno",
+        summary: summaryParts.join(" · ") || "Reserva de turno",
+      };
+    })
+    .filter((row) => Number(row.amount || 0) > 0);
+}
+
+function buildTurnoCashSummary(reservations = []) {
+  const now = new Date();
+  const nowMillis = now.getTime();
+  const todayStartMillis = getDayStartMillis(now);
+  const last7DaysStartMillis = todayStartMillis - 6 * 24 * 60 * 60 * 1000;
+  const daily = buildCashDayBuckets(now);
+  const summary = {
+    today: {
+      income: 0,
+      pending: 0,
+    },
+    daily,
+    last7Days: {
+      income: 0,
+      pending: 0,
+    },
+  };
+
+  reservations.forEach((reservation) => {
+    const amount = Number(reservation.price || 0);
+    const eventMillis = Number(
+      reservation.updatedAtMillis ||
+        reservation.confirmedAtMillis ||
+        reservation.createdAtMillis ||
+        reservation.dateMillis ||
+        0
+    );
+
+    if (amount <= 0 || !eventMillis) {
+      return;
+    }
+
+    if (normalizeText(reservation.paymentStatus) === "pagado") {
+      if (isMillisInRange(eventMillis, todayStartMillis, nowMillis)) {
+        summary.today.income += amount;
+      }
+
+      if (isMillisInRange(eventMillis, last7DaysStartMillis, nowMillis)) {
+        summary.last7Days.income += amount;
+        addAmountToCashBuckets(daily, eventMillis, "income", amount);
+      }
+
+      return;
+    }
+
+    if (!getTurnoFinancePendingStatus(reservation)) {
+      return;
+    }
+
+    if (isMillisInRange(eventMillis, todayStartMillis, nowMillis)) {
+      summary.today.pending += amount;
+    }
+
+    if (isMillisInRange(eventMillis, last7DaysStartMillis, nowMillis)) {
+      summary.last7Days.pending += amount;
+      addAmountToCashBuckets(daily, eventMillis, "pending", amount);
+    }
+  });
+
+  return summary;
+}
+
+function buildCollectionHistoryRows(leagueHistory = [], tournamentHistory = [], turnoHistory = []) {
   const rows = [];
 
   leagueHistory.forEach((history) => {
@@ -1290,6 +1544,10 @@ function buildCollectionHistoryRows(leagueHistory = [], tournamentHistory = []) 
     });
   });
 
+  turnoHistory.forEach((row) => {
+    rows.push(row);
+  });
+
   return rows.sort((first, second) => {
     const secondDate = Number(second.dateMillis || 0);
     const firstDate = Number(first.dateMillis || 0);
@@ -1334,6 +1592,14 @@ const CollectionRowsList = memo(function CollectionRowsList({
   onToggleDetails,
   rows,
 }) {
+  const getActionLabel = (item) => {
+    if (item.sourceType === "turns") {
+      return item.status === "review" ? "Revisar" : "Cobrar";
+    }
+
+    return item.status === "review" ? "Revisar" : "Abrir";
+  };
+
   return rows.map((row) => {
     const playerKey = String(row.playerId || row.playerName);
     const isExpanded = expandedCollectionIds.includes(playerKey);
@@ -1392,6 +1658,19 @@ const CollectionRowsList = memo(function CollectionRowsList({
                   <Text numberOfLines={2} style={styles.collectionDetailText}>
                     {item.label}
                   </Text>
+                  {item.sourceType === "turns" ? (
+                    <View style={styles.collectionTurnMeta}>
+                      <Text style={styles.collectionTurnMetaText}>
+                        Pago: {formatCurrency(item.turnPaidAmount || 0)}
+                      </Text>
+                      <Text style={styles.collectionTurnMetaText}>
+                        Debe: {formatCurrency(item.amount || 0)}
+                      </Text>
+                      <Text style={styles.collectionTurnMetaText}>
+                        Estado: {item.turnStatusLabel || "Pendiente"}
+                      </Text>
+                    </View>
+                  ) : null}
                 </View>
                 <View style={styles.collectionDetailRight}>
                   <Text style={styles.collectionDetailAmount}>{formatCurrency(item.amount)}</Text>
@@ -1403,7 +1682,7 @@ const CollectionRowsList = memo(function CollectionRowsList({
                     ]}
                   >
                     <Text style={styles.collectionActionButtonText}>
-                      {item.status === "review" ? "Revisar" : "Abrir"}
+                      {getActionLabel(item)}
                     </Text>
                   </Pressable>
                 </View>
@@ -1451,6 +1730,7 @@ export default function FinanzasScreen({ navigation }) {
   const [financeSexFilter, setFinanceSexFilter] = useState("all");
   const [ownLeagues, setOwnLeagues] = useState([]);
   const [ownTournaments, setOwnTournaments] = useState([]);
+  const [ownTurnoReservations, setOwnTurnoReservations] = useState([]);
   const [financePlayers, setFinancePlayers] = useState([]);
   const [expandedCollectionIds, setExpandedCollectionIds] = useState([]);
   const [expandedDebtorIds, setExpandedDebtorIds] = useState([]);
@@ -1463,8 +1743,10 @@ export default function FinanzasScreen({ navigation }) {
   const [tournamentReminderSearch, setTournamentReminderSearch] = useState("");
   const [loadingLeagues, setLoadingLeagues] = useState(false);
   const [loadingTournaments, setLoadingTournaments] = useState(false);
+  const [loadingTurnos, setLoadingTurnos] = useState(false);
   const [sendingReminderId, setSendingReminderId] = useState("");
   const [saving, setSaving] = useState(false);
+  const [financeReloadKey, setFinanceReloadKey] = useState(0);
   const [feedback, setFeedback] = useState({
     visible: false,
     title: "",
@@ -1479,6 +1761,14 @@ export default function FinanzasScreen({ navigation }) {
   useEffect(() => {
     setForm(normalizePaymentDefaults(userData?.leaguePaymentDefaults || {}));
   }, [userData?.leaguePaymentDefaults]);
+
+  useEffect(() => {
+    const unsubscribe = navigation.addListener("focus", () => {
+      setFinanceReloadKey((current) => current + 1);
+    });
+
+    return unsubscribe;
+  }, [navigation]);
 
   useEffect(() => {
     let isMounted = true;
@@ -1516,7 +1806,43 @@ export default function FinanzasScreen({ navigation }) {
     return () => {
       isMounted = false;
     };
-  }, [canManageFinances, userData?.uid]);
+  }, [canManageFinances, financeReloadKey, userData?.uid]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadOwnTurnoReservations = async () => {
+      if (!canManageFinances || !userData?.uid) {
+        setOwnTurnoReservations([]);
+        return;
+      }
+
+      try {
+        setLoadingTurnos(true);
+        const reservations = await listOrganizerTurnoReservations(userData.uid);
+
+        if (!isMounted) {
+          return;
+        }
+
+        setOwnTurnoReservations(reservations);
+      } catch (error) {
+        if (isMounted) {
+          setOwnTurnoReservations([]);
+        }
+      } finally {
+        if (isMounted) {
+          setLoadingTurnos(false);
+        }
+      }
+    };
+
+    loadOwnTurnoReservations();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [canManageFinances, financeReloadKey, userData?.uid]);
 
   useEffect(() => {
     let isMounted = true;
@@ -1563,7 +1889,7 @@ export default function FinanzasScreen({ navigation }) {
     return () => {
       isMounted = false;
     };
-  }, [canManageFinances, userData?.uid]);
+  }, [canManageFinances, financeReloadKey, userData?.uid]);
 
   useEffect(() => {
     let isMounted = true;
@@ -1594,7 +1920,7 @@ export default function FinanzasScreen({ navigation }) {
     return () => {
       isMounted = false;
     };
-  }, [canManageFinances]);
+  }, [canManageFinances, financeReloadKey]);
 
   const defaultRoundPrice = Number.parseFloat(
     String(userData?.leaguePaymentDefaults?.roundPricePerPlayer || "0").replace(",", ".")
@@ -1655,9 +1981,17 @@ export default function FinanzasScreen({ navigation }) {
     () => buildTournamentPaymentHistory(ownTournaments),
     [ownTournaments]
   );
+  const turnoPaymentHistory = useMemo(
+    () => buildTurnoPaymentHistory(ownTurnoReservations, financePlayerLookup),
+    [financePlayerLookup, ownTurnoReservations]
+  );
   const tournamentCashSummary = useMemo(
     () => buildTournamentCashSummary(ownTournaments),
     [ownTournaments]
+  );
+  const turnoCashSummary = useMemo(
+    () => buildTurnoCashSummary(ownTurnoReservations),
+    [ownTurnoReservations]
   );
   const tournamentReminderItems = useMemo(
     () =>
@@ -1681,9 +2015,13 @@ export default function FinanzasScreen({ navigation }) {
     () => buildTournamentCollectionRows(ownTournaments, financePlayerLookup),
     [financePlayerLookup, ownTournaments]
   );
+  const turnoCollectionItems = useMemo(
+    () => buildTurnoCollectionRows(ownTurnoReservations, financePlayerLookup),
+    [financePlayerLookup, ownTurnoReservations]
+  );
   const collectionItems = useMemo(
-    () => [...leagueCollectionItems, ...tournamentCollectionItems],
-    [leagueCollectionItems, tournamentCollectionItems]
+    () => [...leagueCollectionItems, ...tournamentCollectionItems, ...turnoCollectionItems],
+    [leagueCollectionItems, tournamentCollectionItems, turnoCollectionItems]
   );
   const collectionRows = useMemo(() => buildCollectionRowsByPlayer(collectionItems), [collectionItems]);
   const filteredCollectionRows = useMemo(() => {
@@ -1746,8 +2084,8 @@ export default function FinanzasScreen({ navigation }) {
     financeSexFilter,
   ]);
   const historyRows = useMemo(
-    () => buildCollectionHistoryRows(leaguePaymentHistory, tournamentPaymentHistory),
-    [leaguePaymentHistory, tournamentPaymentHistory]
+    () => buildCollectionHistoryRows(leaguePaymentHistory, tournamentPaymentHistory, turnoPaymentHistory),
+    [leaguePaymentHistory, tournamentPaymentHistory, turnoPaymentHistory]
   );
   const financeCategoryOptions = useMemo(
     () =>
@@ -1796,16 +2134,26 @@ export default function FinanzasScreen({ navigation }) {
   ]);
   const combinedSummary = useMemo(
     () => ({
-      todayIncome: Number(cashSummary.today.income || 0) + Number(tournamentCashSummary.today.income || 0),
-      todayPending: Number(cashSummary.today.pending || 0) + Number(tournamentCashSummary.today.pending || 0),
+      todayIncome:
+        Number(cashSummary.today.income || 0) +
+        Number(tournamentCashSummary.today.income || 0) +
+        Number(turnoCashSummary.today.income || 0),
+      todayPending:
+        Number(cashSummary.today.pending || 0) +
+        Number(tournamentCashSummary.today.pending || 0) +
+        Number(turnoCashSummary.today.pending || 0),
       weekIncome:
-        Number(cashSummary.last7Days.income || 0) + Number(tournamentCashSummary.last7Days.income || 0),
+        Number(cashSummary.last7Days.income || 0) +
+        Number(tournamentCashSummary.last7Days.income || 0) +
+        Number(turnoCashSummary.last7Days.income || 0),
       weekPending:
-        Number(cashSummary.last7Days.pending || 0) + Number(tournamentCashSummary.last7Days.pending || 0),
+        Number(cashSummary.last7Days.pending || 0) +
+        Number(tournamentCashSummary.last7Days.pending || 0) +
+        Number(turnoCashSummary.last7Days.pending || 0),
       reviewAmount: collectionRows.reduce((total, row) => total + Number(row.reviewAmount || 0), 0),
       debtorsCount: collectionRows.length,
     }),
-    [cashSummary, collectionRows, tournamentCashSummary]
+    [cashSummary, collectionRows, tournamentCashSummary, turnoCashSummary]
   );
 
   const toggleDebtorDetails = (playerId) => {
@@ -2131,6 +2479,14 @@ export default function FinanzasScreen({ navigation }) {
         focusPlayerId: item.playerId || "",
         focusPlayerName: item.playerName || "",
       });
+      return;
+    }
+
+    if (item.sourceType === "turns") {
+      navigation.navigate("Turnos", {
+        focusReservationId: item.sourceId,
+        openPaymentEntry: item.status !== "review",
+      });
     }
   }, [navigation]);
 
@@ -2213,7 +2569,7 @@ export default function FinanzasScreen({ navigation }) {
   );
 
   const renderCobrosTab = () => {
-    const isLoading = loadingLeagues || loadingTournaments;
+    const isLoading = loadingLeagues || loadingTournaments || loadingTurnos;
 
     return (
       <View style={styles.card}>
@@ -2337,7 +2693,7 @@ export default function FinanzasScreen({ navigation }) {
   };
 
   const renderHistoryTab = () => {
-    const isLoading = loadingLeagues || loadingTournaments;
+    const isLoading = loadingLeagues || loadingTournaments || loadingTurnos;
 
     return (
       <View style={styles.card}>
@@ -3547,6 +3903,17 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     fontSize: 12,
     lineHeight: 17,
+  },
+  collectionTurnMeta: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.xs,
+    marginTop: 4,
+  },
+  collectionTurnMetaText: {
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: "800",
   },
   collectionDetailRight: {
     alignItems: "flex-end",

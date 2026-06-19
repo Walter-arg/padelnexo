@@ -404,10 +404,10 @@ export default function CreateLeagueScreen({ navigation, route }) {
     () =>
       isEditing
         ? {
-            ...buildPublicationMercadoPagoConfig(organizerMercadoPagoConfig),
+            ...buildPublicationMercadoPagoConfig(organizerMercadoPagoConfig, "ligas"),
             ...(editingLeague?.paymentConfig?.mercadoPago || {}),
           }
-        : buildPublicationMercadoPagoConfig(organizerMercadoPagoConfig),
+        : buildPublicationMercadoPagoConfig(organizerMercadoPagoConfig, "ligas"),
     [editingLeague?.paymentConfig?.mercadoPago, isEditing, organizerMercadoPagoConfig]
   );
   const [activeTimeSlotIndex, setActiveTimeSlotIndex] = useState(-1);

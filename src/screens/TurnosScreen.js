@@ -22,6 +22,7 @@ import BottomQuickActionsBar, {
   BOTTOM_QUICK_ACTIONS_SPACE,
 } from "../components/BottomQuickActionsBar";
 import FeedbackModal from "../components/FeedbackModal";
+import PadelNexoLoadingOverlay from "../components/PadelNexoLoadingOverlay";
 import SectionFilterBar from "../components/SectionFilterBar";
 import SectionHeader from "../components/SectionHeader";
 import { getMercadoPagoReturnUrls } from "../config/mercadoPago";
@@ -29,6 +30,7 @@ import { colors, spacing } from "../config/theme";
 import { useAuth } from "../context/AuthContext";
 import {
   buildPublicationMercadoPagoConfig,
+  isMercadoPagoCategoryEnabled,
   normalizeMercadoPagoConfig,
 } from "../services/mercadoPagoConfigService";
 import {
@@ -45,6 +47,7 @@ import {
 import { listPlayers } from "../services/playersService";
 import { isApprovedOrganizer } from "../services/roleService";
 import {
+  addTurnoReservationPayment,
   createTurnoReservation,
   getOrganizerTurnosConfig,
   listOrganizerTurnoReservations,
@@ -59,6 +62,10 @@ const DURATIONS = [60, 90];
 const BASE_PAYMENT_METHODS = [
   { key: "efectivo", label: "Efectivo" },
   { key: "transferencia", label: "Transferencia" },
+];
+const ASSIGNMENT_PAYMENT_METHODS = [
+  { key: "a_confirmar", label: "A confirmar" },
+  ...BASE_PAYMENT_METHODS,
 ];
 const HALF_HOUR_SLOTS = Array.from({ length: 32 }, (_, index) => {
   const totalMinutes = 8 * 60 + index * 30;
@@ -159,6 +166,83 @@ function formatCurrency(value = 0) {
     currency: "ARS",
     maximumFractionDigits: 0,
     style: "currency",
+  });
+}
+
+function formatTurnoPaymentMethodLabel(method = "") {
+  if (method === "transferencia") {
+    return "Transferencia";
+  }
+
+  if (method === "mercado_pago") {
+    return "Mercado Pago";
+  }
+
+  if (method === "a_confirmar") {
+    return "A confirmar";
+  }
+
+  return "Efectivo";
+}
+
+function getTurnoReservationPaymentSummary(reservation = {}) {
+  const totalAmount = Number(reservation?.paymentTotalAmount || reservation?.price || 0);
+  const paidAmount = Math.min(
+    totalAmount,
+    Number(reservation?.paymentPaidAmount || 0)
+  );
+  const pendingAmount = Math.max(
+    0,
+    Math.round((totalAmount - paidAmount) * 100) / 100
+  );
+  const paymentMovements = Array.isArray(reservation?.paymentMovements)
+    ? [...reservation.paymentMovements].sort(
+        (first, second) => Number(second?.createdAtMillis || 0) - Number(first?.createdAtMillis || 0)
+      )
+    : [];
+
+  return {
+    paymentMovements,
+    paidAmount,
+    pendingAmount,
+    totalAmount,
+  };
+}
+
+function getTurnoReservationPaymentStatusLabel(reservation = {}) {
+  const summary = getTurnoReservationPaymentSummary(reservation);
+
+  if (summary.pendingAmount <= 0 && summary.totalAmount > 0) {
+    return "Pagado";
+  }
+
+  if (summary.paidAmount > 0) {
+    return "Pago parcial";
+  }
+
+  if (reservation?.paymentStatus === "in_review") {
+    return "Transferencia";
+  }
+
+  if (reservation?.paymentStatus === "to_be_defined" || reservation?.paymentMethod === "a_confirmar") {
+    return "A confirmar";
+  }
+
+  return "Pendiente";
+}
+
+function formatReservationPaymentMovementDate(millis = 0) {
+  const value = Number(millis || 0);
+
+  if (!value) {
+    return "";
+  }
+
+  return new Date(value).toLocaleString("es-AR", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
   });
 }
 
@@ -388,6 +472,12 @@ function getCourtPrice(court = null, duration = 60) {
   return duration === 90 ? Number(court.price90 || 0) : Number(court.price60 || 0);
 }
 
+function hasAvailableTurnosForComplex(complex = {}, day = {}) {
+  return (complex.availableCourts || []).some(
+    (court) => getAvailableCourtSlots(court, day).length > 0
+  );
+}
+
 function chunkSlots(slots = [], size = SLOT_ROW_SIZE) {
   return Array.from({ length: Math.ceil(slots.length / size) }, (_, index) =>
     slots.slice(index * size, index * size + size)
@@ -440,7 +530,7 @@ async function uploadTurnoProof(asset = {}, playerId = "") {
   };
 }
 
-export default function TurnosScreen({ navigation }) {
+export default function TurnosScreen({ navigation, route }) {
   const { userData } = useAuth();
   const canManageTurnos = isApprovedOrganizer(userData);
   const organizerMercadoPagoConfig = useMemo(
@@ -470,6 +560,12 @@ export default function TurnosScreen({ navigation }) {
   const [guestReservationPhone, setGuestReservationPhone] = useState("");
   const [reservationsModalVisible, setReservationsModalVisible] = useState(canManageTurnos);
   const [reservationDetail, setReservationDetail] = useState(null);
+  const [paymentEntryVisible, setPaymentEntryVisible] = useState(false);
+  const [paymentEntryAmount, setPaymentEntryAmount] = useState("");
+  const [paymentEntryMethod, setPaymentEntryMethod] = useState("efectivo");
+  const [paymentEntryReceiptAsset, setPaymentEntryReceiptAsset] = useState(null);
+  const [paymentEntryReturnToPrevious, setPaymentEntryReturnToPrevious] = useState(false);
+  const [savingReservationPayment, setSavingReservationPayment] = useState(false);
   const [whatsAppConfirmationReservation, setWhatsAppConfirmationReservation] = useState(null);
   const [runningReservationActionId, setRunningReservationActionId] = useState("");
   const [selectedOrganizerComplexKey, setSelectedOrganizerComplexKey] = useState("");
@@ -483,6 +579,9 @@ export default function TurnosScreen({ navigation }) {
   const [receiptAsset, setReceiptAsset] = useState(null);
   const [summaryVisible, setSummaryVisible] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [loadingFocusedReservation, setLoadingFocusedReservation] = useState(
+    Boolean(route?.params?.focusReservationId)
+  );
   const [savingConfig, setSavingConfig] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [locationActionsVisible, setLocationActionsVisible] = useState(false);
@@ -695,14 +794,18 @@ export default function TurnosScreen({ navigation }) {
     () =>
       selectedComplex?.mercadoPagoConfig
         ? {
-            ...buildPublicationMercadoPagoConfig(organizerMercadoPagoConfig),
+            ...buildPublicationMercadoPagoConfig(organizerMercadoPagoConfig, "turnos"),
             ...selectedComplex.mercadoPagoConfig,
           }
-        : buildPublicationMercadoPagoConfig(organizerMercadoPagoConfig),
+        : buildPublicationMercadoPagoConfig(organizerMercadoPagoConfig, "turnos"),
     [organizerMercadoPagoConfig, selectedComplex?.mercadoPagoConfig]
   );
   const paymentMethods = useMemo(() => {
-    if (!canManageTurnos && selectedComplexMercadoPagoConfig.enabled) {
+    if (canManageTurnos) {
+      return ASSIGNMENT_PAYMENT_METHODS;
+    }
+
+    if (!canManageTurnos && isMercadoPagoCategoryEnabled(selectedComplexMercadoPagoConfig, "turnos")) {
       return [
         ...BASE_PAYMENT_METHODS,
         { key: "mercado_pago", label: "Mercado Pago" },
@@ -710,7 +813,7 @@ export default function TurnosScreen({ navigation }) {
     }
 
     return BASE_PAYMENT_METHODS;
-  }, [canManageTurnos, selectedComplexMercadoPagoConfig.enabled]);
+  }, [canManageTurnos, selectedComplexMercadoPagoConfig]);
   const selectedDay = useMemo(
     () => days.find((day) => day.id === selectedDayId) || days[0],
     [days, selectedDayId]
@@ -722,6 +825,16 @@ export default function TurnosScreen({ navigation }) {
   const allCourtSlots = useMemo(
     () => getReservableCourtSlots(selectedCourt, selectedDay),
     [selectedCourt, selectedDay]
+  );
+  const complexAvailabilityByDay = useMemo(
+    () =>
+      Object.fromEntries(
+        reservationComplexes.map((complex) => [
+          complex.complexKey,
+          hasAvailableTurnosForComplex(complex, selectedDay),
+        ])
+      ),
+    [reservationComplexes, selectedDay]
   );
   const availableSlotSet = useMemo(() => new Set(availableSlots), [availableSlots]);
   const selectedPrice = getCourtPrice(selectedCourt, selectedDuration);
@@ -851,6 +964,11 @@ export default function TurnosScreen({ navigation }) {
 
       setComplexes(nextComplexes);
       setOrganizerReservations(nextOrganizerReservations);
+      setReservationDetail((current) =>
+        current
+          ? nextOrganizerReservations.find((reservation) => reservation.id === current.id) || current
+          : current
+      );
       setPlayersDirectory(nextPlayersDirectory);
       setOrganizerConfig(nextOrganizerConfig);
       setSavedOrganizerConfigSignature(JSON.stringify(nextOrganizerConfig || {}));
@@ -885,6 +1003,54 @@ export default function TurnosScreen({ navigation }) {
     loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canManageTurnos, currentUserId]);
+
+  useEffect(() => {
+    if (route?.params?.focusReservationId) {
+      setLoadingFocusedReservation(true);
+    }
+  }, [route?.params?.focusReservationId]);
+
+  useEffect(() => {
+    const focusReservationId = route?.params?.focusReservationId;
+    const shouldOpenPaymentEntry = route?.params?.openPaymentEntry === true;
+
+    if (!canManageTurnos || !focusReservationId || !organizerReservations.length) {
+      if (!focusReservationId) {
+        setLoadingFocusedReservation(false);
+      }
+      return;
+    }
+
+    const targetReservation = organizerReservations.find(
+      (reservation) => reservation.id === focusReservationId
+    );
+
+    if (!targetReservation) {
+      setLoadingFocusedReservation(false);
+      navigation.setParams({ focusReservationId: undefined, openPaymentEntry: undefined });
+      return;
+    }
+
+    setReservationsModalVisible(true);
+    setAssignmentModeOpen(false);
+    setSelectedOrganizerComplexKey(targetReservation.complexKey || "");
+    setSelectedDayId(String(targetReservation.dateMillis || ""));
+    if (shouldOpenPaymentEntry) {
+      setPaymentEntryReturnToPrevious(true);
+      openReservationPaymentEntry(targetReservation);
+    } else {
+      setPaymentEntryReturnToPrevious(false);
+      setReservationDetail(targetReservation);
+    }
+    setLoadingFocusedReservation(false);
+    navigation.setParams({ focusReservationId: undefined, openPaymentEntry: undefined });
+  }, [
+    canManageTurnos,
+    navigation,
+    organizerReservations,
+    route?.params?.focusReservationId,
+    route?.params?.openPaymentEntry,
+  ]);
 
   useEffect(() => {
     if (!canManageTurnos || !assignmentModeOpen || reservationComplexes.length !== 1) {
@@ -1237,6 +1403,19 @@ export default function TurnosScreen({ navigation }) {
     setReceiptAsset(result.assets?.[0] || null);
   };
 
+  const handlePickReservationPaymentReceipt = async () => {
+    const result = await DocumentPicker.getDocumentAsync({
+      copyToCacheDirectory: true,
+      type: ["image/*", "application/pdf"],
+    });
+
+    if (result.canceled) {
+      return;
+    }
+
+    setPaymentEntryReceiptAsset(result.assets?.[0] || null);
+  };
+
   const handleOpenMercadoPagoInfo = () => {
     showFeedback(
       "Mercado Pago disponible",
@@ -1426,7 +1605,115 @@ export default function TurnosScreen({ navigation }) {
   };
 
   const closeReservationDetail = () => {
+    setPaymentEntryVisible(false);
     setReservationDetail(null);
+  };
+
+  const openReservationPaymentEntry = (reservation = {}) => {
+    const summary = getTurnoReservationPaymentSummary(reservation);
+
+    setReservationDetail(reservation);
+    setPaymentEntryAmount(summary.pendingAmount > 0 ? String(Math.round(summary.pendingAmount)) : "");
+    setPaymentEntryMethod("efectivo");
+    setPaymentEntryReceiptAsset(null);
+    setPaymentEntryVisible(true);
+  };
+
+  const closeReservationPaymentEntry = () => {
+    if (savingReservationPayment) {
+      return;
+    }
+
+    const shouldReturnToPrevious = paymentEntryReturnToPrevious;
+
+    setPaymentEntryVisible(false);
+    setPaymentEntryAmount("");
+    setPaymentEntryMethod("efectivo");
+    setPaymentEntryReceiptAsset(null);
+    setPaymentEntryReturnToPrevious(false);
+
+    if (shouldReturnToPrevious) {
+      setReservationDetail(null);
+      setReservationsModalVisible(false);
+      navigation.goBack();
+    }
+  };
+
+  const handleSaveReservationPayment = async () => {
+    if (!reservationDetail?.id) {
+      showFeedback("Falta la reserva", "No encontramos la reserva a cobrar.", "danger");
+      return;
+    }
+
+    const amount = Number(String(paymentEntryAmount || "0").replace(",", "."));
+    const pendingAmount = getTurnoReservationPaymentSummary(reservationDetail).pendingAmount;
+
+    if (!Number.isFinite(amount) || amount <= 0) {
+      showFeedback("Falta el monto", "Ingresa un monto valido para registrar el pago.", "danger");
+      return;
+    }
+
+    if (pendingAmount <= 0) {
+      showFeedback("Reserva pagada", "Esta reserva ya no tiene saldo pendiente.", "warning");
+      return;
+    }
+
+    if (amount > pendingAmount) {
+      showFeedback(
+        "Monto excedido",
+        "El importe no puede superar el saldo pendiente de la reserva.",
+        "danger"
+      );
+      return;
+    }
+
+    try {
+      setSavingReservationPayment(true);
+      const proofPayload =
+        paymentEntryMethod === "transferencia" && paymentEntryReceiptAsset
+          ? await uploadTurnoProof(paymentEntryReceiptAsset, currentUserId)
+          : { proofFileName: "", proofUrl: "" };
+
+      const paymentResult = await addTurnoReservationPayment(reservationDetail.id, {
+        amount,
+        createdBy: currentUserId,
+        createdByName: userData?.name || userData?.displayName || "Organizador",
+        method: paymentEntryMethod,
+        proofFileName: proofPayload.proofFileName,
+        proofUrl: proofPayload.proofUrl,
+      });
+
+      setReservationDetail((current) =>
+        current && current.id === reservationDetail.id
+          ? {
+              ...current,
+              paymentMovements: [
+                paymentResult.paymentMovement,
+                ...(Array.isArray(current.paymentMovements) ? current.paymentMovements : []),
+              ],
+              paymentPaidAmount: paymentResult.paymentPaidAmount,
+              paymentPendingAmount: paymentResult.paymentPendingAmount,
+              paymentStatus: paymentResult.paymentStatus,
+              paymentTotalAmount: paymentResult.paymentTotalAmount,
+            }
+          : current
+      );
+      await loadData();
+      closeReservationPaymentEntry();
+      showFeedback(
+        "Pago registrado",
+        "El cobro quedo asentado en la reserva y ya puede reflejarse en el centro de cobros.",
+        "success"
+      );
+    } catch (error) {
+      showFeedback(
+        "No pudimos registrar el pago",
+        error?.message || "Intenta nuevamente en unos instantes.",
+        "danger"
+      );
+    } finally {
+      setSavingReservationPayment(false);
+    }
   };
 
   const getReservationForManagementSlot = (complex = {}, court = {}, slot = "") =>
@@ -1467,7 +1754,7 @@ export default function TurnosScreen({ navigation }) {
       return;
     }
 
-    setPaymentMethod("efectivo");
+    setPaymentMethod(canManageTurnos ? "a_confirmar" : "efectivo");
     setReceiptAsset(null);
     setSummaryVisible(true);
   };
@@ -1598,6 +1885,8 @@ export default function TurnosScreen({ navigation }) {
       const paymentConfirmationText =
         paymentMethod === "transferencia"
           ? "Metodo de pago: Transferencia - Pago a verificar."
+          : paymentMethod === "a_confirmar"
+          ? "Metodo de pago: A confirmar."
           : paymentMethod === "mercado_pago"
           ? "Metodo de pago: Mercado Pago - Reserva pendiente hasta completar el cobro."
           : "Metodo de pago: Efectivo - El pago se realizara en el complejo.";
@@ -2358,14 +2647,14 @@ export default function TurnosScreen({ navigation }) {
             <View style={styles.mercadoPagoStatusCard}>
               <View style={styles.mercadoPagoStatusHeader}>
                 <Ionicons
-                  color={organizerConfig?.mercadoPagoConfig?.enabled ? "#1A7F5A" : "#7B8794"}
+                  color={selectedComplexMercadoPagoConfig.enabled ? "#1A7F5A" : "#7B8794"}
                   name="wallet-outline"
                   size={18}
                 />
                 <Text style={styles.mercadoPagoStatusTitle}>Mercado Pago</Text>
               </View>
               <Text style={styles.mercadoPagoStatusText}>
-                {organizerConfig?.mercadoPagoConfig?.enabled
+                {selectedComplexMercadoPagoConfig.enabled
                   ? "Los turnos nuevos de esta sede ya quedan preparados para cobrar tambien con Mercado Pago."
                   : "Activalo desde el perfil del organizador para cobrar tambien con Mercado Pago en reservas nuevas."}
               </Text>
@@ -2424,6 +2713,7 @@ export default function TurnosScreen({ navigation }) {
         {!(canManageTurnos && assignmentModeOpen && reservationComplexes.length === 1)
           ? reservationComplexes.map((complex) => {
           const isSelected = selectedComplexId === complex.complexKey;
+          const hasAvailableTurnos = complexAvailabilityByDay[complex.complexKey] === true;
 
           return (
             <Pressable
@@ -2451,6 +2741,27 @@ export default function TurnosScreen({ navigation }) {
                     ? ` - ${complex.distanceKm.toFixed(1)} km`
                     : ""}
                 </Text>
+                <View
+                  style={[
+                    styles.complexAvailabilityChip,
+                    hasAvailableTurnos
+                      ? styles.complexAvailabilityChipAvailable
+                      : styles.complexAvailabilityChipUnavailable,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.complexAvailabilityChipText,
+                      hasAvailableTurnos
+                        ? styles.complexAvailabilityChipTextAvailable
+                        : styles.complexAvailabilityChipTextUnavailable,
+                    ]}
+                  >
+                    {hasAvailableTurnos
+                      ? "TURNOS DISPONIBLES"
+                      : "NO HAY TURNOS DISPONIBLES"}
+                  </Text>
+                </View>
               </View>
             </Pressable>
           );
@@ -2704,18 +3015,6 @@ export default function TurnosScreen({ navigation }) {
                 <Text style={styles.mercadoPagoActionButtonText}>Mercado Pago</Text>
               </Pressable>
             ) : null}
-            <View style={styles.mercadoPagoSummaryHint}>
-              <Ionicons
-                color={selectedComplexMercadoPagoConfig.enabled ? "#1A7F5A" : "#7B8794"}
-                name="wallet-outline"
-                size={16}
-              />
-                <Text style={styles.mercadoPagoSummaryHintText}>
-                {selectedComplexMercadoPagoConfig.enabled
-                  ? "Esta sede tambien queda preparada para cobrar con Mercado Pago."
-                  : "Por ahora esta reserva se gestiona con efectivo o transferencia."}
-              </Text>
-            </View>
             {paymentMethod === "mercado_pago" ? (
               <View style={styles.mercadoPagoCheckoutHint}>
                 <Ionicons color="#1A7F5A" name="open-outline" size={16} />
@@ -2931,7 +3230,96 @@ export default function TurnosScreen({ navigation }) {
                 </View>
               </View>
             </View>
+            <Pressable
+              disabled={!isReservationActive(reservationDetail) || runningReservationActionId === reservationDetail?.id}
+              onPress={async () => {
+                await handleCancelReservation(reservationDetail);
+                closeReservationDetail();
+              }}
+              style={[
+                styles.reservationCancelWideButton,
+                !isReservationActive(reservationDetail) ||
+                runningReservationActionId === reservationDetail?.id
+                  ? styles.reservationActionButtonDisabled
+                  : null,
+              ]}
+            >
+              <Ionicons color="#B94141" name="close-outline" size={18} />
+              <Text style={styles.reservationCancelWideButtonText}>Cancelar reserva</Text>
+            </Pressable>
+            <View style={styles.reservationPaymentSummaryCard}>
+              <View style={styles.reservationPaymentSummaryHeader}>
+                <Text style={styles.reservationPaymentSummaryTitle}>Cobro del turno</Text>
+                <Text style={styles.reservationPaymentSummaryStatus}>
+                  {getTurnoReservationPaymentStatusLabel(reservationDetail)}
+                </Text>
+              </View>
+              <View style={styles.reservationPaymentSummaryRow}>
+                <Text style={styles.reservationPaymentSummaryLabel}>Total</Text>
+                <Text style={styles.reservationPaymentSummaryValue}>
+                  {formatCurrency(getTurnoReservationPaymentSummary(reservationDetail).totalAmount)}
+                </Text>
+              </View>
+              <View style={styles.reservationPaymentSummaryRow}>
+                <Text style={styles.reservationPaymentSummaryLabel}>Pagado</Text>
+                <Text style={styles.reservationPaymentSummaryValue}>
+                  {formatCurrency(getTurnoReservationPaymentSummary(reservationDetail).paidAmount)}
+                </Text>
+              </View>
+              <View style={styles.reservationPaymentSummaryRow}>
+                <Text style={styles.reservationPaymentSummaryLabel}>Pendiente</Text>
+                <Text
+                  style={[
+                    styles.reservationPaymentSummaryValue,
+                    getTurnoReservationPaymentSummary(reservationDetail).pendingAmount > 0
+                      ? styles.reservationPaymentSummaryPending
+                      : styles.reservationPaymentSummaryPaid,
+                  ]}
+                >
+                  {formatCurrency(getTurnoReservationPaymentSummary(reservationDetail).pendingAmount)}
+                </Text>
+              </View>
+              {getTurnoReservationPaymentSummary(reservationDetail).paymentMovements.length ? (
+                <View style={styles.reservationPaymentList}>
+                  {getTurnoReservationPaymentSummary(reservationDetail).paymentMovements.map((movement) => (
+                    <View key={movement.id} style={styles.reservationPaymentItem}>
+                      <View style={styles.reservationPaymentItemCopy}>
+                        <Text style={styles.reservationPaymentItemTitle}>
+                          {formatTurnoPaymentMethodLabel(movement.method)}
+                          {movement.payerLabel ? ` · ${movement.payerLabel}` : ""}
+                        </Text>
+                        <Text style={styles.reservationPaymentItemMeta}>
+                          {formatReservationPaymentMovementDate(movement.createdAtMillis)}
+                          {movement.proofFileName ? " · Con comprobante" : ""}
+                        </Text>
+                      </View>
+                      <Text style={styles.reservationPaymentItemAmount}>
+                        {formatCurrency(movement.amount)}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              ) : (
+                <Text style={styles.reservationPaymentEmpty}>
+                  Todavia no se registraron pagos para esta reserva.
+                </Text>
+              )}
+            </View>
             <View style={styles.reservationDetailActions}>
+              <Pressable
+                disabled={getTurnoReservationPaymentSummary(reservationDetail).pendingAmount <= 0}
+                onPress={() => openReservationPaymentEntry(reservationDetail)}
+                style={[
+                  styles.reservationDetailAction,
+                  styles.reservationDetailPayment,
+                  getTurnoReservationPaymentSummary(reservationDetail).pendingAmount <= 0
+                    ? styles.reservationActionButtonDisabled
+                    : null,
+                ]}
+              >
+                <Ionicons color={colors.primaryDark} name="card-outline" size={17} />
+                <Text style={styles.reservationDetailActionText}>Ingresar pago</Text>
+              </Pressable>
               <Pressable
                 disabled={!reservationDetail?.playerId}
                 onPress={() => {
@@ -2959,27 +3347,10 @@ export default function TurnosScreen({ navigation }) {
                 <Ionicons color="#1E7A43" name="logo-whatsapp" size={17} />
                 <Text style={styles.reservationDetailActionText}>WhatsApp</Text>
               </Pressable>
-              <Pressable
-                disabled={!isReservationActive(reservationDetail) || runningReservationActionId === reservationDetail?.id}
-                onPress={async () => {
-                  await handleCancelReservation(reservationDetail);
-                  closeReservationDetail();
-                }}
-                style={[
-                  styles.reservationDetailAction,
-                  styles.reservationDetailCancel,
-                  !isReservationActive(reservationDetail) ||
-                  runningReservationActionId === reservationDetail?.id
-                    ? styles.reservationActionButtonDisabled
-                    : null,
-                ]}
-              >
-                <Ionicons color="#B94141" name="close-outline" size={18} />
-                <Text style={[styles.reservationDetailActionText, styles.reservationDetailCancelText]}>
-                  Cancelar
-                </Text>
-              </Pressable>
             </View>
+            <Pressable onPress={closeReservationDetail} style={styles.reservationDetailCloseButton}>
+              <Text style={styles.reservationDetailCloseButtonText}>Salir</Text>
+            </Pressable>
           </View>
         </View>
       </Modal>
@@ -3119,6 +3490,148 @@ export default function TurnosScreen({ navigation }) {
 
       <Modal
         animationType="fade"
+        onRequestClose={closeReservationPaymentEntry}
+        transparent
+        visible={paymentEntryVisible}
+      >
+        <View style={styles.modalOverlay}>
+          <Pressable style={styles.modalBackdrop} onPress={closeReservationPaymentEntry} />
+          <KeyboardAvoidingView
+            behavior={Platform.OS === "ios" ? "padding" : "position"}
+            keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 12}
+            style={styles.reservationPaymentEntryKeyboard}
+          >
+            <View style={styles.reservationPaymentEntryCard}>
+              <Text style={styles.summaryTitle}>Registrar cobro</Text>
+              <Text style={styles.reservationPaymentEntryHint}>
+                Carga un pago parcial o total para esta reserva.
+              </Text>
+              <View style={styles.reservationPaymentHeaderCard}>
+                <View style={styles.reservationPaymentHeaderTop}>
+                  <View style={styles.summaryInfoIcon}>
+                    <Ionicons color={colors.primaryDark} name="card-outline" size={17} />
+                  </View>
+                  <View style={styles.reservationPaymentHeaderCopy}>
+                    <Text style={styles.reservationPaymentHeaderTitle}>Cobro de la reserva</Text>
+                    <Text style={styles.reservationPaymentHeaderMeta}>
+                      {reservationDetail?.courtName || "Cancha"} · {reservationDetail?.time || "--:--"} hs
+                    </Text>
+                  </View>
+                </View>
+                <View style={styles.reservationPaymentQuickSummary}>
+                  <View style={styles.reservationPaymentQuickItem}>
+                    <Text style={styles.reservationPaymentQuickLabel}>Total</Text>
+                    <Text style={styles.reservationPaymentQuickValue}>
+                      {formatCurrency(getTurnoReservationPaymentSummary(reservationDetail).totalAmount)}
+                    </Text>
+                  </View>
+                  <View style={styles.reservationPaymentQuickDivider} />
+                  <View style={styles.reservationPaymentQuickItem}>
+                    <Text style={styles.reservationPaymentQuickLabel}>Pagado</Text>
+                    <Text style={styles.reservationPaymentQuickValue}>
+                      {formatCurrency(getTurnoReservationPaymentSummary(reservationDetail).paidAmount)}
+                    </Text>
+                  </View>
+                  <View style={styles.reservationPaymentQuickDivider} />
+                  <View style={styles.reservationPaymentQuickItem}>
+                    <Text style={styles.reservationPaymentQuickLabel}>Pendiente</Text>
+                    <Text
+                      style={[
+                        styles.reservationPaymentQuickValue,
+                        getTurnoReservationPaymentSummary(reservationDetail).pendingAmount > 0
+                          ? styles.reservationPaymentSummaryPending
+                          : styles.reservationPaymentSummaryPaid,
+                      ]}
+                    >
+                      {formatCurrency(getTurnoReservationPaymentSummary(reservationDetail).pendingAmount)}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+
+              <Text style={styles.reservationPaymentSectionLabel}>Metodo de pago</Text>
+              <View style={styles.summaryPaymentRow}>
+                {BASE_PAYMENT_METHODS.map((method) => {
+                  const isActive = paymentEntryMethod === method.key;
+
+                    return (
+                      <Pressable
+                        key={`entry-${method.key}`}
+                        onPress={() => setPaymentEntryMethod(method.key)}
+                        style={[styles.summaryPaymentMethod, isActive ? styles.summaryPaymentMethodActive : null]}
+                      >
+                        <Text
+                          style={[
+                            styles.summaryPaymentMethodText,
+                            isActive ? styles.summaryPaymentMethodTextActive : null,
+                          ]}
+                        >
+                          {method.label}
+                        </Text>
+                      </Pressable>
+                  );
+                })}
+              </View>
+
+              <View style={styles.reservationPaymentAmountCard}>
+                <Text style={styles.reservationPaymentSectionLabel}>Monto</Text>
+                <View style={styles.reservationPaymentAmountInputWrap}>
+                  <Text style={styles.reservationPaymentCurrency}>$</Text>
+                  <TextInput
+                    keyboardType="decimal-pad"
+                    onChangeText={setPaymentEntryAmount}
+                    placeholder="0"
+                    placeholderTextColor={colors.muted}
+                    style={styles.reservationPaymentAmountInput}
+                    value={paymentEntryAmount}
+                  />
+                </View>
+              </View>
+
+              {paymentEntryMethod === "transferencia" ? (
+                <View style={styles.reservationPaymentProofCard}>
+                  <Text style={styles.reservationPaymentSectionLabel}>Comprobante opcional</Text>
+                  <Pressable
+                    onPress={handlePickReservationPaymentReceipt}
+                    style={styles.reservationPaymentProofButton}
+                  >
+                    <Ionicons color={colors.primaryDark} name="document-attach-outline" size={16} />
+                    <Text style={styles.reservationPaymentProofButtonText}>
+                      {paymentEntryReceiptAsset ? "Cambiar comprobante" : "Adjuntar comprobante"}
+                    </Text>
+                  </Pressable>
+                  {paymentEntryReceiptAsset ? (
+                    <Text style={styles.reservationPaymentProofName}>
+                      {paymentEntryReceiptAsset.name || "Archivo cargado"}
+                    </Text>
+                  ) : null}
+                </View>
+              ) : null}
+
+              <View style={styles.reservationPaymentEntryActions}>
+                <Pressable onPress={closeReservationPaymentEntry} style={styles.reservationPaymentSecondaryButton}>
+                  <Text style={styles.reservationPaymentSecondaryButtonText}>Cerrar</Text>
+                </Pressable>
+                <Pressable
+                  disabled={savingReservationPayment}
+                  onPress={handleSaveReservationPayment}
+                  style={[
+                    styles.reservationPaymentPrimaryButton,
+                    savingReservationPayment ? styles.primaryButtonDisabled : null,
+                  ]}
+                >
+                  <Text style={styles.reservationPaymentPrimaryButtonText}>
+                    {savingReservationPayment ? "Guardando..." : "Registrar pago"}
+                  </Text>
+                </Pressable>
+              </View>
+            </View>
+          </KeyboardAvoidingView>
+        </View>
+      </Modal>
+
+      <Modal
+        animationType="fade"
         onRequestClose={() => setPriceApplyContext(null)}
         transparent
         visible={Boolean(priceApplyContext)}
@@ -3244,6 +3757,11 @@ export default function TurnosScreen({ navigation }) {
         title={feedback.title}
         tone={feedback.tone}
         visible={feedback.visible}
+      />
+
+      <PadelNexoLoadingOverlay
+        message="Cargando..."
+        visible={loadingFocusedReservation}
       />
 
       <BottomQuickActionsBar navigation={navigation} />
@@ -3999,6 +4517,34 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     marginTop: 2,
   },
+  complexAvailabilityChip: {
+    alignItems: "center",
+    alignSelf: "center",
+    borderRadius: 999,
+    borderWidth: 1,
+    marginTop: 7,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  complexAvailabilityChipAvailable: {
+    backgroundColor: "#EAF8F3",
+    borderColor: "#91D7B2",
+  },
+  complexAvailabilityChipUnavailable: {
+    backgroundColor: "#F4F6F8",
+    borderColor: "#D6DDE3",
+  },
+  complexAvailabilityChipText: {
+    fontSize: 10,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  complexAvailabilityChipTextAvailable: {
+    color: "#1E6B45",
+  },
+  complexAvailabilityChipTextUnavailable: {
+    color: "#6C7A86",
+  },
   courtsGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -4292,7 +4838,95 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     width: "100%",
   },
+  reservationPaymentSummaryCard: {
+    backgroundColor: "#FBFDFC",
+    borderColor: colors.border,
+    borderRadius: 16,
+    borderWidth: 1,
+    gap: spacing.xs,
+    padding: spacing.sm,
+  },
+  reservationPaymentSummaryHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 2,
+  },
+  reservationPaymentSummaryTitle: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  reservationPaymentSummaryStatus: {
+    color: colors.primaryDark,
+    fontSize: 11,
+    fontWeight: "900",
+    textTransform: "uppercase",
+  },
+  reservationPaymentSummaryRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+  reservationPaymentSummaryLabel: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  reservationPaymentSummaryValue: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  reservationPaymentSummaryPending: {
+    color: "#B97818",
+  },
+  reservationPaymentSummaryPaid: {
+    color: "#1E7A43",
+  },
+  reservationPaymentList: {
+    gap: spacing.xs,
+    marginTop: spacing.xs,
+  },
+  reservationPaymentItem: {
+    alignItems: "center",
+    backgroundColor: "#F7FBF9",
+    borderColor: colors.border,
+    borderRadius: 12,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: spacing.sm,
+    justifyContent: "space-between",
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+  },
+  reservationPaymentItemCopy: {
+    flex: 1,
+  },
+  reservationPaymentItemTitle: {
+    color: colors.text,
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  reservationPaymentItemMeta: {
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: "600",
+    marginTop: 2,
+  },
+  reservationPaymentItemAmount: {
+    color: colors.primaryDark,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  reservationPaymentEmpty: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "600",
+    lineHeight: 17,
+  },
   reservationDetailActions: {
+    flexWrap: "wrap",
     flexDirection: "row",
     gap: spacing.xs,
   },
@@ -4306,6 +4940,29 @@ const styles = StyleSheet.create({
     gap: 3,
     minHeight: 54,
     justifyContent: "center",
+    minWidth: "31%",
+  },
+  reservationDetailPayment: {
+    backgroundColor: "#EEF7FF",
+    borderColor: "#BEDCF4",
+  },
+  reservationCancelWideButton: {
+    alignItems: "center",
+    backgroundColor: "#FFF1F1",
+    borderColor: "#F0B8B8",
+    borderRadius: 14,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: spacing.xs,
+    justifyContent: "center",
+    minHeight: 46,
+    paddingHorizontal: spacing.md,
+  },
+  reservationCancelWideButtonText: {
+    color: "#B94141",
+    fontSize: 13,
+    fontWeight: "900",
+    textTransform: "uppercase",
   },
   reservationDetailCancel: {
     backgroundColor: "#FFF1F1",
@@ -4318,6 +4975,239 @@ const styles = StyleSheet.create({
   },
   reservationDetailCancelText: {
     color: "#B94141",
+  },
+  reservationDetailCloseButton: {
+    alignItems: "center",
+    backgroundColor: "#F7FBF9",
+    borderColor: colors.border,
+    borderRadius: 14,
+    borderWidth: 1,
+    justifyContent: "center",
+    minHeight: 44,
+  },
+  reservationDetailCloseButtonText: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "900",
+    textTransform: "uppercase",
+  },
+  reservationPaymentEntryCard: {
+    alignSelf: "center",
+    backgroundColor: colors.surface,
+    borderColor: "#DDEAE3",
+    borderRadius: 20,
+    borderWidth: 1,
+    elevation: 6,
+    gap: spacing.sm,
+    maxWidth: 430,
+    padding: spacing.md,
+    shadowColor: "#123B28",
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.08,
+    shadowRadius: 18,
+    width: "100%",
+  },
+  reservationPaymentEntryHint: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "700",
+    lineHeight: 18,
+    marginTop: -4,
+  },
+  reservationPaymentHeaderCard: {
+    backgroundColor: "#F8FCFA",
+    borderColor: colors.border,
+    borderRadius: 16,
+    borderWidth: 1,
+    gap: spacing.sm,
+    padding: spacing.sm,
+  },
+  reservationPaymentHeaderTop: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.sm,
+  },
+  reservationPaymentHeaderCopy: {
+    flex: 1,
+  },
+  reservationPaymentHeaderTitle: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  reservationPaymentHeaderMeta: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "700",
+    marginTop: 2,
+  },
+  reservationPaymentQuickSummary: {
+    alignItems: "center",
+    backgroundColor: "#FFFFFF",
+    borderColor: colors.border,
+    borderRadius: 14,
+    borderWidth: 1,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
+  },
+  reservationPaymentQuickItem: {
+    alignItems: "center",
+    flex: 1,
+    gap: 2,
+  },
+  reservationPaymentQuickLabel: {
+    color: colors.muted,
+    fontSize: 10,
+    fontWeight: "900",
+    textTransform: "uppercase",
+  },
+  reservationPaymentQuickValue: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  reservationPaymentQuickDivider: {
+    backgroundColor: colors.border,
+    height: 30,
+    width: 1,
+  },
+  reservationPaymentEntryKeyboard: {
+    justifyContent: "center",
+    paddingHorizontal: spacing.md,
+    width: "100%",
+  },
+  reservationPaymentSectionLabel: {
+    color: colors.text,
+    fontSize: 12,
+    fontWeight: "900",
+    textTransform: "uppercase",
+  },
+  summaryPaymentRow: {
+    flexDirection: "row",
+    gap: spacing.xs,
+  },
+  summaryPaymentMethod: {
+    alignItems: "center",
+    backgroundColor: "#FAFCFB",
+    borderColor: "#DDEAE3",
+    borderRadius: 14,
+    borderWidth: 1,
+    flex: 1,
+    minHeight: 40,
+    paddingVertical: 8,
+  },
+  summaryPaymentMethodActive: {
+    backgroundColor: "#EAF5FF",
+    borderColor: "#B9D7F0",
+  },
+  summaryPaymentMethodText: {
+    color: colors.text,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  summaryPaymentMethodTextActive: {
+    color: "#16537A",
+  },
+  reservationPaymentAmountCard: {
+    backgroundColor: "#F9FCFA",
+    borderColor: colors.border,
+    borderRadius: 14,
+    borderWidth: 1,
+    gap: spacing.xs,
+    padding: spacing.sm,
+  },
+  reservationPaymentAmountInputWrap: {
+    alignItems: "center",
+    backgroundColor: "#FFFFFF",
+    borderColor: "#D9E7DF",
+    borderRadius: 14,
+    borderWidth: 1,
+    flexDirection: "row",
+    justifyContent: "center",
+    minHeight: 58,
+    paddingHorizontal: spacing.sm,
+  },
+  reservationPaymentCurrency: {
+    color: colors.primaryDark,
+    fontSize: 24,
+    fontWeight: "900",
+    marginRight: 8,
+  },
+  reservationPaymentAmountInput: {
+    color: colors.text,
+    flex: 1,
+    fontSize: 24,
+    fontWeight: "900",
+    minHeight: 58,
+    textAlign: "center",
+  },
+  reservationPaymentProofCard: {
+    backgroundColor: "#F9FCFA",
+    borderColor: colors.border,
+    borderRadius: 14,
+    borderWidth: 1,
+    gap: spacing.xs,
+    padding: spacing.sm,
+  },
+  reservationPaymentProofButton: {
+    alignItems: "center",
+    backgroundColor: "#FFFFFF",
+    borderColor: colors.border,
+    borderRadius: 12,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: spacing.xs,
+    justifyContent: "center",
+    minHeight: 42,
+    paddingHorizontal: spacing.md,
+  },
+  reservationPaymentProofButtonText: {
+    color: colors.primaryDark,
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  reservationPaymentProofName: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "700",
+    lineHeight: 17,
+  },
+  reservationPaymentEntryActions: {
+    flexDirection: "row",
+    gap: spacing.xs,
+    marginTop: spacing.sm,
+  },
+  reservationPaymentSecondaryButton: {
+    alignItems: "center",
+    backgroundColor: "#FAFCFB",
+    borderColor: colors.border,
+    borderRadius: 14,
+    borderWidth: 1,
+    flex: 1,
+    justifyContent: "center",
+    minHeight: 46,
+  },
+  reservationPaymentSecondaryButtonText: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  reservationPaymentPrimaryButton: {
+    alignItems: "center",
+    backgroundColor: "#1E5F86",
+    borderColor: "#1E5F86",
+    borderRadius: 14,
+    borderWidth: 1,
+    flex: 1.2,
+    justifyContent: "center",
+    minHeight: 46,
+  },
+  reservationPaymentPrimaryButtonText: {
+    color: colors.surface,
+    fontSize: 13,
+    fontWeight: "800",
   },
   reservationDaysRow: {
     gap: spacing.xs,

@@ -25,6 +25,7 @@ import SectionHeader from "../components/SectionHeader";
 import TournamentHeaderCard from "../components/TournamentHeaderCard";
 import { colors, spacing } from "../config/theme";
 import { useAuth } from "../context/AuthContext";
+import { normalizeMercadoPagoConfig } from "../services/mercadoPagoConfigService";
 import { listPlayers } from "../services/playersService";
 import {
   buildTournamentDayOptions,
@@ -670,9 +671,20 @@ function RegistrationTab({
         : getWeeklyAvailabilitySummaryItems(availability || {}),
     [availability, tournamentDayOptions]
   );
+  const tournamentMercadoPagoConfig = useMemo(
+    () => normalizeMercadoPagoConfig(tournament?.mercadoPagoConfig),
+    [tournament?.mercadoPagoConfig]
+  );
+  const tournamentMercadoPagoEnabled = useMemo(
+    () =>
+      tournamentMercadoPagoConfig.enabled === true &&
+      tournamentMercadoPagoConfig.categories?.torneos !== false,
+    [tournamentMercadoPagoConfig]
+  );
   const requiresTransferReceipt =
     Number(tournament?.entryFee || 0) > 0 &&
-    (tournament?.paymentMethods || []).includes("transferencia");
+    (tournament?.paymentMethods || []).includes("transferencia") &&
+    !tournamentMercadoPagoEnabled;
 
   const occupiedPlayerIds = useMemo(() => {
     return new Set(
@@ -731,7 +743,9 @@ function RegistrationTab({
       {
         key: "payments",
         title: "Pagos",
-        description: requiresTransferReceipt
+        description: tournamentMercadoPagoEnabled
+          ? "Mercado Pago habilitado"
+          : requiresTransferReceipt
           ? receiptAsset?.uri
             ? "Comprobante adjunto"
             : "Adjuntar comprobante"
@@ -744,6 +758,7 @@ function RegistrationTab({
     receiptAsset?.uri,
     requiresTransferReceipt,
     selectedPartner,
+    tournamentMercadoPagoEnabled,
   ]);
 
   const handlePickReceipt = async () => {
@@ -882,7 +897,13 @@ function RegistrationTab({
 
           <View style={styles.blockCard}>
             <Text style={styles.blockTitle}>Pagos individuales</Text>
-            {(registration.payments || []).map((payment) => (
+            {(registration.payments || [])
+              .filter(
+                (payment) =>
+                  normalizeText(payment?.playerId) === normalizeText(currentUser?.uid) ||
+                  normalizeText(payment?.userId) === normalizeText(currentUser?.uid)
+              )
+              .map((payment) => (
               <View key={payment.playerId || payment.userId} style={styles.inlineRow}>
                 <Text style={styles.inlineRowLabel}>{payment.playerName}</Text>
                 <Text style={styles.inlineRowValue}>{getPaymentStatusLabel(payment.status)}</Text>
@@ -1031,7 +1052,14 @@ function RegistrationTab({
           {activePanel === "payments" ? (
             <View style={styles.blockCard}>
               <Text style={styles.blockTitleCentered}>PAGOS</Text>
-              {requiresTransferReceipt ? (
+              {tournamentMercadoPagoEnabled ? (
+                <View style={styles.registrationHintCard}>
+                  <Ionicons color={colors.primaryDark} name="wallet-outline" size={18} />
+                  <Text style={styles.registrationHintText}>
+                    El organizador habilito Mercado Pago para este torneo. La transferencia queda desactivada.
+                  </Text>
+                </View>
+              ) : requiresTransferReceipt ? (
                 <>
                   <Text style={styles.blockTextCentered}>
                     Alias: {tournament?.paymentAlias || "Alias a confirmar por organizador"}

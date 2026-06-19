@@ -23,7 +23,7 @@ import { colors, spacing } from "../config/theme";
 import { useAuth } from "../context/AuthContext";
 import { playersMock } from "../data/playersMock";
 import { playerCategories } from "../data/profileOptions";
-import { isAvailableToday } from "../services/availabilityService";
+import { hasConfiguredAvailability, isAvailableToday } from "../services/availabilityService";
 import {
   applyFavoriteFlags,
   registerPlayersForFavorites,
@@ -130,6 +130,7 @@ export default function JugadoresScreen({ navigation }) {
     message: "",
     tone: "default",
   });
+  const [playerSearchFiltersVisible, setPlayerSearchFiltersVisible] = useState(false);
   const [proximityFilter, setProximityFilter] = useState({
     enabled: false,
     radiusKm: 10,
@@ -156,16 +157,24 @@ export default function JugadoresScreen({ navigation }) {
     sexo: "Todos",
     categorias: [],
     localidades: userLocalidad ? [userLocalidad] : [],
+    soloDisponiblesHoy: false,
   });
   const [draftSexo, setDraftSexo] = useState("Todos");
   const [draftCategorias, setDraftCategorias] = useState([]);
+  const [draftSoloDisponiblesHoy, setDraftSoloDisponiblesHoy] = useState(false);
 
   const hasActiveFilters =
     query.trim().length > 0 ||
     appliedFilters.sexo !== "Todos" ||
     appliedFilters.categorias.length > 0 ||
     appliedFilters.localidades.length > 0 ||
-    proximityFilter.enabled;
+    proximityFilter.enabled ||
+    appliedFilters.soloDisponiblesHoy;
+
+  const hasActiveSearchFilters =
+    appliedFilters.sexo !== "Todos" ||
+    appliedFilters.categorias.length > 0 ||
+    appliedFilters.soloDisponiblesHoy;
 
   useEffect(() => {
     let isCancelled = false;
@@ -293,6 +302,15 @@ export default function JugadoresScreen({ navigation }) {
         return false;
       }
 
+      const playerHasStructuredAvailability = hasConfiguredAvailability(player.availability || {});
+      const playerIsAvailableToday = playerHasStructuredAvailability
+        ? isAvailableToday(player.availability || {})
+        : Boolean(player.disponibleHoy);
+
+      if (appliedFilters.soloDisponiblesHoy && !playerIsAvailableToday) {
+        return false;
+      }
+
       if (!proximityFilter.enabled && appliedFilters.localidades.length > 0) {
         const cityMatches = appliedFilters.localidades.some(
           (location) => normalizeText(player.ciudad) === normalizeText(location.nombre)
@@ -347,6 +365,7 @@ export default function JugadoresScreen({ navigation }) {
   const handleOpenFilters = () => {
     setDraftSexo(appliedFilters.sexo);
     setDraftCategorias(appliedFilters.categorias);
+    setDraftSoloDisponiblesHoy(appliedFilters.soloDisponiblesHoy);
   };
 
   const handleApplyFilters = async () => {
@@ -354,6 +373,7 @@ export default function JugadoresScreen({ navigation }) {
       ...current,
       sexo: draftSexo,
       categorias: draftCategorias,
+      soloDisponiblesHoy: draftSoloDisponiblesHoy,
     }));
   };
 
@@ -530,13 +550,33 @@ export default function JugadoresScreen({ navigation }) {
 
         <View style={styles.topSearchRow}>
           <View style={styles.searchWrap}>
+            <View style={styles.searchWrapInner}>
+              <Ionicons color={colors.muted} name="search-outline" size={18} />
             <TextInput
               onChangeText={setQuery}
               placeholder="Buscar por nombre y apellido"
               placeholderTextColor={colors.muted}
+              multiline={false}
               style={styles.searchInput}
               value={query}
             />
+              <Pressable
+                onPress={() => {
+                  handleOpenFilters();
+                  setPlayerSearchFiltersVisible(true);
+                }}
+                style={[
+                  styles.searchFilterInlineButton,
+                  hasActiveSearchFilters ? styles.searchFilterInlineButtonActive : null,
+                ]}
+              >
+                <Ionicons
+                  color={hasActiveSearchFilters ? colors.surface : colors.primaryDark}
+                  name="options-outline"
+                  size={16}
+                />
+              </Pressable>
+            </View>
           </View>
 
           <Pressable
@@ -605,6 +645,117 @@ export default function JugadoresScreen({ navigation }) {
         onSave={handleSaveAvailability}
         visible={isAvailabilityVisible}
       />
+
+      <Modal
+        animationType="fade"
+        onRequestClose={() => setPlayerSearchFiltersVisible(false)}
+        transparent
+        visible={playerSearchFiltersVisible}
+      >
+        <View style={styles.confirmOverlay}>
+          <Pressable
+            onPress={() => setPlayerSearchFiltersVisible(false)}
+            style={styles.confirmBackdrop}
+          />
+          <View style={styles.searchFiltersCard}>
+            <Text style={styles.confirmTitle}>Filtrar jugadores</Text>
+
+            <Text style={styles.modalLabel}>Sexo</Text>
+            <View style={styles.modalRow}>
+              {SEX_FILTER_OPTIONS.map((sex) => (
+                <Pressable
+                  key={sex}
+                  onPress={() => setDraftSexo(sex)}
+                  style={[styles.filterChip, draftSexo === sex && styles.filterChipActive]}
+                >
+                  <Text
+                    style={[styles.filterChipText, draftSexo === sex && styles.filterChipTextActive]}
+                  >
+                    {sex}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+
+            <Text style={styles.modalLabel}>Categoria</Text>
+            <View style={styles.modalRow}>
+              {playerCategories.map((category) => (
+                <Pressable
+                  key={category}
+                  onPress={() =>
+                    setDraftCategorias((current) => toggleCategorySelection(current, category))
+                  }
+                  style={[
+                    styles.filterChip,
+                    draftCategorias.includes(category) && styles.filterChipActive,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.filterChipText,
+                      draftCategorias.includes(category) && styles.filterChipTextActive,
+                    ]}
+                  >
+                    {category}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+
+            <Text style={styles.modalLabel}>Disponibilidad</Text>
+            <Pressable
+              onPress={() => setDraftSoloDisponiblesHoy((current) => !current)}
+              style={[
+                styles.searchAvailabilityToggle,
+                draftSoloDisponiblesHoy ? styles.searchAvailabilityToggleActive : null,
+              ]}
+            >
+              <Ionicons
+                color={draftSoloDisponiblesHoy ? "#1F6E4B" : colors.primaryDark}
+                name={draftSoloDisponiblesHoy ? "checkmark-circle" : "time-outline"}
+                size={18}
+              />
+              <Text
+                style={[
+                  styles.searchAvailabilityToggleText,
+                  draftSoloDisponiblesHoy ? styles.searchAvailabilityToggleTextActive : null,
+                ]}
+              >
+                Mostrar solo los disponibles hoy
+              </Text>
+            </Pressable>
+
+            <View style={styles.searchFilterActions}>
+              <Pressable
+                onPress={() => {
+                  setDraftSexo("Todos");
+                  setDraftCategorias([]);
+                  setDraftSoloDisponiblesHoy(false);
+                  setAppliedFilters((current) => ({
+                    ...current,
+                    sexo: "Todos",
+                    categorias: [],
+                    soloDisponiblesHoy: false,
+                  }));
+                  setPlayerSearchFiltersVisible(false);
+                }}
+                style={styles.searchFilterSecondaryButton}
+              >
+                <Text style={styles.searchFilterSecondaryButtonText}>Limpiar</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  handleApplyFilters();
+                  setPlayerSearchFiltersVisible(false);
+                }}
+                style={styles.searchFilterPrimaryButton}
+              >
+                <Text style={styles.searchFilterPrimaryButtonText}>Aplicar</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       <Modal
         animationType="fade"
@@ -844,12 +995,36 @@ const styles = StyleSheet.create({
     shadowRadius: 14,
     elevation: 3,
   },
+  searchWrapInner: {
+    alignItems: "center",
+    flexDirection: "row",
+    minHeight: 48,
+    paddingLeft: spacing.md,
+    paddingRight: 6,
+  },
   searchInput: {
     color: colors.text,
-    fontSize: 14,
-    minHeight: 48,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 10,
+    fontSize: 13,
+    flex: 1,
+    includeFontPadding: false,
+    minHeight: 44,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 0,
+    textAlignVertical: "center",
+  },
+  searchFilterInlineButton: {
+    alignItems: "center",
+    backgroundColor: "#F6FAF8",
+    borderColor: colors.border,
+    borderRadius: 999,
+    borderWidth: 1,
+    height: 34,
+    justifyContent: "center",
+    width: 34,
+  },
+  searchFilterInlineButtonActive: {
+    backgroundColor: colors.primaryDark,
+    borderColor: colors.primaryDark,
   },
   listContent: {
     paddingBottom: BOTTOM_QUICK_ACTIONS_SPACE,
@@ -927,6 +1102,74 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "600",
     marginLeft: spacing.sm,
+  },
+  searchFiltersCard: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 22,
+    borderWidth: 1,
+    gap: spacing.sm,
+    padding: spacing.lg,
+    width: "100%",
+  },
+  searchAvailabilityToggle: {
+    alignItems: "center",
+    backgroundColor: "#F7FBF9",
+    borderColor: colors.border,
+    borderRadius: 16,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: spacing.sm,
+    minHeight: 46,
+    paddingHorizontal: spacing.md,
+  },
+  searchAvailabilityToggleActive: {
+    backgroundColor: "#E9F7EF",
+    borderColor: "#B8DEC8",
+  },
+  searchAvailabilityToggleText: {
+    color: colors.text,
+    flex: 1,
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  searchAvailabilityToggleTextActive: {
+    color: "#1F6E4B",
+  },
+  searchFilterActions: {
+    flexDirection: "row",
+    gap: spacing.sm,
+    marginTop: spacing.xs,
+  },
+  searchFilterPrimaryButton: {
+    alignItems: "center",
+    backgroundColor: colors.primaryDark,
+    borderRadius: 16,
+    flex: 1,
+    justifyContent: "center",
+    minHeight: 46,
+    paddingHorizontal: spacing.md,
+  },
+  searchFilterPrimaryButtonText: {
+    color: colors.surface,
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  searchFilterSecondaryButton: {
+    alignItems: "center",
+    backgroundColor: colors.surfaceAlt,
+    borderColor: colors.border,
+    borderRadius: 16,
+    borderWidth: 1,
+    flex: 1,
+    justifyContent: "center",
+    minHeight: 46,
+    paddingHorizontal: spacing.md,
+  },
+  searchFilterSecondaryButtonText: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: "800",
   },
   confirmOverlay: {
     ...StyleSheet.absoluteFillObject,

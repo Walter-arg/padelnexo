@@ -23,6 +23,10 @@ function getTurnoPaymentStatusLabel(reservation = {}) {
     return "Pago a verificar";
   }
 
+  if (paymentMethod === "a_confirmar" || paymentStatus === "to_be_defined") {
+    return "Metodo de pago a confirmar";
+  }
+
   if (paymentMethod === "efectivo") {
     return "Pago en efectivo en sede";
   }
@@ -44,6 +48,10 @@ function getTurnoPaymentNotificationKey(reservation = {}) {
 
   if (paymentMethod === "transferencia") {
     return "transfer_review";
+  }
+
+  if (paymentMethod === "a_confirmar" || paymentStatus === "to_be_defined") {
+    return "payment_to_be_defined";
   }
 
   if (paymentMethod === "efectivo") {

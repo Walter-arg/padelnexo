@@ -2,7 +2,7 @@ import { Image, Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
 import { colors, spacing } from "../config/theme";
-import { getAvailabilitySummaryItems, isAvailableToday } from "../services/availabilityService";
+import { hasConfiguredAvailability, isAvailableToday } from "../services/availabilityService";
 import { hasProfileImage } from "../utils/defaultProfileImage";
 
 const FAVORITE_ICON_COLOR = "#BF6F00";
@@ -20,9 +20,10 @@ export default function PlayerCard({
   isBlocked = false,
 }) {
   const hasImage = hasProfileImage(player.foto);
-  const hasConfiguredAvailability = getAvailabilitySummaryItems(player?.availability).length > 0;
-  const isAvailable = Boolean(player?.disponibleHoy) || isAvailableToday(player?.availability);
-  const shouldShowAvailability = isAvailable || hasConfiguredAvailability;
+  const hasPlayerAvailability = hasConfiguredAvailability(player?.availability);
+  const isAvailable = hasPlayerAvailability
+    ? isAvailableToday(player?.availability)
+    : Boolean(player?.disponibleHoy);
 
   return (
     <View style={[styles.card, isBlocked && styles.cardBlocked]}>
@@ -41,7 +42,7 @@ export default function PlayerCard({
           </Text>
           <View style={styles.categoryRow}>
             <Text style={styles.category}>{player.categoria}</Text>
-            {shouldShowAvailability ? (
+            {isAvailable ? (
               <View style={styles.availabilityInline}>
                 <View style={styles.availabilityDot} />
                 <Text style={styles.availabilityText}>Disponible hoy</Text>

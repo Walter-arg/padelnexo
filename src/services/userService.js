@@ -161,6 +161,11 @@ function mapDocToUserData(uid, profileDoc = {}, fallbackEmail = "") {
           autoEnableNewPayments: profileDoc.mercadoPagoConfig.autoEnableNewPayments === true,
           accountDisplayName: profileDoc.mercadoPagoConfig.accountDisplayName || "",
           connectionStatus: profileDoc.mercadoPagoConfig.connectionStatus || "checkout_pro_test",
+          categories: {
+            turnos: profileDoc.mercadoPagoConfig?.categories?.turnos !== false,
+            ligas: profileDoc.mercadoPagoConfig?.categories?.ligas !== false,
+            torneos: profileDoc.mercadoPagoConfig?.categories?.torneos !== false,
+          },
         }
       : {
           enabled: false,
@@ -168,6 +173,11 @@ function mapDocToUserData(uid, profileDoc = {}, fallbackEmail = "") {
           autoEnableNewPayments: false,
           accountDisplayName: "",
           connectionStatus: "checkout_pro_test",
+          categories: {
+            turnos: true,
+            ligas: true,
+            torneos: true,
+          },
         };
 
   return {
@@ -623,6 +633,11 @@ export async function updateUserProfile(uid, updates) {
       connectionStatus:
         String(updates.mercadoPagoConfig.connectionStatus || "checkout_pro_test").trim() ||
         "checkout_pro_test",
+      categories: {
+        turnos: updates.mercadoPagoConfig?.categories?.turnos !== false,
+        ligas: updates.mercadoPagoConfig?.categories?.ligas !== false,
+        torneos: updates.mercadoPagoConfig?.categories?.torneos !== false,
+      },
     };
   }
 

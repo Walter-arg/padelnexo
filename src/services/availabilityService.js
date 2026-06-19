@@ -237,6 +237,12 @@ export function getAvailabilityHeadline(availability = {}) {
     .join(" | ");
 }
 
+export function hasConfiguredAvailability(availability = {}) {
+  const normalized = normalizeAvailability(availability);
+
+  return DAY_DEFINITIONS.some((day) => dayHasAvailability(normalized[day.key]));
+}
+
 export function isAvailableToday(availability = {}) {
   const todayIndex = new Date().getDay();
   const dayKey = DAY_DEFINITIONS[todayIndex === 0 ? 6 : todayIndex - 1]?.key;

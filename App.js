@@ -19,15 +19,26 @@ import AppNavigator from "./src/navigation/AppNavigator";
 import { AuthProvider } from "./src/context/AuthContext";
 import { colors, spacing } from "./src/config/theme";
 import {
+  clearPendingMercadoPagoCheckout,
   clearPendingTurnoCheckout,
+  readPendingMercadoPagoCheckout,
   readPendingTurnoCheckout,
+  syncLeagueMercadoPagoPayment,
+  syncTournamentMercadoPagoPayment,
   syncTurnoMercadoPagoPayment,
+  updatePendingMercadoPagoCheckout,
 } from "./src/services/mercadoPagoCheckoutService";
+import {
+  clearPendingLeagueMercadoPagoAttempt,
+  clearPendingLeagueMercadoPagoAttempts,
+} from "./src/services/leaguesService";
+import { clearPendingTournamentMercadoPagoAttempt } from "./src/services/tournamentsService";
 import { cancelPendingMercadoPagoReservation } from "./src/services/turnosService";
 
 const navigationRef = createNavigationContainerRef();
 let pendingCheckoutNavigation = null;
 let lastCheckoutReturnHandledAt = 0;
+const LEAGUE_PENDING_RECOVERY_GRACE_MS = 20000;
 
 function buildCheckoutNavigationPayload(url = "", depth = 0) {
   if (!url || depth > 2) {
@@ -66,16 +77,26 @@ function buildCheckoutNavigationPayload(url = "", depth = 0) {
   return {
     name: "MercadoPagoReturn",
     params: {
+      batchCount: Number(queryParams.batch_count || 0) || 0,
+      externalReference: String(queryParams.external_reference || "").trim(),
+      leagueId: String(queryParams.leagueId || "").trim(),
+      pairId: String(queryParams.pairId || "").trim(),
+      participantId: String(queryParams.participantId || "").trim(),
+      playerId: String(queryParams.playerId || "").trim(),
+      registrationId: String(queryParams.registrationId || "").trim(),
       status,
+      roundId: String(queryParams.roundId || "").trim(),
       reservationId: String(
         queryParams.external_reference || queryParams.reservationId || ""
       ).trim(),
       paymentId: String(queryParams.payment_id || queryParams.collection_id || "").trim(),
+      source: String(queryParams.source || "turnos").trim().toLowerCase(),
+      tournamentId: String(queryParams.tournamentId || "").trim(),
     },
   };
 }
 
-function navigateFromCheckoutUrl(url = "") {
+async function navigateFromCheckoutUrl(url = "") {
   const payload = buildCheckoutNavigationPayload(url);
 
   if (!payload) {
@@ -87,6 +108,102 @@ function navigateFromCheckoutUrl(url = "") {
 
   console.log("[mercadoPagoCheckout] Navegando retorno Checkout Pro:", payload);
   lastCheckoutReturnHandledAt = Date.now();
+
+  if (payload?.params?.source === "leagues") {
+    await updatePendingMercadoPagoCheckout({
+      externalReference: String(payload?.params?.externalReference || "").trim(),
+      paymentId: String(payload?.params?.paymentId || "").trim(),
+      status: String(payload?.params?.status || "pending").trim().toLowerCase(),
+    }).catch(() => {});
+
+    const paymentId = String(payload?.params?.paymentId || "").trim();
+    const leagueId = String(payload?.params?.leagueId || "").trim();
+    const participantId = String(payload?.params?.participantId || "").trim();
+    const roundId = String(payload?.params?.roundId || "").trim();
+
+    if (paymentId && (leagueId || String(payload?.params?.externalReference || "").trim())) {
+      try {
+        const syncResult = await syncLeagueMercadoPagoPayment({
+          batchTargets: Array.isArray(payload?.params?.batchTargets)
+            ? payload.params.batchTargets
+            : [],
+          externalReference: String(payload?.params?.externalReference || "").trim(),
+          leagueId,
+          pairId: String(payload?.params?.pairId || "").trim(),
+          participantId,
+          paymentId,
+          roundId,
+        });
+
+        const syncedStatus = String(
+          syncResult?.mercadoPagoStatus || syncResult?.paymentStatus || ""
+        )
+          .trim()
+          .toLowerCase();
+
+        payload.params.status =
+          syncedStatus === "approved" || syncedStatus === "pagado"
+            ? "success"
+            : ["rejected", "cancelled", "payment_issue", "failure"].includes(syncedStatus)
+              ? "failure"
+              : payload.params.status;
+      } catch (error) {
+        console.log(
+          "[mercadoPagoCheckout] No pudimos sincronizar la liga inmediatamente despues del retorno:",
+          error?.message || error
+        );
+      }
+    }
+  } else if (payload?.params?.source === "tournaments") {
+    await updatePendingMercadoPagoCheckout({
+      externalReference: String(payload?.params?.externalReference || "").trim(),
+      paymentId: String(payload?.params?.paymentId || "").trim(),
+      playerId: String(payload?.params?.playerId || "").trim(),
+      registrationId: String(payload?.params?.registrationId || "").trim(),
+      status: String(payload?.params?.status || "pending").trim().toLowerCase(),
+      tournamentId: String(payload?.params?.tournamentId || "").trim(),
+    }).catch(() => {});
+
+    const paymentId = String(payload?.params?.paymentId || "").trim();
+    const tournamentId = String(payload?.params?.tournamentId || "").trim();
+    const registrationId = String(payload?.params?.registrationId || "").trim();
+    const playerId = String(payload?.params?.playerId || "").trim();
+
+    if (paymentId && (tournamentId || String(payload?.params?.externalReference || "").trim())) {
+      try {
+        const syncResult = await syncTournamentMercadoPagoPayment({
+          externalReference: String(payload?.params?.externalReference || "").trim(),
+          paymentId,
+          playerId,
+          registrationId,
+          tournamentId,
+        });
+
+        const syncedStatus = String(
+          syncResult?.mercadoPagoStatus || syncResult?.paymentStatus || ""
+        )
+          .trim()
+          .toLowerCase();
+
+        payload.params.status =
+          syncedStatus === "approved"
+            ? "success"
+            : ["rejected", "cancelled", "failure"].includes(syncedStatus)
+              ? "failure"
+              : payload.params.status;
+      } catch (error) {
+        console.log(
+          "[mercadoPagoCheckout] No pudimos sincronizar el torneo inmediatamente despues del retorno:",
+          error?.message || error
+        );
+      }
+    }
+  } else if (payload?.params?.source === "turnos") {
+    await updatePendingMercadoPagoCheckout({
+      paymentId: String(payload?.params?.paymentId || "").trim(),
+      status: String(payload?.params?.status || "pending").trim().toLowerCase(),
+    }).catch(() => {});
+  }
 
   if (Platform.OS === "ios") {
     WebBrowser.dismissBrowser().catch(() => {});
@@ -110,18 +227,60 @@ async function recoverPendingCheckoutResult({
   }
 
   try {
-    const pendingCheckout = await readPendingTurnoCheckout();
+    const pendingCheckout =
+      (await readPendingMercadoPagoCheckout()) || (await readPendingTurnoCheckout());
 
-    if (!pendingCheckout?.reservationId) {
+    if (!pendingCheckout?.source) {
       return null;
     }
 
     const createdAt = Number(pendingCheckout.createdAt || 0);
+    const pendingAgeMs = createdAt ? Date.now() - createdAt : 0;
     const isStale = createdAt && Date.now() - createdAt > 1000 * 60 * 30;
 
     if (isStale) {
-      await clearPendingTurnoCheckout().catch(() => {});
+      if (pendingCheckout.source === "turnos") {
+        await clearPendingTurnoCheckout().catch(() => {});
+      } else {
+        await clearPendingMercadoPagoCheckout().catch(() => {});
+      }
       return null;
+    }
+
+    if (
+      pendingCheckout.source === "leagues" &&
+      !String(pendingCheckout.paymentId || "").trim()
+    ) {
+      const hasExternalReference = Boolean(
+        String(pendingCheckout.externalReference || "").trim()
+      );
+      const shouldKeepWaiting =
+        !hasExternalReference || pendingAgeMs < LEAGUE_PENDING_RECOVERY_GRACE_MS;
+
+      if (!shouldKeepWaiting) {
+        console.log(
+          "[mercadoPagoCheckout] Intentando recuperar la liga por externalReference despues del tiempo de espera.",
+          {
+            hasExternalReference,
+            pendingAgeMs,
+            trigger,
+          }
+        );
+      }
+
+      if (!shouldKeepWaiting) {
+        // Continuamos con la sincronizacion normal por externalReference.
+      } else {
+        console.log(
+          "[mercadoPagoCheckout] Se omite la recuperacion automatica de liga hasta recibir el paymentId del retorno.",
+          {
+            hasExternalReference,
+            pendingAgeMs,
+            trigger,
+          }
+        );
+        return null;
+      }
     }
 
     console.log("[mercadoPagoCheckout] Recuperando checkout pendiente:", pendingCheckout);
@@ -130,10 +289,31 @@ async function recoverPendingCheckoutResult({
     let shouldCancelReservation = false;
 
     try {
-      const syncResult = await syncTurnoMercadoPagoPayment({
-        paymentId: pendingCheckout.paymentId || "",
-        reservationId: pendingCheckout.reservationId || "",
-      });
+      const syncResult =
+        pendingCheckout.source === "leagues"
+          ? await syncLeagueMercadoPagoPayment({
+              batchTargets: Array.isArray(pendingCheckout.batchTargets)
+                ? pendingCheckout.batchTargets
+                : [],
+              leagueId: pendingCheckout.leagueId || "",
+              externalReference: pendingCheckout.externalReference || "",
+              pairId: pendingCheckout.pairId || "",
+              participantId: pendingCheckout.participantId || "",
+              paymentId: pendingCheckout.paymentId || "",
+              roundId: pendingCheckout.roundId || "",
+            })
+          : pendingCheckout.source === "tournaments"
+          ? await syncTournamentMercadoPagoPayment({
+              externalReference: pendingCheckout.externalReference || "",
+              paymentId: pendingCheckout.paymentId || "",
+              playerId: pendingCheckout.playerId || "",
+              registrationId: pendingCheckout.registrationId || "",
+              tournamentId: pendingCheckout.tournamentId || "",
+            })
+          : await syncTurnoMercadoPagoPayment({
+              paymentId: pendingCheckout.paymentId || "",
+              reservationId: pendingCheckout.reservationId || "",
+            });
 
       syncedStatus = String(
         syncResult?.mercadoPagoStatus || syncResult?.paymentStatus || syncedStatus
@@ -141,9 +321,92 @@ async function recoverPendingCheckoutResult({
         .trim()
         .toLowerCase();
     } catch (error) {
-      if (error?.code === "payment_not_found") {
+      if (error?.code === "payment_not_found" && pendingCheckout.source === "turnos") {
         shouldCancelReservation = true;
         syncedStatus = "failure";
+      } else if (error?.code === "payment_not_found" && pendingCheckout.source === "tournaments") {
+        await clearPendingTournamentMercadoPagoAttempt(
+          pendingCheckout.tournamentId || "",
+          pendingCheckout.registrationId || "",
+          pendingCheckout.playerId || "",
+          "payment_not_completed"
+        ).catch(() => {});
+        await clearPendingMercadoPagoCheckout().catch(() => {});
+        syncedStatus = "failure";
+      } else if (error?.code === "payment_not_found") {
+        const hasPaymentId = Boolean(String(pendingCheckout.paymentId || "").trim());
+        const exceededLeagueGraceWindow =
+          pendingCheckout.source === "leagues" &&
+          !hasPaymentId &&
+          pendingAgeMs >= LEAGUE_PENDING_RECOVERY_GRACE_MS;
+
+        syncedStatus = exceededLeagueGraceWindow ? "failure" : "pending";
+        const failedSyncAttempts = Number(pendingCheckout.failedSyncAttempts || 0) + 1;
+
+        if (pendingCheckout.source === "leagues" && exceededLeagueGraceWindow) {
+          if (Array.isArray(pendingCheckout.batchTargets) && pendingCheckout.batchTargets.length > 1) {
+            await clearPendingLeagueMercadoPagoAttempts(
+              pendingCheckout.leagueId || "",
+              pendingCheckout.batchTargets,
+              "payment_not_completed"
+            ).catch(() => {});
+          } else {
+            await clearPendingLeagueMercadoPagoAttempt(
+              pendingCheckout.leagueId || "",
+              pendingCheckout.roundId || "",
+              pendingCheckout.participantId || "",
+              "payment_not_completed"
+            ).catch(() => {});
+          }
+          await clearPendingMercadoPagoCheckout().catch(() => {});
+          console.log(
+            "[mercadoPagoCheckout] No encontramos un pago real para la liga despues de varios intentos. Marcamos el checkout como no aprobado.",
+            {
+              leagueId: pendingCheckout.leagueId || "",
+              participantId: pendingCheckout.participantId || "",
+              roundId: pendingCheckout.roundId || "",
+            }
+          );
+        } else if (pendingCheckout.source === "leagues" && failedSyncAttempts >= 2) {
+          if (Array.isArray(pendingCheckout.batchTargets) && pendingCheckout.batchTargets.length > 1) {
+            await clearPendingLeagueMercadoPagoAttempts(
+              pendingCheckout.leagueId || "",
+              pendingCheckout.batchTargets,
+              "payment_not_completed"
+            ).catch(() => {});
+          } else {
+            await clearPendingLeagueMercadoPagoAttempt(
+              pendingCheckout.leagueId || "",
+              pendingCheckout.roundId || "",
+              pendingCheckout.participantId || "",
+              "payment_not_completed"
+            ).catch(() => {});
+          }
+          await clearPendingMercadoPagoCheckout().catch(() => {});
+          console.log(
+            "[mercadoPagoCheckout] No encontramos un pago real para la liga despues de varios intentos. Marcamos el checkout como no aprobado.",
+            {
+              leagueId: pendingCheckout.leagueId || "",
+              participantId: pendingCheckout.participantId || "",
+              roundId: pendingCheckout.roundId || "",
+            }
+          );
+          syncedStatus = "failure";
+        } else if (failedSyncAttempts >= 3) {
+          await clearPendingMercadoPagoCheckout().catch(() => {});
+          console.log("[mercadoPagoCheckout] Checkout pendiente de liga limpiado tras multiples intentos sin encontrar el pago.", {
+            leagueId: pendingCheckout.leagueId || "",
+            participantId: pendingCheckout.participantId || "",
+            roundId: pendingCheckout.roundId || "",
+          });
+          return null;
+        }
+
+        if (syncedStatus !== "failure") {
+          await updatePendingMercadoPagoCheckout({
+            failedSyncAttempts,
+          }).catch(() => {});
+        }
       }
 
       console.log(
@@ -175,9 +438,22 @@ async function recoverPendingCheckoutResult({
     return {
       name: "MercadoPagoReturn",
       params: {
+        batchCount: Number(pendingCheckout.batchCount || 0) || 0,
+        batchTargets: Array.isArray(pendingCheckout.batchTargets)
+          ? pendingCheckout.batchTargets
+          : [],
+        externalReference: String(pendingCheckout.externalReference || "").trim(),
+        leagueId: String(pendingCheckout.leagueId || "").trim(),
+        pairId: String(pendingCheckout.pairId || "").trim(),
+        participantId: String(pendingCheckout.participantId || "").trim(),
+        playerId: String(pendingCheckout.playerId || "").trim(),
+        registrationId: String(pendingCheckout.registrationId || "").trim(),
         status: normalizedStatus,
+        roundId: String(pendingCheckout.roundId || "").trim(),
         reservationId: String(pendingCheckout.reservationId || "").trim(),
         paymentId: String(pendingCheckout.paymentId || "").trim(),
+        source: String(pendingCheckout.source || "turnos").trim().toLowerCase(),
+        tournamentId: String(pendingCheckout.tournamentId || "").trim(),
       },
     };
   } catch (error) {
@@ -257,14 +533,14 @@ export default function App() {
     let isMounted = true;
 
     const handleUrlEvent = ({ url }) => {
-      navigateFromCheckoutUrl(String(url || ""));
+      navigateFromCheckoutUrl(String(url || "")).catch(() => {});
     };
 
     const bootstrapCheckoutReturn = async () => {
       try {
         const initialUrl = await Linking.getInitialURL().catch(() => "");
         const handledInitialUrl = initialUrl
-          ? navigateFromCheckoutUrl(String(initialUrl || ""))
+          ? await navigateFromCheckoutUrl(String(initialUrl || ""))
           : false;
 
         if (!handledInitialUrl) {
@@ -304,7 +580,7 @@ export default function App() {
     }
 
     console.log("[mercadoPagoCheckout] useLinkingURL detecto:", linkingUrl);
-    navigateFromCheckoutUrl(String(linkingUrl || ""));
+    navigateFromCheckoutUrl(String(linkingUrl || "")).catch(() => {});
   }, [linkingUrl]);
 
   useEffect(() => {

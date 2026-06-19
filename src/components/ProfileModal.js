@@ -79,6 +79,12 @@ const sexDropdownOptions = sexOptions.map((option) => ({
   value: option,
 }));
 
+const mercadoPagoCategoryOptions = [
+  { key: "turnos", label: "Turnos" },
+  { key: "ligas", label: "Ligas" },
+  { key: "torneos", label: "Torneos" },
+];
+
 const preferredSideOptions = [
   { label: "Drive", value: "drive" },
   { label: "Reves", value: "reves" },
@@ -210,6 +216,30 @@ export default function ProfileModal({
       mercadoPagoConfig: {
         ...normalizeMercadoPagoConfig(current.mercadoPagoConfig),
         [field]: value,
+      },
+    }));
+  };
+
+  const handleMercadoPagoCategoryToggle = (categoryKey) => {
+    if (!mercadoPagoRuntimeReady) {
+      showFeedback(
+        "Falta configurar Mercado Pago",
+        "Para esta etapa de pruebas necesitas una Public Key en la app y la URL del backend para crear preferencias.",
+        "warning"
+      );
+      return;
+    }
+
+    const normalizedConfig = normalizeMercadoPagoConfig(profile.mercadoPagoConfig);
+
+    setProfile((current) => ({
+      ...current,
+      mercadoPagoConfig: {
+        ...normalizedConfig,
+        categories: {
+          ...normalizedConfig.categories,
+          [categoryKey]: !normalizedConfig.categories?.[categoryKey],
+        },
       },
     }));
   };
@@ -653,6 +683,54 @@ export default function ProfileModal({
                             : "OFF"}
                         </Text>
                       </Pressable>
+                    </View>
+
+                    <View style={styles.mercadoPagoCategoriesSection}>
+                      <Text style={styles.mercadoPagoCategoriesTitle}>Categorias habilitadas</Text>
+                      {mercadoPagoCategoryOptions.map((category) => {
+                        const normalizedMercadoPagoConfig = normalizeMercadoPagoConfig(
+                          profile.mercadoPagoConfig
+                        );
+                        const isCategoryEnabled =
+                          normalizedMercadoPagoConfig.categories?.[category.key] === true;
+                        const categoriesDisabled = !normalizedMercadoPagoConfig.enabled;
+
+                        return (
+                          <View key={category.key} style={styles.mercadoPagoToggleRow}>
+                            <Text
+                              style={[
+                                styles.mercadoPagoToggleLabel,
+                                categoriesDisabled ? styles.mercadoPagoToggleLabelDisabled : null,
+                              ]}
+                            >
+                              {category.label}
+                            </Text>
+                            <Pressable
+                              disabled={categoriesDisabled}
+                              onPress={() => handleMercadoPagoCategoryToggle(category.key)}
+                              style={({ pressed }) => [
+                                styles.mercadoPagoToggleButton,
+                                isCategoryEnabled
+                                  ? styles.mercadoPagoToggleButtonActive
+                                  : styles.mercadoPagoToggleButtonInactive,
+                                categoriesDisabled ? styles.mercadoPagoToggleButtonDisabled : null,
+                                pressed ? styles.mercadoPagoToggleButtonPressed : null,
+                              ]}
+                            >
+                              <Text
+                                style={[
+                                  styles.mercadoPagoToggleButtonText,
+                                  isCategoryEnabled
+                                    ? styles.mercadoPagoToggleButtonTextActive
+                                    : styles.mercadoPagoToggleButtonTextInactive,
+                                ]}
+                              >
+                                {isCategoryEnabled ? "ON" : "OFF"}
+                              </Text>
+                            </Pressable>
+                          </View>
+                        );
+                      })}
                     </View>
 
                     <Text style={styles.mercadoPagoHelpText}>
@@ -1240,11 +1318,27 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xs,
     paddingVertical: 2,
   },
+  mercadoPagoCategoriesSection: {
+    borderTopColor: "#D7E3EC",
+    borderTopWidth: 1,
+    marginTop: spacing.xs,
+    paddingTop: spacing.sm,
+  },
+  mercadoPagoCategoriesTitle: {
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: "700",
+    marginBottom: spacing.xs,
+    textTransform: "uppercase",
+  },
   mercadoPagoToggleLabel: {
     color: colors.text,
     flex: 1,
     fontSize: 13,
     fontWeight: "700",
+  },
+  mercadoPagoToggleLabelDisabled: {
+    color: "#8A97A5",
   },
   mercadoPagoToggleButton: {
     alignItems: "center",
@@ -1265,6 +1359,9 @@ const styles = StyleSheet.create({
   },
   mercadoPagoToggleButtonPressed: {
     opacity: 0.86,
+  },
+  mercadoPagoToggleButtonDisabled: {
+    opacity: 0.45,
   },
   mercadoPagoToggleButtonText: {
     fontSize: 11,

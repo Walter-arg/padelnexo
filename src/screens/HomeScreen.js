@@ -23,6 +23,7 @@ import { canAccessAdminPanel } from "../config/admin";
 import { colors, spacing } from "../config/theme";
 import { useAuth } from "../context/AuthContext";
 import { isLeagueParticipant, listLeagues, updateLeagueFixture } from "../services/leaguesService";
+import { hasConfiguredAvailability, isAvailableToday } from "../services/availabilityService";
 import { listPlayers } from "../services/playersService";
 import { isApprovedOrganizer } from "../services/roleService";
 import { listTournamentsWithRegistrationCounts } from "../services/tournamentsService";
@@ -83,6 +84,14 @@ const DAY_LABELS = {
   saturday: "Sabado",
   sunday: "Domingo",
 };
+
+function isPlayerAvailableToday(player = {}) {
+  const hasStructuredAvailability = hasConfiguredAvailability(player?.availability || {});
+
+  return hasStructuredAvailability
+    ? isAvailableToday(player?.availability || {})
+    : Boolean(player?.disponibleHoy);
+}
 
 const WEEKDAY_LABELS = [
   "Domingo",
@@ -729,6 +738,9 @@ export default function HomeScreen({ navigation, route }) {
   const buildCategorySummary = () => {
     const city = currentUser?.city || "tu ciudad";
     const category = currentUser?.category || "tu categoria";
+    const availableTodayCount = playersPreview
+      .filter((player) => player.id !== userData?.uid)
+      .filter((player) => isPlayerAvailableToday(player)).length;
     if (selectedMenuItem.key === "Ligas") {
       return {
         title: "Tu panorama de ligas",
@@ -745,7 +757,7 @@ export default function HomeScreen({ navigation, route }) {
         title: "DISPONIBLES HOY PARA JUGAR",
         subtitle: "",
         rows: [
-          `3 jugadores de ${category} disponibles hoy`,
+          `${availableTodayCount} jugadores de ${category} disponibles hoy`,
           "2 contactos con nivel similar y buena reputacion",
         ],
       };
@@ -803,6 +815,7 @@ export default function HomeScreen({ navigation, route }) {
     () =>
       playersPreview
         .filter((player) => player.id !== userData?.uid)
+        .filter((player) => isPlayerAvailableToday(player))
         .slice(0, 4),
     [playersPreview, userData?.uid]
   );

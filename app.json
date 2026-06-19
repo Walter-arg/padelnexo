@@ -55,6 +55,10 @@
     },
     "extra": {
       "mercadoPago": {
+        "leaguesCheckoutUrl": "https://southamerica-east1-padelnexo-7e4d5.cloudfunctions.net/mercadoPagoCreateLeaguePreference",
+        "leaguesSyncUrl": "https://southamerica-east1-padelnexo-7e4d5.cloudfunctions.net/mercadoPagoSyncLeaguePayment",
+        "tournamentsCheckoutUrl": "https://southamerica-east1-padelnexo-7e4d5.cloudfunctions.net/mercadoPagoCreateTournamentPreference",
+        "tournamentsSyncUrl": "https://southamerica-east1-padelnexo-7e4d5.cloudfunctions.net/mercadoPagoSyncTournamentPayment",
         "turnosCheckoutUrl": "https://southamerica-east1-padelnexo-7e4d5.cloudfunctions.net/mercadoPagoCreateTurnoPreference",
         "turnosSyncUrl": "https://us-central1-padelnexo-7e4d5.cloudfunctions.net/mercadoPagoSyncTurnoPayment"
       },

@@ -433,7 +433,8 @@ function buildTournamentPayload(organizer, payload = {}, batchId = "") {
     entryFee,
     paymentMethods: normalizePaymentMethods(payload.paymentMethods),
     mercadoPagoConfig: buildPublicationMercadoPagoConfig(
-      payload.mercadoPagoConfig || organizer?.mercadoPagoConfig
+      payload.mercadoPagoConfig || organizer?.mercadoPagoConfig,
+      "torneos"
     ),
     paymentAlias: normalizeString(payload.paymentAlias),
     playDays,
@@ -481,6 +482,49 @@ function mapTournamentDoc(docSnapshot) {
     venueLabel: mapVenueDisplayName(data),
     createdAtMillis: resolveTimestampMillis(data.createdAt),
     updatedAtMillis: resolveTimestampMillis(data.updatedAt),
+  };
+}
+
+function mergeTournamentMercadoPagoConfig(tournament = {}, organizerMercadoPagoConfig = {}) {
+  const baseConfig = buildPublicationMercadoPagoConfig(organizerMercadoPagoConfig, "torneos");
+  const storedConfig =
+    tournament?.mercadoPagoConfig && typeof tournament.mercadoPagoConfig === "object"
+      ? tournament.mercadoPagoConfig
+      : {};
+
+  return {
+    ...baseConfig,
+    ...storedConfig,
+    categories: {
+      ...(baseConfig.categories || {}),
+      ...(storedConfig.categories || {}),
+    },
+    enabled: storedConfig.enabled === true || baseConfig.enabled === true,
+  };
+}
+
+async function hydrateTournamentMercadoPagoConfig(
+  tournament = {},
+  organizerMercadoPagoConfig = null
+) {
+  if (!tournament?.organizerId) {
+    return tournament;
+  }
+
+  let resolvedOrganizerMercadoPagoConfig = organizerMercadoPagoConfig;
+
+  if (resolvedOrganizerMercadoPagoConfig == null) {
+    const organizerSnapshot = await getDoc(doc(db, "users", tournament.organizerId));
+    const organizerData = organizerSnapshot.exists() ? organizerSnapshot.data() || {} : {};
+    resolvedOrganizerMercadoPagoConfig = organizerData?.mercadoPagoConfig || {};
+  }
+
+  return {
+    ...tournament,
+    mercadoPagoConfig: mergeTournamentMercadoPagoConfig(
+      tournament,
+      resolvedOrganizerMercadoPagoConfig
+    ),
   };
 }
 
@@ -1624,12 +1668,36 @@ export async function getTournamentById(tournamentId) {
     return null;
   }
 
-  return mapTournamentDoc(snapshot);
+  return hydrateTournamentMercadoPagoConfig(mapTournamentDoc(snapshot));
 }
 
 export async function listTournaments() {
   const snapshot = await getDocs(collection(db, "tournaments"));
-  return snapshot.docs.map(mapTournamentDoc);
+  const tournaments = snapshot.docs.map(mapTournamentDoc);
+  const organizerCache = new Map();
+
+  return Promise.all(
+    tournaments.map(async (tournament) => {
+      const organizerId = tournament?.organizerId || "";
+
+      if (!organizerId) {
+        return tournament;
+      }
+
+      if (!organizerCache.has(organizerId)) {
+        const organizerSnapshot = await getDoc(doc(db, "users", organizerId));
+        organizerCache.set(
+          organizerId,
+          organizerSnapshot.exists() ? organizerSnapshot.data()?.mercadoPagoConfig || {} : {}
+        );
+      }
+
+      return hydrateTournamentMercadoPagoConfig(
+        tournament,
+        organizerCache.get(organizerId)
+      );
+    })
+  );
 }
 
 export async function listTournamentsWithRegistrationCounts() {
@@ -1658,6 +1726,22 @@ export async function listTournamentsWithRegistrationCounts() {
 
 export async function listTournamentRegistrations(tournamentId) {
   return listRegistrationDocs(tournamentId);
+}
+
+export async function getTournamentRegistrationById(tournamentId, registrationId) {
+  if (!tournamentId || !registrationId) {
+    return null;
+  }
+
+  const snapshot = await getDoc(
+    doc(db, "tournaments", tournamentId, "registrations", registrationId)
+  );
+
+  if (!snapshot.exists()) {
+    return null;
+  }
+
+  return normalizeRegistrationDoc(snapshot);
 }
 
 export async function listTournamentGroups(tournamentId) {
@@ -1722,6 +1806,7 @@ export async function updateTournament(tournamentId, organizer, payload, current
     pairConfirmationMode: normalizedPayload.pairConfirmationMode,
     entryFee: normalizedPayload.entryFee,
     paymentMethods: normalizedPayload.paymentMethods,
+    mercadoPagoConfig: normalizedPayload.mercadoPagoConfig,
     paymentAlias: normalizedPayload.paymentAlias,
     playDays: normalizedPayload.playDays,
     groupStageDays: normalizedPayload.groupStageDays,
@@ -2197,6 +2282,76 @@ export async function recordTournamentOrganizerPayment({
     status: statusMeta.status,
     payments: nextPayments,
   };
+}
+
+export async function clearPendingTournamentMercadoPagoAttempt(
+  tournamentId,
+  registrationId,
+  playerId,
+  cancellationReason = "payment_not_completed"
+) {
+  if (!tournamentId || !registrationId || !playerId) {
+    throw new Error("Faltan datos para limpiar el intento de Mercado Pago.");
+  }
+
+  const tournament = await getTournamentById(tournamentId);
+  const registrationRef = doc(db, "tournaments", tournamentId, "registrations", registrationId);
+  const registrationSnapshot = await getDoc(registrationRef);
+
+  if (!tournament || !registrationSnapshot.exists()) {
+    throw new Error("No encontramos la inscripcion del torneo.");
+  }
+
+  const registration = normalizeRegistrationDoc(registrationSnapshot);
+  let updated = false;
+
+  const nextPayments = (Array.isArray(registration.payments) ? registration.payments : []).map(
+    (payment) => {
+      const paymentPlayerId = String(payment?.playerId || payment?.userId || "").trim();
+
+      if (paymentPlayerId !== String(playerId || "").trim()) {
+        return payment;
+      }
+
+      const mercadoPagoStatus = String(payment?.mercadoPagoStatus || "").trim().toLowerCase();
+      const paymentStatus = String(payment?.status || "").trim().toLowerCase();
+
+      if (paymentStatus === "approved" || mercadoPagoStatus === "approved") {
+        return payment;
+      }
+
+      updated = true;
+
+      return {
+        ...payment,
+        method: "",
+        status: "pending",
+        reviewedAt: null,
+        reviewedBy: "",
+        reviewedByName: "",
+        mercadoPagoCheckoutUrl: "",
+        mercadoPagoPaymentId: "",
+        mercadoPagoPreferenceId: "",
+        mercadoPagoStatus: "",
+        mercadoPagoStatusDetail: String(cancellationReason || "payment_not_completed").trim(),
+        paymentGateway: "",
+      };
+    }
+  );
+
+  if (!updated) {
+    return { playerId, registrationId, status: "unchanged", tournamentId };
+  }
+
+  const statusMeta = getRegistrationStatusMeta(tournament, nextPayments, registration);
+
+  await updateDoc(registrationRef, {
+    payments: nextPayments,
+    status: statusMeta.status,
+    updatedAt: serverTimestamp(),
+  });
+
+  return { playerId, registrationId, status: "cleared", tournamentId };
 }
 
 export async function confirmTournamentRegistration({

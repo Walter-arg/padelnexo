@@ -5,6 +5,7 @@ import { getProfileImageUri } from "../utils/defaultProfileImage";
 import {
   buildAvailabilityFromLegacy,
   getAvailabilityHeadline,
+  hasConfiguredAvailability,
   isAvailableToday,
   normalizeAvailability,
 } from "./availabilityService";
@@ -74,6 +75,7 @@ export function mapUserDocToPlayer(docSnapshot) {
   const availability = data.availability
     ? normalizeAvailability(data.availability)
     : buildAvailabilityFromLegacy(data.disponibilidadDias, data.disponibilidadHoraria);
+  const usesStructuredAvailability = hasConfiguredAvailability(availability);
 
   return {
     id: docSnapshot.id,
@@ -91,7 +93,7 @@ export function mapUserDocToPlayer(docSnapshot) {
       location.coords ||
       null,
     disponibilidad: data.disponibilidad || getAvailabilityHeadline(availability),
-    disponibleHoy: Boolean(data.disponibleHoy) || isAvailableToday(availability),
+    disponibleHoy: usesStructuredAvailability ? isAvailableToday(availability) : Boolean(data.disponibleHoy),
     manoHabil: formatDominantHand(data.manoHabil),
     ladoJuego: data.ladoJuego || "ambos",
     ladoPreferido: formatSide(data.ladoJuego),

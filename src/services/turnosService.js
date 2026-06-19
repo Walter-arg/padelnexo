@@ -4,6 +4,7 @@ import {
   doc,
   getDoc,
   getDocs,
+  runTransaction,
   serverTimestamp,
   setDoc,
   updateDoc,
@@ -74,6 +75,14 @@ function normalizeMoney(value = 0) {
   return Number.isFinite(parsedValue) && parsedValue > 0 ? Math.round(parsedValue) : 0;
 }
 
+function normalizePaymentMovementAmount(value = 0) {
+  const parsedValue = Number.parseFloat(String(value || "0").replace(",", "."));
+
+  return Number.isFinite(parsedValue) && parsedValue > 0
+    ? Math.round(parsedValue * 100) / 100
+    : 0;
+}
+
 function normalizeCoordinate(value) {
   const parsedValue = Number(value);
 
@@ -135,6 +144,59 @@ function getMillisFromTimestamp(value) {
   }
 
   return Number(value) || 0;
+}
+
+function normalizeTurnoPaymentMovements(movements = []) {
+  if (!Array.isArray(movements)) {
+    return [];
+  }
+
+  return movements
+    .map((movement, index) => {
+      const amount = normalizePaymentMovementAmount(movement?.amount || 0);
+
+      if (amount <= 0) {
+        return null;
+      }
+
+      return {
+        amount,
+        createdAtMillis: Number(movement?.createdAtMillis || 0) || 0,
+        createdBy: String(movement?.createdBy || "").trim(),
+        createdByName: String(movement?.createdByName || "").trim(),
+        id: String(movement?.id || `payment-${index + 1}`),
+        method: String(movement?.method || "efectivo").trim().toLowerCase(),
+        note: String(movement?.note || "").trim(),
+        payerLabel: String(movement?.payerLabel || "").trim(),
+        proofFileName: String(movement?.proofFileName || "").trim(),
+        proofUrl: String(movement?.proofUrl || "").trim(),
+      };
+    })
+    .filter(Boolean)
+    .sort((first, second) => Number(second.createdAtMillis || 0) - Number(first.createdAtMillis || 0));
+}
+
+function buildTurnoPaymentSummary(price = 0, movements = []) {
+  const paymentTotalAmount = normalizePaymentMovementAmount(price);
+  const paymentMovements = normalizeTurnoPaymentMovements(movements);
+  const paymentPaidAmount = Math.min(
+    paymentTotalAmount,
+    paymentMovements.reduce(
+      (total, movement) => total + normalizePaymentMovementAmount(movement.amount),
+      0
+    )
+  );
+  const paymentPendingAmount = Math.max(
+    0,
+    Math.round((paymentTotalAmount - paymentPaidAmount) * 100) / 100
+  );
+
+  return {
+    paymentMovements,
+    paymentPaidAmount,
+    paymentPendingAmount,
+    paymentTotalAmount,
+  };
 }
 
 function parseTimeToMinutes(time = "") {
@@ -325,7 +387,7 @@ export async function getOrganizerTurnosConfig(organizerId = "", userData = {}) 
     organizerId,
     requiresOrganizerApproval: storedConfig?.requiresOrganizerApproval !== false,
     mercadoPagoConfig: (() => {
-      const baseConfig = buildPublicationMercadoPagoConfig(userData?.mercadoPagoConfig);
+      const baseConfig = buildPublicationMercadoPagoConfig(userData?.mercadoPagoConfig, "turnos");
       const storedMercadoPagoConfig =
         storedConfig?.mercadoPagoConfig && typeof storedConfig.mercadoPagoConfig === "object"
           ? storedConfig.mercadoPagoConfig
@@ -358,7 +420,7 @@ export async function saveOrganizerTurnosConfig(organizerId = "", config = {}) {
       organizerId,
       requiresOrganizerApproval: config.requiresOrganizerApproval !== false,
       mercadoPagoConfig: {
-        ...buildPublicationMercadoPagoConfig(config.mercadoPagoConfig),
+        ...buildPublicationMercadoPagoConfig(config.mercadoPagoConfig, "turnos"),
       },
       complexes: config.complexes || [],
       updatedAt: serverTimestamp(),
@@ -440,7 +502,8 @@ export async function listBookableComplexes() {
             configsByOrganizer.get(organizer.organizerId)?.requiresOrganizerApproval !== false,
           mercadoPagoConfig: (() => {
             const baseConfig = buildPublicationMercadoPagoConfig(
-              docSnapshot.data()?.mercadoPagoConfig
+              docSnapshot.data()?.mercadoPagoConfig,
+              "turnos"
             );
             const storedMercadoPagoConfig =
               configsByOrganizer.get(organizer.organizerId)?.mercadoPagoConfig || {};
@@ -465,6 +528,7 @@ export async function createTurnoReservation(payload = {}) {
   const requiresOrganizerApproval = payload.requiresOrganizerApproval !== false;
   const isMercadoPagoReservation = payload.paymentMethod === "mercado_pago";
   const createdByOrganizer = payload.createdByOrganizer === true;
+  const paymentSummary = buildTurnoPaymentSummary(payload.price || 0, []);
   const reservationRef = await addDoc(collection(db, "turnoReservations"), {
     ...payload,
     createdByOrganizer,
@@ -479,9 +543,12 @@ export async function createTurnoReservation(payload = {}) {
     paymentStatus:
       payload.paymentMethod === "transferencia"
         ? "in_review"
+        : payload.paymentMethod === "a_confirmar"
+        ? "to_be_defined"
         : payload.paymentMethod === "mercado_pago"
         ? "pending"
         : "pending_cash",
+    ...paymentSummary,
     createdAt: serverTimestamp(),
   });
 
@@ -493,10 +560,12 @@ export async function createTurnoReservation(payload = {}) {
 
 function mapTurnoReservationDoc(docSnapshot) {
   const data = docSnapshot.data() || {};
+  const paymentSummary = buildTurnoPaymentSummary(data.price || 0, data.paymentMovements || []);
 
   return {
     id: docSnapshot.id,
     ...data,
+    ...paymentSummary,
     createdAtMillis: getMillisFromTimestamp(data.createdAt),
     updatedAtMillis: getMillisFromTimestamp(data.updatedAt),
   };
@@ -563,6 +632,66 @@ export async function markTurnoReservationNotificationRead(reservationId = "") {
   });
 
   return { id: reservationId, organizerNotificationUnread: false };
+}
+
+export async function addTurnoReservationPayment(reservationId = "", payment = {}) {
+  if (!reservationId) {
+    throw new Error("No encontramos la reserva.");
+  }
+
+  const amount = normalizePaymentMovementAmount(payment.amount || 0);
+
+  if (amount <= 0) {
+    throw new Error("Ingresa un monto valido.");
+  }
+
+  const nextMovement = {
+    amount,
+    createdAtMillis: Number(payment.createdAtMillis || Date.now()) || Date.now(),
+    createdBy: String(payment.createdBy || "").trim(),
+    createdByName: String(payment.createdByName || "").trim(),
+    id: String(payment.id || `turno-payment-${Date.now()}`),
+    method: String(payment.method || "efectivo").trim().toLowerCase(),
+    note: String(payment.note || "").trim(),
+    payerLabel: String(payment.payerLabel || "").trim(),
+    proofFileName: String(payment.proofFileName || "").trim(),
+    proofUrl: String(payment.proofUrl || "").trim(),
+  };
+
+  return runTransaction(db, async (transaction) => {
+    const reservationRef = doc(db, "turnoReservations", reservationId);
+    const snapshot = await transaction.get(reservationRef);
+
+    if (!snapshot.exists()) {
+      throw new Error("No encontramos la reserva.");
+    }
+
+    const reservation = snapshot.data() || {};
+    const nextSummary = buildTurnoPaymentSummary(reservation.price || 0, [
+      ...(Array.isArray(reservation.paymentMovements) ? reservation.paymentMovements : []),
+      nextMovement,
+    ]);
+    const isPaid = nextSummary.paymentPendingAmount <= 0;
+
+    transaction.update(reservationRef, {
+      paymentMovements: nextSummary.paymentMovements,
+      paymentPaidAmount: nextSummary.paymentPaidAmount,
+      paymentPendingAmount: nextSummary.paymentPendingAmount,
+      paymentStatus: isPaid ? "pagado" : "partial_payment",
+      paymentTotalAmount: nextSummary.paymentTotalAmount,
+      updatedAt: serverTimestamp(),
+      ...(isPaid ? { confirmedAt: serverTimestamp() } : {}),
+    });
+
+    return {
+      id: reservationId,
+      paymentMovement: nextMovement,
+      paymentPaidAmount: nextSummary.paymentPaidAmount,
+      paymentPendingAmount: nextSummary.paymentPendingAmount,
+      paymentStatus: isPaid ? "pagado" : "partial_payment",
+      paymentTotalAmount: nextSummary.paymentTotalAmount,
+    };
+  });
 }
 
 export async function cancelPendingMercadoPagoReservation(

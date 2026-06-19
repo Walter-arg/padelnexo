@@ -87,6 +87,10 @@ function getTurnoStatusLabel(reservation = {}) {
 }
 
 function getTurnoPaymentMethodLabel(paymentMethod = "") {
+  if (paymentMethod === "a_confirmar") {
+    return "A confirmar";
+  }
+
   if (paymentMethod === "mercado_pago") {
     return "Mercado Pago";
   }
@@ -100,6 +104,32 @@ function getTurnoPaymentMethodLabel(paymentMethod = "") {
 
 function getEntryMillis(entry = {}) {
   return entry.createdAtMillis || entry.updatedAtMillis || 0;
+}
+
+function getDayRelationLabel(dateMillis) {
+  const reservationDate = Number(dateMillis || 0);
+
+  if (!reservationDate) {
+    return "";
+  }
+
+  const target = new Date(reservationDate);
+  target.setHours(0, 0, 0, 0);
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const diffDays = Math.round((target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+
+  if (diffDays === 0) {
+    return "today";
+  }
+
+  if (diffDays === 1) {
+    return "tomorrow";
+  }
+
+  return "";
 }
 
 function getLatestNotificationSection({
@@ -189,12 +219,27 @@ export default function OrganizerRegistrationsScreen({ navigation }) {
 
   const loadScreen = useCallback(async () => {
     const summary = await getOrganizerRegistrationsSummary(userData?.uid || "");
+    const latestSection = getLatestNotificationSection(summary);
+    const latestTurnoReservations = summary.turnoReservations || [];
+    const hasPendingRegistrations =
+      summary.leagueRequests?.some(isActionableLeagueRegistration) ||
+      summary.tournamentRequests?.some(isActionableTournamentRegistration);
+    const hasPendingTurnos = latestTurnoReservations.some(isPendingTurnoNotification);
+    const hasActionableTurnos = latestTurnoReservations.some(isActionableTurnoReservation);
 
     setLeagueRequests(summary.leagueRequests);
     setTournamentRequests(summary.tournamentRequests);
-    setTurnoReservations(summary.turnoReservations || []);
-    setActiveFilter("pending");
-    setActiveSection(getLatestNotificationSection(summary));
+    setTurnoReservations(latestTurnoReservations);
+    setActiveSection(latestSection);
+    setActiveFilter(
+      latestSection === "turnos"
+        ? hasActionableTurnos
+          ? "pending"
+          : "all"
+        : hasPendingRegistrations
+          ? "pending"
+          : "all"
+    );
   }, [userData?.uid]);
 
   useFocusEffect(
@@ -258,6 +303,24 @@ export default function OrganizerRegistrationsScreen({ navigation }) {
   const visibleTurnos = activeFilter === "pending" ? pendingTurnos : turnoReservations;
   const registrationTabCount = activeFilter === "pending" ? pendingEntries.length : allEntries.length;
   const turnoTabCount = activeFilter === "pending" ? pendingTurnos.length : turnoReservations.length;
+  const todayTurnosCount = useMemo(
+    () =>
+      turnoReservations.filter(
+        (reservation) => getDayRelationLabel(reservation.dateMillis) === "today"
+      ).length,
+    [turnoReservations]
+  );
+
+  const handleSelectSection = (nextSection) => {
+    setActiveSection(nextSection);
+
+    if (nextSection === "turnos") {
+      setActiveFilter(turnoReservations.some(isActionableTurnoReservation) ? "pending" : "all");
+      return;
+    }
+
+    setActiveFilter(pendingEntries.length ? "pending" : "all");
+  };
 
   const handleOpenEntry = (entry) => {
     if (entry.type === "league") {
@@ -464,6 +527,7 @@ export default function OrganizerRegistrationsScreen({ navigation }) {
     const statusLabel = getTurnoStatusLabel(item);
     const durationLabel = `${item.durationMinutes || 60} min`;
     const contact = getTurnoContact(item);
+    const dayRelationLabel = getDayRelationLabel(item.dateMillis);
 
     return (
       <View style={styles.entryCard}>
@@ -559,20 +623,48 @@ export default function OrganizerRegistrationsScreen({ navigation }) {
         ) : null}
         <View
           style={[
-            styles.statusChip,
-            actionable ? styles.statusChipPending : null,
-            !actionable && isUnread ? styles.statusChipUnread : null,
+            styles.turnoStatusRow,
           ]}
         >
-          <Text
+          <View
             style={[
-              styles.statusChipText,
-              actionable ? styles.statusChipTextPending : null,
-              !actionable && isUnread ? styles.statusChipTextUnread : null,
+              styles.statusChip,
+              styles.turnoStatusChip,
+              actionable ? styles.statusChipPending : null,
+              !actionable && isUnread ? styles.statusChipUnread : null,
             ]}
           >
-            {actionable ? statusLabel : isUnread ? "NUEVA" : statusLabel}
-          </Text>
+            <Text
+              style={[
+                styles.statusChipText,
+                actionable ? styles.statusChipTextPending : null,
+                !actionable && isUnread ? styles.statusChipTextUnread : null,
+              ]}
+            >
+              {actionable ? statusLabel : isUnread ? "NUEVA" : statusLabel}
+            </Text>
+          </View>
+          {dayRelationLabel ? (
+            <View
+              style={[
+                styles.dayNoticeChip,
+                dayRelationLabel === "today"
+                  ? styles.dayNoticeChipToday
+                  : styles.dayNoticeChipTomorrow,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.dayNoticeChipText,
+                  dayRelationLabel === "today"
+                    ? styles.dayNoticeChipTextToday
+                    : styles.dayNoticeChipTextTomorrow,
+                ]}
+              >
+                {dayRelationLabel === "today" ? "HOY" : "MAÑANA"}
+              </Text>
+            </View>
+          ) : null}
         </View>
       </View>
     );
@@ -587,7 +679,7 @@ export default function OrganizerRegistrationsScreen({ navigation }) {
       <View style={styles.container}>
         <View style={styles.sectionTabs}>
           <Pressable
-            onPress={() => setActiveSection("registrations")}
+            onPress={() => handleSelectSection("registrations")}
             style={[
               styles.sectionTab,
               activeSection === "registrations" ? styles.sectionTabActive : null,
@@ -603,7 +695,7 @@ export default function OrganizerRegistrationsScreen({ navigation }) {
             </Text>
           </Pressable>
           <Pressable
-            onPress={() => setActiveSection("turnos")}
+            onPress={() => handleSelectSection("turnos")}
             style={[
               styles.sectionTab,
               activeSection === "turnos" ? styles.sectionTabActive : null,
@@ -616,7 +708,15 @@ export default function OrganizerRegistrationsScreen({ navigation }) {
                 activeSection === "turnos" ? styles.sectionTabTextActive : null,
               ]}
             >
-              TURNOS {turnoTabCount ? `(${turnoTabCount})` : ""}
+              TURNOS
+            </Text>
+            <Text
+              style={[
+                styles.sectionTabSubtext,
+                activeSection === "turnos" ? styles.sectionTabSubtextActive : null,
+              ]}
+            >
+              HOY {todayTurnosCount}
             </Text>
           </Pressable>
         </View>
@@ -828,6 +928,16 @@ const styles = StyleSheet.create({
   sectionTabTextActive: {
     color: "#1E6B45",
   },
+  sectionTabSubtext: {
+    color: colors.muted,
+    fontSize: 10,
+    fontWeight: "900",
+    marginTop: 2,
+    textAlign: "center",
+  },
+  sectionTabSubtextActive: {
+    color: "#1E6B45",
+  },
   filterButton: {
     alignItems: "center",
     backgroundColor: colors.surface,
@@ -885,6 +995,30 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 5,
   },
+  dayNoticeChip: {
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 7,
+    paddingVertical: 5,
+  },
+  dayNoticeChipToday: {
+    backgroundColor: "#FFF0D9",
+    borderColor: "#FFC36A",
+  },
+  dayNoticeChipTomorrow: {
+    backgroundColor: "#EEF6FF",
+    borderColor: "#BBD7F2",
+  },
+  dayNoticeChipText: {
+    fontSize: 9,
+    fontWeight: "900",
+  },
+  dayNoticeChipTextToday: {
+    color: "#C65D00",
+  },
+  dayNoticeChipTextTomorrow: {
+    color: "#1E5F86",
+  },
   moreButton: {
     alignItems: "center",
     backgroundColor: "#F7FBF9",
@@ -917,6 +1051,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 5,
   },
+  turnoStatusChip: {
+    marginTop: 0,
+  },
   statusChipPending: {
     backgroundColor: "#FFF0D9",
   },
@@ -933,6 +1070,13 @@ const styles = StyleSheet.create({
   },
   statusChipTextUnread: {
     color: "#1E5F86",
+  },
+  turnoStatusRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.xs,
+    justifyContent: "space-between",
+    marginTop: spacing.sm,
   },
   playerRow: {
     alignItems: "center",
