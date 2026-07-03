@@ -22,6 +22,7 @@ import {
   normalizeComplex,
 } from "./organizerService";
 import { getDefaultRoleData } from "./roleService";
+import devLog from "../utils/devLog";
 
 const DEFAULT_LOCATION = {
   ciudad: "",
@@ -215,6 +216,7 @@ function mapDocToUserData(uid, profileDoc = {}, fallbackEmail = "") {
     availability,
     complejos,
     tournamentComplexes,
+    fechaNacimiento: profileDoc.fechaNacimiento || "",
     createdAt: profileDoc.createdAt || null,
   };
 }
@@ -238,23 +240,23 @@ async function uploadUserImage(userId, imageUri, folder = "profileImages", error
       throw new Error("Storage no esta disponible en este momento.");
     }
 
-    console.log("[userService] Preparando imagen de perfil:", imageUri);
+    devLog("[userService] Preparando imagen de perfil:", imageUri);
     const response = await fetch(imageUri);
     const blob = await response.blob();
     const imageRef = ref(activeStorage, `${folder}/${userId}`);
 
-    console.log("[userService] Subiendo imagen a Firebase Storage");
+    devLog("[userService] Subiendo imagen a Firebase Storage");
     await uploadBytes(imageRef, blob, {
       contentType: blob.type || "image/jpeg",
     });
 
-    console.log("[userService] Obteniendo download URL");
+    devLog("[userService] Obteniendo download URL");
     const downloadURL = await getDownloadURL(imageRef);
-    console.log("[userService] URL publica generada:", downloadURL);
+    devLog("[userService] URL publica generada:", downloadURL);
 
     return downloadURL;
   } catch (error) {
-    console.log("[userService] Error al subir imagen:", error);
+    devLog("[userService] Error al subir imagen:", error);
     throw new Error(errorMessage || "No pudimos subir tu imagen.");
   }
 }
@@ -285,17 +287,17 @@ export async function removeUserProfilePhoto(uid) {
 
   try {
     if (imageRef) {
-      console.log("[userService] Eliminando foto de Firebase Storage");
+      devLog("[userService] Eliminando foto de Firebase Storage");
       await deleteObject(imageRef);
     }
   } catch (error) {
     if (error?.code !== "storage/object-not-found") {
-      console.log("[userService] Error al eliminar foto de Storage:", error);
+      devLog("[userService] Error al eliminar foto de Storage:", error);
       throw new Error("No pudimos eliminar tu foto de perfil.");
     }
   }
 
-  console.log("[userService] Limpiando fotoURL en Firestore");
+  devLog("[userService] Limpiando fotoURL en Firestore");
   await updateDoc(userRef, {
     fotoURL: null,
   });
@@ -336,20 +338,20 @@ export async function deleteUserProfileData(uid) {
     }
   } catch (error) {
     if (error?.code !== "storage/object-not-found") {
-      console.log("[userService] Error al eliminar foto durante baja de cuenta:", error);
+      devLog("[userService] Error al eliminar foto durante baja de cuenta:", error);
     }
   }
 
   try {
     await deleteDoc(organizerRequestRef);
   } catch (error) {
-    console.log("[userService] No se pudo eliminar organizerRequest:", error);
+    devLog("[userService] No se pudo eliminar organizerRequest:", error);
   }
 
   try {
     await deleteDoc(userRef);
   } catch (error) {
-    console.log("[userService] No se pudo eliminar perfil de usuario:", error);
+    devLog("[userService] No se pudo eliminar perfil de usuario:", error);
   }
 }
 
@@ -492,6 +494,7 @@ export async function createUserProfile(uid, payload) {
     organizerStatus: roleData.organizerStatus,
     availability,
     tournamentComplexes: [],
+    fechaNacimiento: payload.fechaNacimiento || "",
     createdAt: serverTimestamp(),
   });
 
@@ -519,6 +522,7 @@ export async function createUserProfile(uid, payload) {
     organizerStatus: roleData.organizerStatus,
     availability,
     tournamentComplexes: [],
+    fechaNacimiento: payload.fechaNacimiento || "",
   });
 }
 
@@ -645,6 +649,10 @@ export async function updateUserProfile(uid, updates) {
     payload.tournamentFixtureDefaults = updates.tournamentFixtureDefaults;
   }
 
+  if (typeof updates.fechaNacimiento === "string" && updates.fechaNacimiento) {
+    payload.fechaNacimiento = updates.fechaNacimiento;
+  }
+
   if (Array.isArray(updates.tournamentComplexes)) {
     payload.tournamentComplexes = updates.tournamentComplexes.map(normalizeComplex);
   }
@@ -668,13 +676,13 @@ export async function updateUserProfile(uid, updates) {
 
   if (typeof updates.avatarUrl === "string" && updates.avatarUrl) {
     if (updates.avatarUrl.startsWith("file:")) {
-      console.log("[userService] Detectada imagen local para subir");
+      devLog("[userService] Detectada imagen local para subir");
       payload.fotoURL = await uploadProfileImage(uid, updates.avatarUrl);
     } else if (updates.avatarUrl.startsWith("gs://")) {
-      console.log("[userService] Detectada URL gs://, convirtiendo a download URL");
+      devLog("[userService] Detectada URL gs://, convirtiendo a download URL");
       payload.fotoURL = await getProfileImageDownloadUrl(uid);
     } else {
-      console.log("[userService] Usando URL remota existente para avatar");
+      devLog("[userService] Usando URL remota existente para avatar");
       payload.fotoURL = updates.avatarUrl;
     }
   }
@@ -689,7 +697,7 @@ export async function updateUserProfile(uid, updates) {
     }
   }
 
-  console.log("[userService] Actualizando perfil de usuario");
+  devLog("[userService] Actualizando perfil de usuario");
   await updateDoc(userRef, payload);
 
   const profile = await getUserProfile(uid, updates.email || "");

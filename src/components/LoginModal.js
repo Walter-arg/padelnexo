@@ -274,7 +274,7 @@ export default function LoginModal({ onClose, onLogin, visible }) {
         setFeedback({
           visible: true,
           title: "Link enviado",
-          message: "Revisa tu email para restablecer la contrase\u00f1a.",
+          message: "Revisa tu email para restablecer la contrase\u00f1a. Si no aparece en unos minutos, chequea la carpeta de spam.",
           tone: "success",
         });
         setMode("login");

@@ -23,6 +23,7 @@ import {
 import {
   cancelPendingMercadoPagoReservation,
   getTurnoReservationById,
+  markTurnoReservationMercadoPagoNotified,
 } from "../services/turnosService";
 import { sendTurnoReservationStatusMessage } from "../services/turnosNotificationsService";
 
@@ -593,6 +594,7 @@ export default function MercadoPagoReturnScreen({ navigation, route }) {
               .toLowerCase();
 
             if (paymentStatus === "pagado" || mercadoPagoStatus === "approved") {
+              await markTurnoReservationMercadoPagoNotified(nextReservation.id).catch(() => null);
               await sendTurnoReservationStatusMessage(nextReservation, {
                 organizerId: nextReservation.organizerId,
                 organizerName: nextReservation.complexName,

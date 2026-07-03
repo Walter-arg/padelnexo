@@ -10,6 +10,7 @@ import {
 } from "../../services/firebaseFirestore";
 
 import { db } from "../../services/firebaseConfig";
+import devLog from "../utils/devLog";
 
 function buildFavoriteId(userId, leagueId) {
   return `${userId}_${leagueId}`;
@@ -64,7 +65,7 @@ export function subscribeToFavoriteLeagueIds({ currentUserId, onData, onError })
       onData?.(favoriteIds);
     },
     (error) => {
-      console.log("[leagueFavoritesService] Error al leer mis ligas:", error);
+      devLog("[leagueFavoritesService] Error al leer mis ligas:", error);
       onError?.(error);
     }
   );

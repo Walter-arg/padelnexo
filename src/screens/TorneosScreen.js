@@ -29,6 +29,7 @@ import {
   deleteDraftTournament,
   findTournamentRegistrationsByPlayer,
   getTournamentById,
+  listOrganizerDraftTournaments,
   listTournamentsWithRegistrationCounts,
 } from "../services/tournamentsService";
 import { isApprovedOrganizer } from "../services/roleService";
@@ -450,14 +451,28 @@ function buildTournamentCardData(tournament = {}, registrationMeta = null) {
     displayStatus = "published";
   }
 
+  let occupancyInfo = null;
+  if (maxPairs > 0 && tournament.showOccupancyCard) {
+    const remaining = maxPairs - confirmedRegistrationsCount;
+    if (remaining <= 0) {
+      occupancyInfo = { text: "Sin cupos disponibles", color: "#6B7280", icon: "close-circle-outline" };
+    } else if (remaining === 1) {
+      occupancyInfo = { text: "Último cupo disponible", color: "#D97706", icon: "alert-circle-outline" };
+    } else if (remaining === 2) {
+      occupancyInfo = { text: "Últimos 2 cupos", color: "#D97706", icon: "alert-circle-outline" };
+    } else {
+      const pct = maxPairs > 0 ? Math.round((confirmedRegistrationsCount / maxPairs) * 100) : 0;
+      occupancyInfo = { text: `${pct}% de cupos cubiertos`, color: null, icon: "people-outline" };
+    }
+  }
+
   return {
     ...tournament,
     userRegistration: registrationMeta?.registration || null,
     displayStatus,
     confirmedRegistrationsCount,
     tournamentDaysLabel: formatTournamentDays(tournament),
-    occupancyLabel:
-      maxPairs > 0 ? `${confirmedRegistrationsCount}/${maxPairs} parejas` : `${confirmedRegistrationsCount} parejas`,
+    occupancyInfo,
     categoryLabel:
       tournament?.compositionConfig?.label ||
       tournament?.compositionLabel ||
@@ -657,11 +672,17 @@ function TournamentCard({
         ) : null}
 
         <View style={styles.cardHeader}>
-          <View style={styles.cardTitleWrap}>
+          <View
+            style={[
+              styles.cardTitleWrap,
+              item.organizerLogoUrl ? { paddingLeft: 50 } : null,
+              item.coverImage ? { paddingRight: 38 } : null,
+            ]}
+          >
             <View style={styles.cardTitleInline}>
               <Text style={styles.cardEyebrowInline}>TORNEO</Text>
               <Text
-                numberOfLines={2}
+                numberOfLines={(item.name || "").length > 15 ? 2 : 1}
                 style={[styles.cardTitle, styles.cardTitlePlayer, { color: titleColor }]}
               >
                 {item.name || "Nombre del torneo"}
@@ -692,11 +713,21 @@ function TournamentCard({
 
         {showFriendlyCard ? (
           <View style={styles.cardFriendlyInfo}>
-            {canManageTournament ? (
+            {item.occupancyInfo ? (
               <View style={styles.cardFriendlyItem}>
-                <Ionicons color={colors.primaryDark} name="people-outline" size={16} />
-                <Text numberOfLines={2} style={styles.cardFriendlyText}>
-                  {`Cupos: ${item.occupancyLabel}`}
+                <Ionicons
+                  color={item.occupancyInfo.color || colors.primaryDark}
+                  name={item.occupancyInfo.icon}
+                  size={16}
+                />
+                <Text
+                  numberOfLines={2}
+                  style={[
+                    styles.cardFriendlyText,
+                    item.occupancyInfo.color ? { color: item.occupancyInfo.color, fontWeight: "700" } : null,
+                  ]}
+                >
+                  {item.occupancyInfo.text}
                 </Text>
               </View>
             ) : null}
@@ -917,13 +948,18 @@ export default function TorneosScreen({ navigation, route }) {
       const loadTournamentHub = async () => {
         try {
           setLoading(true);
-          const [tournamentsResponse, registrationsResponse, brandingProfiles] = await Promise.all([
+          const [tournamentsResponse, draftTournamentsResponse, registrationsResponse, brandingProfiles] = await Promise.all([
             listTournamentsWithRegistrationCounts(),
+            canCreateTournament && currentUserId ? listOrganizerDraftTournaments(currentUserId) : Promise.resolve([]),
             currentUserId ? findTournamentRegistrationsByPlayer(currentUserId) : Promise.resolve([]),
             listUserBrandingProfiles(),
           ]);
 
-          let nextTournaments = sortByUpdatedAt(tournamentsResponse);
+          const draftIds = new Set((draftTournamentsResponse || []).map((t) => t.id));
+          let nextTournaments = sortByUpdatedAt([
+            ...tournamentsResponse.filter((t) => !draftIds.has(t.id)),
+            ...(draftTournamentsResponse || []),
+          ]);
           const createdTournamentId = route?.params?.createdTournamentId || "";
           const createdTournament = route?.params?.createdTournament || null;
 
@@ -991,6 +1027,7 @@ export default function TorneosScreen({ navigation, route }) {
         isMounted = false;
       };
     }, [
+      canCreateTournament,
       currentUserId,
       navigation,
       route?.params?.createdTournament,
@@ -2287,9 +2324,9 @@ const styles = StyleSheet.create({
     color: "#144234",
     fontFamily: "serif",
     flexShrink: 1,
-    fontSize: 24,
+    fontSize: 20,
     fontWeight: "700",
-    lineHeight: 28,
+    lineHeight: 24,
     textAlign: "center",
   },
   cardVenue: {

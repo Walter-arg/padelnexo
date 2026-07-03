@@ -1,6 +1,11 @@
 import { arrayUnion, doc, getDoc, serverTimestamp, setDoc } from "../../services/firebaseFirestore";
 
 import { db } from "../../services/firebaseConfig";
+import devLog from "../utils/devLog";
+
+// expo-notifications requiere modulos nativos que solo existen en builds nativos (EAS Build).
+// En Expo Go no hay soporte para push tokens. Las funciones de registro son no-ops
+// en este entorno y se activaran automaticamente en el build de produccion/desarrollo nativo.
 
 export async function saveUserPushToken(uid, expoPushToken) {
   if (!uid || !expoPushToken) {
@@ -19,9 +24,8 @@ export async function saveUserPushToken(uid, expoPushToken) {
 }
 
 export async function registerForPushNotificationsAsync(uid) {
-  // Expo Go Android no soporta push remotas desde SDK 53. Para evitar que Metro cargue
-  // expo-notifications en Expo Go, el registro real se activara cuando pasemos a development build.
-  return uid ? null : null;
+  devLog("[pushNotificationsService] Push notifications disponibles solo en builds nativos (EAS Build)");
+  return null;
 }
 
 export async function getUserPushTokens(uid) {
@@ -38,7 +42,7 @@ export async function getUserPushTokens(uid) {
   const data = snapshot.data() || {};
   const tokens = Array.isArray(data.pushTokens) ? data.pushTokens : [];
 
-  return [...tokens, data.expoPushToken].filter(Boolean);
+  return [...new Set([...tokens, data.expoPushToken].filter(Boolean))];
 }
 
 export async function sendExpoPushNotificationAsync({ body, data = {}, title, tokens = [] }) {
@@ -56,6 +60,7 @@ export async function sendExpoPushNotificationAsync({ body, data = {}, title, to
         title,
         body,
         data,
+        channelId: "default",
       }))
     ),
     headers: {
@@ -117,4 +122,3 @@ export async function sendTournamentPaymentReminderPushAsync({
     },
   });
 }
-

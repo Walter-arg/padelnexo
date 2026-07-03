@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import FeedbackModal from "../components/FeedbackModal";
 import SectionHeader from "../components/SectionHeader";
 import { colors, spacing } from "../config/theme";
 import { useAuth } from "../context/AuthContext";
@@ -15,12 +16,15 @@ export default function InvitacionesScreen({ navigation }) {
   const { userData } = useAuth();
   const [invitations, setInvitations] = useState([]);
   const [respondingId, setRespondingId] = useState("");
+  const [isLoading, setIsLoading] = useState(true);
+  const [feedback, setFeedback] = useState({ visible: false, title: "", message: "", tone: "default" });
 
   useEffect(() => {
+    setIsLoading(true);
     const unsubscribe = subscribeToUserInvitations({
       currentUserId: userData?.uid,
-      onData: setInvitations,
-      onError: () => setInvitations([]),
+      onData: (data) => { setInvitations(data); setIsLoading(false); },
+      onError: () => { setInvitations([]); setIsLoading(false); },
     });
 
     return unsubscribe;
@@ -41,10 +45,17 @@ export default function InvitacionesScreen({ navigation }) {
           data={invitations}
           keyExtractor={(item) => item.id}
           ListEmptyComponent={
-            <View style={styles.emptyCard}>
-              <Text style={styles.emptyTitle}>No hay invitaciones</Text>
-              <Text style={styles.emptyText}>Cuando recibas una, aparecera en esta pantalla.</Text>
-            </View>
+            isLoading ? (
+              <View style={styles.emptyCard}>
+                <ActivityIndicator color={colors.primaryDark} size="small" />
+                <Text style={styles.emptyTitle}>Cargando invitaciones...</Text>
+              </View>
+            ) : (
+              <View style={styles.emptyCard}>
+                <Text style={styles.emptyTitle}>No hay invitaciones</Text>
+                <Text style={styles.emptyText}>Cuando recibas una, aparecera en esta pantalla.</Text>
+              </View>
+            )
           }
           renderItem={({ item }) => {
             const canRespond =
@@ -65,7 +76,13 @@ export default function InvitacionesScreen({ navigation }) {
                       disabled={Boolean(respondingId)}
                       onPress={async () => {
                         setRespondingId(item.id);
-                        await respondToInvitation(item, false).finally(() => setRespondingId(""));
+                        try {
+                          await respondToInvitation(item, false);
+                        } catch (error) {
+                          setFeedback({ visible: true, title: "No pudimos rechazar", message: "Intenta de nuevo en unos instantes.", tone: "danger" });
+                        } finally {
+                          setRespondingId("");
+                        }
                       }}
                       style={({ pressed }) => [
                         styles.rejectButton,
@@ -78,7 +95,13 @@ export default function InvitacionesScreen({ navigation }) {
                       disabled={Boolean(respondingId)}
                       onPress={async () => {
                         setRespondingId(item.id);
-                        await respondToInvitation(item, true).finally(() => setRespondingId(""));
+                        try {
+                          await respondToInvitation(item, true);
+                        } catch (error) {
+                          setFeedback({ visible: true, title: "No pudimos aceptar", message: "Intenta de nuevo en unos instantes.", tone: "danger" });
+                        } finally {
+                          setRespondingId("");
+                        }
                       }}
                       style={({ pressed }) => [
                         styles.acceptButton,
@@ -97,6 +120,13 @@ export default function InvitacionesScreen({ navigation }) {
           showsVerticalScrollIndicator={false}
         />
       </View>
+      <FeedbackModal
+        message={feedback.message}
+        onClose={() => setFeedback((prev) => ({ ...prev, visible: false }))}
+        title={feedback.title}
+        tone={feedback.tone}
+        visible={feedback.visible}
+      />
     </SafeAreaView>
   );
 }

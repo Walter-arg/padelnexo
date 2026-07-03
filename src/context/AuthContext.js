@@ -3,14 +3,17 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { onAuthStateChanged } from "../../services/firebaseAuth";
 
 import { auth } from "../../services/firebaseConfig";
+import devLog from "../utils/devLog";
 import {
   deleteCurrentUserAccount,
   loginWithGoogleIdToken,
   loginUser,
   logoutUser,
   registerUser,
+  resendVerificationEmail,
   resetPassword,
 } from "../services/authService";
+import { sendEmailVerification } from "../../services/firebaseAuth";
 import {
   createUserProfile,
   deleteUserProfileData,
@@ -157,6 +160,7 @@ export function AuthProvider({ children }) {
   const [lastLoginEmail, setLastLoginEmail] = useState("");
   const [loading, setLoading] = useState(true);
   const [initializing, setInitializing] = useState(true);
+  const [emailVerified, setEmailVerified] = useState(false);
   const lastRegisteredPushUidRef = useRef("");
 
   const persistLastLoginEmail = async (email) => {
@@ -191,6 +195,7 @@ export function AuthProvider({ children }) {
 
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       setUser(firebaseUser);
+      setEmailVerified(firebaseUser?.emailVerified ?? false);
 
       if (!firebaseUser) {
         setUserData(null);
@@ -256,7 +261,7 @@ export function AuthProvider({ children }) {
 
     lastRegisteredPushUidRef.current = uid;
     registerForPushNotificationsAsync(uid).catch((error) => {
-      console.log("[AuthContext] No se pudo registrar push token:", error?.message || error);
+      devLog("[AuthContext] No se pudo registrar push token:", error?.message || error);
     });
   }, [user?.uid, userData?.accountDeleted, userData?.uid]);
 
@@ -274,8 +279,10 @@ export function AuthProvider({ children }) {
           const credentials = await registerUser(payload.email, payload.password);
           const profile = await createUserProfile(credentials.user.uid, payload);
           await persistLastLoginEmail(payload.email);
+          sendEmailVerification(credentials.user).catch(() => {});
 
           setUser(credentials.user);
+          setEmailVerified(false);
           setUserData(profile);
 
           return {
@@ -337,9 +344,8 @@ export function AuthProvider({ children }) {
 
           await assertProfileCanAccess(profile);
 
-          if (email) {
-            await persistLastLoginEmail(email);
-          }
+          setLastLoginEmail("");
+          await AsyncStorage.removeItem(LAST_LOGIN_EMAIL_KEY);
 
           setUser(googleUser);
           setUserData(profile);
@@ -443,7 +449,7 @@ export function AuthProvider({ children }) {
               });
             }
           } catch (revertError) {
-            console.log("[AuthContext] No se pudo revertir accountDeleted:", revertError);
+            devLog("[AuthContext] No se pudo revertir accountDeleted:", revertError);
           }
 
           throw error;
@@ -514,8 +520,17 @@ export function AuthProvider({ children }) {
       isOrganizerPending: () => isPendingOrganizer(userData),
       canAccessOrganizerFeatures: () => isApprovedOrganizer(userData),
       getOrganizerAccessMessage: () => getOrganizerRestrictionMessage(userData),
+      emailVerified,
+      resendVerificationEmail: async () => {
+        await resendVerificationEmail();
+      },
+      refreshEmailVerified: async () => {
+        if (!auth.currentUser) return;
+        await auth.currentUser.reload().catch(() => {});
+        setEmailVerified(auth.currentUser.emailVerified);
+      },
     }),
-    [initializing, lastLoginEmail, loading, user, userData]
+    [emailVerified, initializing, lastLoginEmail, loading, user, userData]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -57,11 +57,12 @@ import {
 } from "../services/turnosService";
 import { sendTurnoReservationStatusMessage } from "../services/turnosNotificationsService";
 import { storage } from "../../services/firebaseConfig";
+import { getUserId } from "../utils/getUserId";
 
 const DURATIONS = [60, 90];
 const BASE_PAYMENT_METHODS = [
-  { key: "efectivo", label: "Efectivo" },
-  { key: "transferencia", label: "Transferencia" },
+  { key: "efectivo", icon: "cash-outline", label: "Efectivo" },
+  { key: "transferencia", icon: "swap-horizontal-outline", label: "Transferencia" },
 ];
 const ASSIGNMENT_PAYMENT_METHODS = [
   { key: "a_confirmar", label: "A confirmar" },
@@ -537,7 +538,7 @@ export default function TurnosScreen({ navigation, route }) {
     () => normalizeMercadoPagoConfig(userData?.mercadoPagoConfig),
     [userData?.mercadoPagoConfig]
   );
-  const currentUserId = userData?.uid || userData?.id || "";
+  const currentUserId = getUserId(userData);
   const [activeLocations, setActiveLocations] = useState([]);
   const [complexes, setComplexes] = useState([]);
   const [organizerConfig, setOrganizerConfig] = useState(null);
@@ -803,13 +804,6 @@ export default function TurnosScreen({ navigation, route }) {
   const paymentMethods = useMemo(() => {
     if (canManageTurnos) {
       return ASSIGNMENT_PAYMENT_METHODS;
-    }
-
-    if (!canManageTurnos && isMercadoPagoCategoryEnabled(selectedComplexMercadoPagoConfig, "turnos")) {
-      return [
-        ...BASE_PAYMENT_METHODS,
-        { key: "mercado_pago", label: "Mercado Pago" },
-      ];
     }
 
     return BASE_PAYMENT_METHODS;
@@ -2991,6 +2985,11 @@ export default function TurnosScreen({ navigation, route }) {
                       isSelected ? styles.paymentChipActive : null,
                     ]}
                   >
+                    <Ionicons
+                      color={isSelected ? "#fff" : "#1A7F5A"}
+                      name={method.icon}
+                      size={16}
+                    />
                     <Text
                       style={[
                         styles.paymentChipText,
@@ -3003,16 +3002,34 @@ export default function TurnosScreen({ navigation, route }) {
                 );
               })}
             </View>
+            {paymentMethod === "transferencia" ? (
+              <Pressable onPress={handlePickReceipt} style={styles.receiptButton}>
+                <Ionicons color={colors.primaryDark} name="document-attach-outline" size={18} />
+                <Text style={styles.receiptButtonText}>
+                  {receiptAsset ? receiptAsset.name : "Cargar comprobante"}
+                </Text>
+              </Pressable>
+            ) : null}
             {!canManageTurnos && selectedComplexMercadoPagoConfig.enabled ? (
               <Pressable
-                onPress={handleOpenMercadoPagoInfo}
+                onPress={() => setPaymentMethod(
+                  paymentMethod === "mercado_pago" ? "efectivo" : "mercado_pago"
+                )}
                 style={({ pressed }) => [
                   styles.mercadoPagoActionButton,
+                  paymentMethod === "mercado_pago" ? styles.mercadoPagoActionButtonActive : null,
                   pressed ? styles.pressedState : null,
                 ]}
               >
-                <Ionicons color="#1A7F5A" name="wallet-outline" size={17} />
-                <Text style={styles.mercadoPagoActionButtonText}>Mercado Pago</Text>
+                <Ionicons
+                  color={paymentMethod === "mercado_pago" ? "#fff" : "#1A7F5A"}
+                  name="wallet-outline"
+                  size={17}
+                />
+                <Text style={[
+                  styles.mercadoPagoActionButtonText,
+                  paymentMethod === "mercado_pago" ? styles.mercadoPagoActionButtonTextActive : null,
+                ]}>Mercado Pago</Text>
               </Pressable>
             ) : null}
             {paymentMethod === "mercado_pago" ? (
@@ -3022,14 +3039,6 @@ export default function TurnosScreen({ navigation, route }) {
                   Al confirmar, se abrira Mercado Pago para completar el pago del turno.
                 </Text>
               </View>
-            ) : null}
-            {paymentMethod === "transferencia" ? (
-              <Pressable onPress={handlePickReceipt} style={styles.receiptButton}>
-                <Ionicons color={colors.primaryDark} name="document-attach-outline" size={18} />
-                <Text style={styles.receiptButtonText}>
-                  {receiptAsset ? receiptAsset.name : "Cargar comprobante"}
-                </Text>
-              </Pressable>
             ) : null}
             <Pressable
               disabled={confirming}
@@ -5809,6 +5818,13 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "800",
   },
+  mercadoPagoActionButtonActive: {
+    backgroundColor: colors.primaryDark,
+    borderColor: colors.primaryDark,
+  },
+  mercadoPagoActionButtonTextActive: {
+    color: "#fff",
+  },
   mercadoPagoCheckoutHint: {
     alignItems: "center",
     backgroundColor: "#F3FBF7",
@@ -5830,28 +5846,32 @@ const styles = StyleSheet.create({
   },
   paymentRow: {
     flexDirection: "row",
-    gap: spacing.xs,
+    gap: spacing.sm,
+    marginBottom: spacing.xs,
   },
   paymentChip: {
     alignItems: "center",
-    backgroundColor: "#F7FBF9",
-    borderColor: colors.border,
+    backgroundColor: "#F3FBF7",
+    borderColor: "#BFE5CD",
     borderRadius: 999,
     borderWidth: 1,
     flex: 1,
-    paddingVertical: 9,
+    flexDirection: "row",
+    gap: 6,
+    justifyContent: "center",
+    paddingVertical: 11,
   },
   paymentChipActive: {
     backgroundColor: colors.primaryDark,
     borderColor: colors.primaryDark,
   },
   paymentChipText: {
-    color: colors.text,
+    color: "#1A7F5A",
     fontSize: 13,
-    fontWeight: "900",
+    fontWeight: "800",
   },
   paymentChipTextActive: {
-    color: colors.surface,
+    color: "#fff",
   },
   receiptButton: {
     alignItems: "center",
@@ -5861,12 +5881,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     flexDirection: "row",
     gap: spacing.xs,
+    justifyContent: "center",
     minHeight: 44,
     paddingHorizontal: spacing.md,
   },
   receiptButtonText: {
     color: colors.primaryDark,
-    flex: 1,
     fontSize: 13,
     fontWeight: "800",
   },

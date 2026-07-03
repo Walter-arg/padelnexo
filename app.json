@@ -27,7 +27,10 @@
       "package": "com.padelnexo.app",
       "permissions": [
         "INTERNET",
-        "ACCESS_NETWORK_STATE"
+        "ACCESS_NETWORK_STATE",
+        "CAMERA",
+        "READ_MEDIA_IMAGES",
+        "READ_MEDIA_VIDEO"
       ],
       "intentFilters": [
         {
@@ -51,16 +54,24 @@
       }
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.padelnexo.app",
+      "infoPlist": {
+        "NSCameraUsageDescription": "PadelNexo usa la camara para subir comprobantes de pago y actualizar tu foto de perfil.",
+        "NSPhotoLibraryUsageDescription": "PadelNexo accede a tus fotos para subir tu foto de perfil y comprobantes de pago.",
+        "NSPhotoLibraryAddUsageDescription": "PadelNexo necesita guardar imagenes en tu galeria."
+      }
     },
     "extra": {
       "mercadoPago": {
         "leaguesCheckoutUrl": "https://southamerica-east1-padelnexo-7e4d5.cloudfunctions.net/mercadoPagoCreateLeaguePreference",
         "leaguesSyncUrl": "https://southamerica-east1-padelnexo-7e4d5.cloudfunctions.net/mercadoPagoSyncLeaguePayment",
+        "oauthCompleteUrl": "https://southamerica-east1-padelnexo-7e4d5.cloudfunctions.net/mercadoPagoOAuthComplete",
+        "oauthStartUrl": "https://southamerica-east1-padelnexo-7e4d5.cloudfunctions.net/mercadoPagoOAuthStart",
         "tournamentsCheckoutUrl": "https://southamerica-east1-padelnexo-7e4d5.cloudfunctions.net/mercadoPagoCreateTournamentPreference",
         "tournamentsSyncUrl": "https://southamerica-east1-padelnexo-7e4d5.cloudfunctions.net/mercadoPagoSyncTournamentPayment",
         "turnosCheckoutUrl": "https://southamerica-east1-padelnexo-7e4d5.cloudfunctions.net/mercadoPagoCreateTurnoPreference",
-        "turnosSyncUrl": "https://us-central1-padelnexo-7e4d5.cloudfunctions.net/mercadoPagoSyncTurnoPayment"
+        "turnosSyncUrl": "https://southamerica-east1-padelnexo-7e4d5.cloudfunctions.net/mercadoPagoSyncTurnoPayment"
       },
       "eas": {
         "projectId": "70621faf-0db4-4145-b973-4803e2eb209d"
@@ -75,7 +86,57 @@
           "locationWhenInUsePermission": "PadelNexo usa tu ubicacion para mostrarte complejos, turnos, ligas y jugadores cercanos."
         }
       ],
-      "expo-asset"
+      "expo-asset",
+      [
+        "expo-notifications",
+        {
+          "color": "#2E7D52"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "PadelNexo accede a tus fotos para subir tu foto de perfil y comprobantes de pago.",
+          "cameraPermission": "PadelNexo usa la camara para subir comprobantes de pago y actualizar tu foto de perfil."
+        }
+      ],
+      [
+        "@react-native-google-signin/google-signin",
+        {
+          "iosUrlScheme": "com.googleusercontent.apps.553114005250-9c71v4oo3imvc17hbhr2jg5r9ok0em0n"
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "targetSdkVersion": 36,
+            "compileSdkVersion": 36
+          },
+          "ios": {
+            "privacyManifests": {
+              "NSPrivacyAccessedAPITypes": [
+                {
+                  "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategoryUserDefaults",
+                  "NSPrivacyAccessedAPITypeReasons": ["CA92.1"]
+                },
+                {
+                  "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategoryFileTimestamp",
+                  "NSPrivacyAccessedAPITypeReasons": ["C617.1"]
+                },
+                {
+                  "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategoryDiskSpace",
+                  "NSPrivacyAccessedAPITypeReasons": ["85F4.1"]
+                },
+                {
+                  "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategorySystemBootTime",
+                  "NSPrivacyAccessedAPITypeReasons": ["35F9.1"]
+                }
+              ]
+            }
+          }
+        }
+      ]
     ]
   }
 }

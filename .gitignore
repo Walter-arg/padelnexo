@@ -5,3 +5,4 @@ npm-debug.*
 dist
 LOGO PADEL NEXO.png
 .env
+.vscode/mcp.json

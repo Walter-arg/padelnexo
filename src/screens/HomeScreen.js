@@ -22,12 +22,13 @@ import { heroPhrases } from "../data/profileOptions";
 import { canAccessAdminPanel } from "../config/admin";
 import { colors, spacing } from "../config/theme";
 import { useAuth } from "../context/AuthContext";
-import { isLeagueParticipant, listLeagues, updateLeagueFixture } from "../services/leaguesService";
+import { DAY_LABELS, isLeagueParticipant, listLeagues, updateLeagueFixture } from "../services/leaguesService";
 import { hasConfiguredAvailability, isAvailableToday } from "../services/availabilityService";
 import { listPlayers } from "../services/playersService";
 import { isApprovedOrganizer } from "../services/roleService";
 import { listTournamentsWithRegistrationCounts } from "../services/tournamentsService";
 import { listBookableComplexes } from "../services/turnosService";
+import { getUserId } from "../utils/getUserId";
 import { formatPlayerShortName } from "../utils/playerDisplayName";
 
 const MENU_ITEMS = [
@@ -75,15 +76,6 @@ const LEAGUE_CAROUSEL_ITEM_WIDTH = 252;
 const TOURNAMENT_CAROUSEL_ITEM_WIDTH = 252;
 const TURNOS_CAROUSEL_ITEM_WIDTH = 252;
 
-const DAY_LABELS = {
-  monday: "Lunes",
-  tuesday: "Martes",
-  wednesday: "Miercoles",
-  thursday: "Jueves",
-  friday: "Viernes",
-  saturday: "Sabado",
-  sunday: "Domingo",
-};
 
 function isPlayerAvailableToday(player = {}) {
   const hasStructuredAvailability = hasConfiguredAvailability(player?.availability || {});
@@ -195,7 +187,7 @@ function buildPendingPostulationKey(userId = "", requestId = "") {
 }
 
 function collectHomeReplacementRequests(leagues = [], userData = {}, canManage = false) {
-  const currentUserId = normalizeText(userData?.uid || userData?.id || "");
+  const currentUserId = getUserId(userData).toLowerCase();
 
   return leagues
     .flatMap((league) => {
@@ -256,8 +248,8 @@ function collectHomeReplacementRequests(leagues = [], userData = {}, canManage =
 
 function buildReplacementCandidate(userData = {}) {
   return {
-    id: userData?.uid || userData?.id || "",
-    linkedUserId: userData?.uid || userData?.id || "",
+    id: getUserId(userData),
+    linkedUserId: getUserId(userData),
     nombre: userData?.nombre || userData?.name || "Jugador",
     apellido: userData?.apellido || userData?.lastName || "",
     categoria: userData?.category || userData?.categoria || "",
@@ -533,9 +525,10 @@ export default function HomeScreen({ navigation, route }) {
   const [activeTournamentIndex, setActiveTournamentIndex] = useState(0);
   const [activeTurnosIndex, setActiveTurnosIndex] = useState(0);
   const [expandedReplacementId, setExpandedReplacementId] = useState("");
+  const [fetchErrors, setFetchErrors] = useState({ leagues: false, tournaments: false, players: false, turnos: false });
   const [pendingPostulationIds, setPendingPostulationIds] = useState([]);
   const [submittingReplacementId, setSubmittingReplacementId] = useState("");
-  const currentUserId = userData?.uid || userData?.id || "";
+  const currentUserId = getUserId(userData);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -602,9 +595,11 @@ export default function HomeScreen({ navigation, route }) {
         }
 
         setPlayersPreview(players);
+        setFetchErrors((prev) => ({ ...prev, players: false }));
       } catch (error) {
         if (!isCancelled) {
           setPlayersPreview([]);
+          setFetchErrors((prev) => ({ ...prev, players: true }));
         }
       }
     };
@@ -616,36 +611,40 @@ export default function HomeScreen({ navigation, route }) {
     };
   }, [userData?.uid]);
 
-  useEffect(() => {
-    let isCancelled = false;
+  useFocusEffect(
+    useCallback(() => {
+      let isCancelled = false;
 
-    const loadTournamentsPreview = async () => {
-      if (!userData?.uid) {
-        setTournamentsPreview([]);
-        return;
-      }
-
-      try {
-        const tournaments = await listTournamentsWithRegistrationCounts();
-
-        if (isCancelled) {
+      const loadTournamentsPreview = async () => {
+        if (!userData?.uid) {
+          setTournamentsPreview([]);
           return;
         }
 
-        setTournamentsPreview(tournaments);
-      } catch (error) {
-        if (!isCancelled) {
-          setTournamentsPreview([]);
+        try {
+          const tournaments = await listTournamentsWithRegistrationCounts();
+
+          if (isCancelled) {
+            return;
+          }
+
+          setTournamentsPreview(tournaments);
+          setFetchErrors((prev) => ({ ...prev, tournaments: false }));
+        } catch (error) {
+          if (!isCancelled) {
+            setTournamentsPreview([]);
+            setFetchErrors((prev) => ({ ...prev, tournaments: true }));
+          }
         }
-      }
-    };
+      };
 
-    loadTournamentsPreview();
+      loadTournamentsPreview();
 
-    return () => {
-      isCancelled = true;
-    };
-  }, [userData?.uid]);
+      return () => {
+        isCancelled = true;
+      };
+    }, [userData?.uid])
+  );
 
   useFocusEffect(
     useCallback(() => {
@@ -665,9 +664,11 @@ export default function HomeScreen({ navigation, route }) {
           }
 
           setLeaguesPreview(leagues);
+          setFetchErrors((prev) => ({ ...prev, leagues: false }));
         } catch (error) {
           if (!isCancelled) {
             setLeaguesPreview([]);
+            setFetchErrors((prev) => ({ ...prev, leagues: true }));
           }
         }
       };
@@ -698,9 +699,11 @@ export default function HomeScreen({ navigation, route }) {
           }
 
           setTurnosComplexesPreview(complexes);
+          setFetchErrors((prev) => ({ ...prev, turnos: false }));
         } catch (error) {
           if (!isCancelled) {
             setTurnosComplexesPreview([]);
+            setFetchErrors((prev) => ({ ...prev, turnos: true }));
           }
         }
       };
@@ -735,58 +738,37 @@ export default function HomeScreen({ navigation, route }) {
     setIsProfileVisible(false);
   };
 
-  const buildCategorySummary = () => {
-    const city = currentUser?.city || "tu ciudad";
-    const category = currentUser?.category || "tu categoria";
-    const availableTodayCount = playersPreview
-      .filter((player) => player.id !== userData?.uid)
-      .filter((player) => isPlayerAvailableToday(player)).length;
-    if (selectedMenuItem.key === "Ligas") {
-      return {
-        title: "Tu panorama de ligas",
-        subtitle: "Resumen rapido para decidir donde jugar esta semana.",
-        rows: [
-          `Participas en 2 ligas de ${city}`,
-          `Hay 4 ligas nuevas abiertas en ${city}`,
-        ],
-      };
-    }
-
-    if (selectedMenuItem.key === "Jugadores") {
-      return {
-        title: "DISPONIBLES HOY PARA JUGAR",
-        subtitle: "",
-        rows: [
-          `${availableTodayCount} jugadores de ${category} disponibles hoy`,
-          "2 contactos con nivel similar y buena reputacion",
-        ],
-      };
-    }
-
-    if (selectedMenuItem.key === "Turnos") {
-      return {
-        title: homeTurnosPreview.title,
-        subtitle: "",
-        rows: [],
-      };
-    }
-
-    return {
-      title: "Torneos en movimiento",
-      subtitle: "Eventos activos y proximos para que no te quedes afuera.",
-      rows: [
-        "2 torneos activos con cupos limitados",
-        "1 torneo arranca este fin de semana",
-      ],
-    };
-  };
-
   const homeTurnosPreview = useMemo(
     () => buildTurnosHomePreview(turnosComplexesPreview),
     [turnosComplexesPreview]
   );
   const homeTurnosSlides = homeTurnosPreview.slides;
-  const categorySummary = buildCategorySummary();
+  const categorySummary = useMemo(() => {
+    const category = currentUser?.category || "tu categoria";
+    const availableTodayCount = playersPreview
+      .filter((player) => player.id !== userData?.uid)
+      .filter((player) => isPlayerAvailableToday(player)).length;
+
+    if (selectedMenuItem.key === "Ligas") {
+      return { title: "Tu panorama de ligas", subtitle: "" };
+    }
+
+    if (selectedMenuItem.key === "Jugadores") {
+      return {
+        title: "DISPONIBLES HOY PARA JUGAR",
+        subtitle:
+          availableTodayCount > 0
+            ? `${availableTodayCount} jugadores de ${category} disponibles hoy`
+            : "",
+      };
+    }
+
+    if (selectedMenuItem.key === "Turnos") {
+      return { title: homeTurnosPreview.title, subtitle: "" };
+    }
+
+    return { title: "Torneos en movimiento", subtitle: "" };
+  }, [currentUser?.category, homeTurnosPreview.title, playersPreview, selectedMenuItem.key, userData?.uid]);
   const homeLeagueSlides = useMemo(
     () => leaguesPreview.filter(shouldShowLeagueInHomeCarousel).slice(0, 8),
     [leaguesPreview]
@@ -1126,7 +1108,9 @@ export default function HomeScreen({ navigation, route }) {
                     <View style={styles.previewRow}>
                       <View style={styles.previewDot} />
                       <Text style={styles.previewText}>
-                        Todavia no hay jugadores para mostrar en este resumen.
+                        {fetchErrors.players
+                          ? "No pudimos cargar los jugadores. Revisa tu conexion e intenta de nuevo."
+                          : "Todavia no hay jugadores disponibles hoy para mostrar."}
                       </Text>
                     </View>
                   ) : null}
@@ -1305,7 +1289,9 @@ export default function HomeScreen({ navigation, route }) {
                     <View style={styles.previewRow}>
                       <View style={styles.previewDot} />
                       <Text style={styles.previewText}>
-                        Todavia no hay ligas publicadas por iniciar para mostrar.
+                        {fetchErrors.leagues
+                          ? "No pudimos cargar las ligas. Revisa tu conexion e intenta de nuevo."
+                          : "Todavia no hay ligas publicadas por iniciar para mostrar."}
                       </Text>
                     </View>
                   )}
@@ -1394,7 +1380,9 @@ export default function HomeScreen({ navigation, route }) {
                     <View style={styles.previewRow}>
                       <View style={styles.previewDot} />
                       <Text style={styles.previewText}>
-                        Todavia no hay torneos publicados para mostrar.
+                        {fetchErrors.tournaments
+                          ? "No pudimos cargar los torneos. Revisa tu conexion e intenta de nuevo."
+                          : "Todavia no hay torneos publicados para mostrar."}
                       </Text>
                     </View>
                   )}
@@ -1472,21 +1460,14 @@ export default function HomeScreen({ navigation, route }) {
                     <View style={styles.previewRow}>
                       <View style={styles.previewDot} />
                       <Text style={styles.previewText}>
-                        Todavia no hay turnos disponibles para hoy.
+                        {fetchErrors.turnos
+                          ? "No pudimos cargar los turnos. Revisa tu conexion e intenta de nuevo."
+                          : "Todavia no hay turnos disponibles para hoy."}
                       </Text>
                     </View>
                   )}
                 </View>
-              ) : (
-                <View style={styles.previewList}>
-                  {categorySummary.rows.map((row) => (
-                    <View key={row} style={styles.previewRow}>
-                      <View style={styles.previewDot} />
-                      <Text style={styles.previewText}>{row}</Text>
-                    </View>
-                  ))}
-                </View>
-              )}
+              ) : null}
             </>
           )}
         </Pressable>

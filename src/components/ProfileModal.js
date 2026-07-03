@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Alert,
   KeyboardAvoidingView,
@@ -12,21 +12,34 @@ import {
   View,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
-
 import {
   avatarColors,
   playerCategories,
   sexOptions,
 } from "../data/profileOptions";
 import { canAccessAdminPanel } from "../config/admin";
-import { hasMercadoPagoCheckoutRuntimeConfig, hasMercadoPagoPublicKey } from "../config/mercadoPago";
+import {
+  hasMercadoPagoCheckoutRuntimeConfig,
+  hasMercadoPagoOAuthRuntimeConfig,
+  hasMercadoPagoPublicKey,
+} from "../config/mercadoPago";
 import { colors, spacing } from "../config/theme";
 import { useAuth } from "../context/AuthContext";
+import devLog from "../utils/devLog";
+import {
+  dateToFechaNacimiento,
+  fechaNacimientoToDate,
+  formatFechaNacimientoDisplay,
+} from "../utils/ageUtils";
 import { phoneCountryOptions } from "../data/phoneCountryOptions";
 import {
   normalizeMercadoPagoConfig,
   DEFAULT_MERCADO_PAGO_CONFIG,
 } from "../services/mercadoPagoConfigService";
+import {
+  linkOrganizerMercadoPagoAccount,
+  recoverPendingMercadoPagoOAuth,
+} from "../services/mercadoPagoOAuthService";
 import {
   getAccountTypeLabel,
   isApprovedOrganizer,
@@ -44,6 +57,198 @@ import SelectField from "./SelectField";
 
 const DESCRIPTION_MAX_LENGTH = 100;
 
+const CUR_YEAR = new Date().getFullYear();
+
+function BirthDateField({ value, onChange }) {
+  const monthRef = useRef(null);
+  const yearRef  = useRef(null);
+  const prevValue = useRef(value);
+
+  const parse = (v) => {
+    const p = v ? v.split("-") : [];
+    return { day: p[2] || "", month: p[1] || "", year: p[0] || "" };
+  };
+
+  const [day,   setDay]   = useState(() => parse(value).day);
+  const [month, setMonth] = useState(() => parse(value).month);
+  const [year,  setYear]  = useState(() => parse(value).year);
+
+  useEffect(() => {
+    if (value !== prevValue.current) {
+      prevValue.current = value;
+      const p = parse(value);
+      setDay(p.day); setMonth(p.month); setYear(p.year);
+    }
+  }, [value]);
+
+  const tryCommit = (d, m, y) => {
+    if (d.length !== 2 || m.length !== 2 || y.length !== 4) return;
+    const di = parseInt(d, 10), mi = parseInt(m, 10), yi = parseInt(y, 10);
+    if (di >= 1 && di <= 31 && mi >= 1 && mi <= 12 && yi >= 1900 && yi <= CUR_YEAR) {
+      const next = `${y}-${m}-${d}`;
+      prevValue.current = next;
+      onChange(next);
+    }
+  };
+
+  const handleDay = (text) => {
+    const v = text.replace(/\D/g, "").slice(0, 2);
+    setDay(v);
+    if (v.length === 2) monthRef.current?.focus();
+    tryCommit(v, month, year);
+  };
+
+  const handleMonth = (text) => {
+    const v = text.replace(/\D/g, "").slice(0, 2);
+    setMonth(v);
+    if (v.length === 2) yearRef.current?.focus();
+    tryCommit(day, v, year);
+  };
+
+  const handleYear = (text) => {
+    const v = text.replace(/\D/g, "").slice(0, 4);
+    setYear(v);
+    tryCommit(day, month, v);
+  };
+
+  return (
+    <View style={styles.dateBlock}>
+      <Text style={styles.dateBlockLabel}>Fecha de nacimiento</Text>
+      <View style={bdfStyles.row}>
+        <TextInput
+          style={[bdfStyles.input, bdfStyles.inputDay]}
+          keyboardType="number-pad"
+          maxLength={2}
+          placeholder="DD"
+          placeholderTextColor="#C0C8D0"
+          value={day}
+          onChangeText={handleDay}
+          returnKeyType="next"
+          onSubmitEditing={() => monthRef.current?.focus()}
+        />
+        <Text style={bdfStyles.sep}>/</Text>
+        <TextInput
+          ref={monthRef}
+          style={[bdfStyles.input, bdfStyles.inputDay]}
+          keyboardType="number-pad"
+          maxLength={2}
+          placeholder="MM"
+          placeholderTextColor="#C0C8D0"
+          value={month}
+          onChangeText={handleMonth}
+          returnKeyType="next"
+          onSubmitEditing={() => yearRef.current?.focus()}
+        />
+        <Text style={bdfStyles.sep}>/</Text>
+        <TextInput
+          ref={yearRef}
+          style={[bdfStyles.input, bdfStyles.inputYear]}
+          keyboardType="number-pad"
+          maxLength={4}
+          placeholder="AAAA"
+          placeholderTextColor="#C0C8D0"
+          value={year}
+          onChangeText={handleYear}
+          returnKeyType="done"
+        />
+      </View>
+    </View>
+  );
+}
+
+const bdfStyles = StyleSheet.create({
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "#D4DBE2",
+    borderRadius: 12,
+    backgroundColor: "#F7FAFD",
+    paddingVertical: 6,
+  },
+  input: {
+    borderWidth: 0,
+    backgroundColor: "transparent",
+    textAlign: "center",
+    textAlignVertical: "center",
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#0d5c3a",
+    height: 22,
+    lineHeight: 18,
+    paddingVertical: 0,
+    paddingHorizontal: 0,
+  },
+  inputDay: {
+    width: 34,
+  },
+  inputYear: {
+    width: 56,
+  },
+  sep: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#C0C8D0",
+    lineHeight: 22,
+    marginHorizontal: 2,
+  },
+});
+
+function MpToggleRow({ label, value, onPress }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [mpToggleStyles.row, pressed && { opacity: 0.8 }]}
+    >
+      <Text style={mpToggleStyles.label}>{label}</Text>
+      <View style={[mpToggleStyles.track, value ? mpToggleStyles.trackOn : mpToggleStyles.trackOff]}>
+        <View style={[mpToggleStyles.thumb, value ? mpToggleStyles.thumbOn : mpToggleStyles.thumbOff]} />
+      </View>
+    </Pressable>
+  );
+}
+
+const mpToggleStyles = StyleSheet.create({
+  row: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: "#EDF1F4",
+  },
+  label: {
+    color: "#1a2e3b",
+    flex: 1,
+    fontSize: 14,
+    fontWeight: "600",
+    paddingRight: 12,
+  },
+  track: {
+    width: 46,
+    height: 26,
+    borderRadius: 13,
+    justifyContent: "center",
+    paddingHorizontal: 3,
+  },
+  trackOn: { backgroundColor: "#1fa36d" },
+  trackOff: { backgroundColor: "#D1D9E0" },
+  thumb: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: "#fff",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.15,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  thumbOn: { alignSelf: "flex-end" },
+  thumbOff: { alignSelf: "flex-start" },
+});
+
 const defaultMercadoPagoConfig = DEFAULT_MERCADO_PAGO_CONFIG;
 
 const defaultProfile = {
@@ -58,6 +263,7 @@ const defaultProfile = {
   sex: "Masculino",
   ladoJuego: "ambos",
   manoHabil: "",
+  fechaNacimiento: "",
   description: "",
   avatarColor: avatarColors[0],
   avatarUrl: "",
@@ -150,8 +356,15 @@ export default function ProfileModal({
   user,
   visible,
 }) {
-  const { deleteAccount, getOrganizerAccessMessage, logout, removeProfilePhoto, updateProfile } =
-    useAuth();
+  const {
+    deleteAccount,
+    emailVerified,
+    getOrganizerAccessMessage,
+    logout,
+    removeProfilePhoto,
+    resendVerificationEmail,
+    updateProfile,
+  } = useAuth();
   const [profile, setProfile] = useState(defaultProfile);
   const [selectedLocation, setSelectedLocation] = useState(null);
   const [isCategoryVisible, setIsCategoryVisible] = useState(false);
@@ -172,7 +385,15 @@ export default function ProfileModal({
   const isApprovedAccount = isApprovedOrganizer(profile);
   const showOrganizerHint = isPendingOrganizer(profile) || isRejectedOrganizer(profile);
   const mercadoPagoRuntimeReady = hasMercadoPagoCheckoutRuntimeConfig();
+  const mercadoPagoOAuthReady = hasMercadoPagoOAuthRuntimeConfig();
   const mercadoPagoPublicKeyReady = hasMercadoPagoPublicKey();
+  const mercadoPagoProfileConfig = normalizeMercadoPagoConfig(profile.mercadoPagoConfig);
+  const mercadoPagoAccountLinked = mercadoPagoProfileConfig.accountLinked === true;
+  const mercadoPagoConnectionStatus = String(
+    mercadoPagoProfileConfig.connectionStatus || "checkout_pro_test"
+  )
+    .trim()
+    .toLowerCase();
 
   const showFeedback = (title, message, tone = "default") => {
     setFeedback({
@@ -205,6 +426,58 @@ export default function ProfileModal({
       setSelectedLocation(parsedLocalidad);
     }
   }, [user?.uid, visible]);
+
+  useEffect(() => {
+    if (!visible || !isApprovedAccount) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const recoverOAuth = async () => {
+      try {
+        const result = await recoverPendingMercadoPagoOAuth();
+
+        if (!result || cancelled) {
+          return;
+        }
+
+        const nextConfig = normalizeMercadoPagoConfig({
+          ...mercadoPagoProfileConfig,
+          ...(result?.config || {}),
+        });
+
+        setProfile((current) => ({
+          ...current,
+          mercadoPagoConfig: nextConfig,
+        }));
+
+        showFeedback(
+          "Cuenta vinculada",
+          result?.accountDisplayName
+            ? `Mercado Pago quedo vinculado con ${result.accountDisplayName}.`
+            : "La cuenta de Mercado Pago quedo vinculada correctamente.",
+          "success"
+        );
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+
+        showFeedback(
+          "No pudimos vincular la cuenta",
+          error?.message || "Intenta nuevamente en unos instantes.",
+          "danger"
+        );
+      }
+    };
+
+    recoverOAuth();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [visible, isApprovedAccount]);
 
   const updateField = (field, value) => {
     setProfile((current) => ({ ...current, [field]: value }));
@@ -258,9 +531,58 @@ export default function ProfileModal({
     updateMercadoPagoField(field, !normalizedConfig[field]);
   };
 
+  const handleMercadoPagoLinkAccount = async () => {
+    if (!mercadoPagoOAuthReady) {
+      showFeedback(
+        "Falta configurar Mercado Pago",
+        "La app todavia no tiene listas las URLs para vincular la cuenta del organizador.",
+        "warning"
+      );
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const result = await linkOrganizerMercadoPagoAccount(profile.uid || user?.uid || "");
+      const nextConfig = normalizeMercadoPagoConfig({
+        ...mercadoPagoProfileConfig,
+        ...(result?.config || {}),
+      });
+
+      setProfile((current) => ({
+        ...current,
+        mercadoPagoConfig: nextConfig,
+      }));
+
+      showFeedback(
+        "Cuenta vinculada",
+        result?.accountDisplayName
+          ? `Mercado Pago quedo vinculado con ${result.accountDisplayName}.`
+          : "La cuenta de Mercado Pago quedo vinculada correctamente.",
+        "success"
+      );
+    } catch (error) {
+      if (error?.code === "mercado_pago_oauth_cancelled") {
+        showFeedback(
+          "Vinculacion cancelada",
+          "La vinculacion con Mercado Pago no se completo.",
+          "warning"
+        );
+      } else {
+        showFeedback(
+          "No pudimos vincular la cuenta",
+          error?.message || "Intenta nuevamente en unos instantes.",
+          "danger"
+        );
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handlePickImage = async () => {
     try {
-      console.log("[ProfileModal] Solicitando permiso para galeria");
+      devLog("[ProfileModal] Solicitando permiso para galeria");
       const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
 
       if (!permission.granted) {
@@ -271,7 +593,7 @@ export default function ProfileModal({
         return;
       }
 
-      console.log("[ProfileModal] Abriendo selector de imagen");
+      devLog("[ProfileModal] Abriendo selector de imagen");
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
@@ -279,15 +601,15 @@ export default function ProfileModal({
       });
 
       if (result.canceled || !result.assets?.[0]?.uri) {
-        console.log("[ProfileModal] Seleccion cancelada");
+        devLog("[ProfileModal] Seleccion cancelada");
         return;
       }
 
       const uri = result.assets[0].uri;
-      console.log("[ProfileModal] Imagen seleccionada:", uri);
+      devLog("[ProfileModal] Imagen seleccionada:", uri);
       updateField("avatarUrl", uri);
     } catch (error) {
-      console.log("[ProfileModal] Error al seleccionar imagen:", error);
+      devLog("[ProfileModal] Error al seleccionar imagen:", error);
       showFeedback("No pudimos seleccionar la imagen", "Intenta nuevamente.");
     }
   };
@@ -319,13 +641,13 @@ export default function ProfileModal({
 
   const handleSave = async () => {
     if (loading) {
-      console.log("[ProfileModal] Guardado omitido porque ya esta en progreso");
+      devLog("[ProfileModal] Guardado omitido porque ya esta en progreso");
       return;
     }
 
     try {
       setLoading(true);
-      console.log("[ProfileModal] Guardando perfil");
+      devLog("[ProfileModal] Guardando perfil");
 
       const normalizedLocalidad = normalizeLocalidad(selectedLocation || profile.localidad, {
         provincia: profile.province || profile.location?.provincia || "",
@@ -351,7 +673,7 @@ export default function ProfileModal({
       });
       onSave?.(updatedProfile);
     } catch (error) {
-      console.log("[ProfileModal] Error al guardar perfil:", error);
+      devLog("[ProfileModal] Error al guardar perfil:", error);
       showFeedback(
         "No pudimos guardar el perfil",
         error?.message || "Intenta nuevamente en unos instantes.",
@@ -373,7 +695,7 @@ export default function ProfileModal({
           style: "destructive",
           onPress: async () => {
             try {
-              console.log("[ProfileModal] Eliminando foto de perfil");
+              devLog("[ProfileModal] Eliminando foto de perfil");
 
               if (profile.avatarUrl?.startsWith("file:")) {
                 setProfile((current) => ({
@@ -391,7 +713,7 @@ export default function ProfileModal({
               }));
               onSave?.(updatedProfile);
             } catch (error) {
-              console.log("[ProfileModal] Error al eliminar imagen:", error);
+              devLog("[ProfileModal] Error al eliminar imagen:", error);
               showFeedback("No pudimos eliminar la foto", "Intenta nuevamente.");
             }
           },
@@ -520,6 +842,36 @@ export default function ProfileModal({
                 <AppButton
                   title="Solicitar acceso como organizador"
                   onPress={() => {
+                    if (!emailVerified) {
+                      Alert.alert(
+                        "Email no verificado",
+                        "Necesitas verificar tu correo electronico antes de solicitar acceso como organizador.\n\nRevisá tu bandeja de entrada o solicitá un nuevo email de verificacion.",
+                        [
+                          {
+                            text: "Reenviar email",
+                            onPress: () => {
+                              resendVerificationEmail()
+                                .then(() =>
+                                  showFeedback(
+                                    "Email enviado",
+                                    "Revisa tu bandeja de entrada y hace click en el link de verificacion.",
+                                    "success"
+                                  )
+                                )
+                                .catch((error) =>
+                                  showFeedback(
+                                    "No pudimos enviar el email",
+                                    error?.message || "Intenta nuevamente en unos minutos.",
+                                    "danger"
+                                  )
+                                );
+                            },
+                          },
+                          { text: "Cancelar", style: "cancel" },
+                        ]
+                      );
+                      return;
+                    }
                     setOrganizerModalMode("request");
                     setIsOrganizerModalVisible(true);
                   }}
@@ -589,6 +941,7 @@ export default function ProfileModal({
                   ))}
 
                   <View style={styles.mercadoPagoSection}>
+                    {/* Header */}
                     <View style={styles.mercadoPagoHeader}>
                       <View style={styles.mercadoPagoHeaderCopy}>
                         <Text style={styles.mercadoPagoTitle}>Cobros y pagos</Text>
@@ -597,7 +950,7 @@ export default function ProfileModal({
                       <View
                         style={[
                           styles.mercadoPagoStatusBadge,
-                          mercadoPagoRuntimeReady
+                          mercadoPagoAccountLinked
                             ? styles.mercadoPagoStatusBadgeLinked
                             : styles.mercadoPagoStatusBadgePending,
                         ]}
@@ -605,137 +958,94 @@ export default function ProfileModal({
                         <Text
                           style={[
                             styles.mercadoPagoStatusText,
-                            mercadoPagoRuntimeReady
+                            mercadoPagoAccountLinked
                               ? styles.mercadoPagoStatusTextLinked
                               : styles.mercadoPagoStatusTextPending,
                           ]}
                         >
-                          {mercadoPagoRuntimeReady ? "Checkout Pro listo" : "Configuracion pendiente"}
+                          {mercadoPagoAccountLinked ? "✓ Vinculada" : "Sin vincular"}
                         </Text>
                       </View>
                     </View>
 
-                    <View style={styles.mercadoPagoInfoCard}>
-                      <Text style={styles.mercadoPagoInfoLabel}>Modo actual</Text>
-                      <Text style={styles.mercadoPagoInfoValue}>
-                        {mercadoPagoRuntimeReady
-                          ? "Checkout Pro de prueba activo"
-                          : "Falta completar la configuracion de prueba"}
+                    {/* Cuenta vinculada: mostrar nombre */}
+                    {mercadoPagoAccountLinked && mercadoPagoProfileConfig.accountDisplayName ? (
+                      <Text style={styles.mercadoPagoAccountName}>
+                        {mercadoPagoProfileConfig.accountDisplayName}
                       </Text>
-                    </View>
+                    ) : null}
 
-                    <View style={styles.mercadoPagoInfoCard}>
-                      <Text style={styles.mercadoPagoInfoLabel}>Public Key</Text>
-                      <Text style={styles.mercadoPagoInfoValue}>
-                        {mercadoPagoPublicKeyReady ? "Cargada correctamente" : "Pendiente"}
-                      </Text>
-                    </View>
+                    {/* Botón vincular */}
+                    <AppButton
+                      title={
+                        loading
+                          ? "Esperando autorizacion..."
+                          : mercadoPagoAccountLinked
+                            ? "Actualizar vinculacion"
+                            : "Vincular mi cuenta de Mercado Pago"
+                      }
+                      onPress={handleMercadoPagoLinkAccount}
+                      disabled={!mercadoPagoOAuthReady || loading}
+                      style={styles.mercadoPagoLinkButton}
+                      textStyle={styles.mercadoPagoLinkButtonText}
+                    />
 
-                    <View style={styles.mercadoPagoToggleRow}>
-                      <Text style={styles.mercadoPagoToggleLabel}>Activar cobro con Mercado Pago</Text>
-                      <Pressable
-                        onPress={() => handleMercadoPagoToggle("enabled")}
-                        style={({ pressed }) => [
-                          styles.mercadoPagoToggleButton,
-                          normalizeMercadoPagoConfig(profile.mercadoPagoConfig).enabled
-                            ? styles.mercadoPagoToggleButtonActive
-                            : styles.mercadoPagoToggleButtonInactive,
-                          pressed ? styles.mercadoPagoToggleButtonPressed : null,
-                        ]}
-                      >
-                        <Text
-                          style={[
-                            styles.mercadoPagoToggleButtonText,
-                            normalizeMercadoPagoConfig(profile.mercadoPagoConfig).enabled
-                              ? styles.mercadoPagoToggleButtonTextActive
-                              : styles.mercadoPagoToggleButtonTextInactive,
-                          ]}
-                        >
-                          {normalizeMercadoPagoConfig(profile.mercadoPagoConfig).enabled ? "ON" : "OFF"}
-                        </Text>
-                      </Pressable>
-                    </View>
+                    {/* Toggles */}
+                    <MpToggleRow
+                      label="Cobros con Mercado Pago"
+                      value={normalizeMercadoPagoConfig(profile.mercadoPagoConfig).enabled}
+                      onPress={() => handleMercadoPagoToggle("enabled")}
+                    />
+                    <MpToggleRow
+                      label="Activar en nuevas publicaciones"
+                      value={normalizeMercadoPagoConfig(profile.mercadoPagoConfig).autoEnableNewPayments}
+                      onPress={() => handleMercadoPagoToggle("autoEnableNewPayments")}
+                    />
 
-                    <View style={styles.mercadoPagoToggleRow}>
-                      <Text style={styles.mercadoPagoToggleLabel}>
-                        Activar por defecto en nuevas publicaciones
-                      </Text>
-                      <Pressable
-                        onPress={() => handleMercadoPagoToggle("autoEnableNewPayments")}
-                        style={({ pressed }) => [
-                          styles.mercadoPagoToggleButton,
-                          normalizeMercadoPagoConfig(profile.mercadoPagoConfig).autoEnableNewPayments
-                            ? styles.mercadoPagoToggleButtonActive
-                            : styles.mercadoPagoToggleButtonInactive,
-                          pressed ? styles.mercadoPagoToggleButtonPressed : null,
-                        ]}
-                      >
-                        <Text
-                          style={[
-                            styles.mercadoPagoToggleButtonText,
-                            normalizeMercadoPagoConfig(profile.mercadoPagoConfig).autoEnableNewPayments
-                              ? styles.mercadoPagoToggleButtonTextActive
-                              : styles.mercadoPagoToggleButtonTextInactive,
-                          ]}
-                        >
-                          {normalizeMercadoPagoConfig(profile.mercadoPagoConfig).autoEnableNewPayments
-                            ? "ON"
-                            : "OFF"}
-                        </Text>
-                      </Pressable>
-                    </View>
-
+                    {/* Categorías */}
                     <View style={styles.mercadoPagoCategoriesSection}>
-                      <Text style={styles.mercadoPagoCategoriesTitle}>Categorias habilitadas</Text>
-                      {mercadoPagoCategoryOptions.map((category) => {
-                        const normalizedMercadoPagoConfig = normalizeMercadoPagoConfig(
-                          profile.mercadoPagoConfig
-                        );
-                        const isCategoryEnabled =
-                          normalizedMercadoPagoConfig.categories?.[category.key] === true;
-                        const categoriesDisabled = !normalizedMercadoPagoConfig.enabled;
+                      <Text style={styles.mercadoPagoCategoriesTitle}>Habilitado para</Text>
+                      <View style={styles.mpCategoryRow}>
+                        {mercadoPagoCategoryOptions.map((category) => {
+                          const normalizedMercadoPagoConfig = normalizeMercadoPagoConfig(
+                            profile.mercadoPagoConfig
+                          );
+                          const isCategoryEnabled =
+                            normalizedMercadoPagoConfig.categories?.[category.key] === true;
+                          const categoriesDisabled = !normalizedMercadoPagoConfig.enabled;
 
-                        return (
-                          <View key={category.key} style={styles.mercadoPagoToggleRow}>
-                            <Text
-                              style={[
-                                styles.mercadoPagoToggleLabel,
-                                categoriesDisabled ? styles.mercadoPagoToggleLabelDisabled : null,
-                              ]}
-                            >
-                              {category.label}
-                            </Text>
+                          return (
                             <Pressable
+                              key={category.key}
                               disabled={categoriesDisabled}
                               onPress={() => handleMercadoPagoCategoryToggle(category.key)}
                               style={({ pressed }) => [
-                                styles.mercadoPagoToggleButton,
-                                isCategoryEnabled
-                                  ? styles.mercadoPagoToggleButtonActive
-                                  : styles.mercadoPagoToggleButtonInactive,
+                                styles.mpCategoryChip,
+                                isCategoryEnabled && !categoriesDisabled
+                                  ? styles.mpCategoryChipActive
+                                  : styles.mpCategoryChipInactive,
                                 categoriesDisabled ? styles.mercadoPagoToggleButtonDisabled : null,
                                 pressed ? styles.mercadoPagoToggleButtonPressed : null,
                               ]}
                             >
                               <Text
                                 style={[
-                                  styles.mercadoPagoToggleButtonText,
-                                  isCategoryEnabled
-                                    ? styles.mercadoPagoToggleButtonTextActive
-                                    : styles.mercadoPagoToggleButtonTextInactive,
+                                  styles.mpCategoryChipText,
+                                  isCategoryEnabled && !categoriesDisabled
+                                    ? styles.mpCategoryChipTextActive
+                                    : styles.mpCategoryChipTextInactive,
                                 ]}
                               >
-                                {isCategoryEnabled ? "ON" : "OFF"}
+                                {category.label}
                               </Text>
                             </Pressable>
-                          </View>
-                        );
-                      })}
+                          );
+                        })}
+                      </View>
                     </View>
 
                     <Text style={styles.mercadoPagoHelpText}>
-                      En esta etapa PadelNexo usa Checkout Pro con credenciales de prueba. La
-                      vinculacion OAuth por organizador queda reservada para una etapa futura.
+                      Asegurate de tener abierta la cuenta correcta en Mercado Pago antes de vincular.
                     </Text>
                   </View>
                 </View>
@@ -750,6 +1060,10 @@ export default function ProfileModal({
                 onChangeText={(value) => updateField("name", value)}
                 placeholder="Tu nombre en la comunidad"
                 value={profile.name}
+              />
+              <BirthDateField
+                value={profile.fechaNacimiento}
+                onChange={(fecha) => updateField("fechaNacimiento", fecha)}
               />
               <AppInput
                 autoCapitalize="none"
@@ -1375,11 +1689,48 @@ const styles = StyleSheet.create({
   mercadoPagoToggleButtonTextInactive: {
     color: "#667482",
   },
+  mercadoPagoAccountName: {
+    color: "#3C6E91",
+    fontSize: 13,
+    fontWeight: "700",
+    marginBottom: spacing.sm,
+    textAlign: "center",
+  },
+  mpCategoryRow: {
+    flexDirection: "row",
+    gap: spacing.xs,
+    flexWrap: "wrap",
+    marginTop: 4,
+  },
+  mpCategoryChip: {
+    borderRadius: 999,
+    borderWidth: 1.5,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+  },
+  mpCategoryChipActive: {
+    backgroundColor: "#E8F5EE",
+    borderColor: "#1fa36d",
+  },
+  mpCategoryChipInactive: {
+    backgroundColor: "#F3F5F7",
+    borderColor: "#C8D3DC",
+  },
+  mpCategoryChipText: {
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  mpCategoryChipTextActive: {
+    color: "#0d5c3a",
+  },
+  mpCategoryChipTextInactive: {
+    color: "#7A8B99",
+  },
   mercadoPagoHelpText: {
     color: colors.muted,
     fontSize: 12,
     lineHeight: 18,
-    marginTop: spacing.xs,
+    marginTop: spacing.sm,
   },
   complexesHeader: {
     alignItems: "center",
@@ -1621,6 +1972,37 @@ const styles = StyleSheet.create({
   },
   confirmButtonPressed: {
     opacity: 0.9,
+  },
+  dateBlock: {
+    marginBottom: spacing.md,
+    marginTop: spacing.xs,
+  },
+  dateBlockLabel: {
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: "700",
+    marginBottom: 6,
+    textTransform: "uppercase",
+    textAlign: "center",
+  },
+  dateBlockField: {
+    borderColor: colors.border,
+    borderRadius: 14,
+    borderWidth: 1,
+    justifyContent: "center",
+    minHeight: 44,
+    paddingHorizontal: spacing.md,
+  },
+  dateBlockFieldPressed: {
+    opacity: 0.7,
+  },
+  dateBlockValue: {
+    color: colors.text,
+    fontSize: 15,
+  },
+  dateBlockPlaceholder: {
+    color: colors.muted,
+    fontSize: 15,
   },
 });
 

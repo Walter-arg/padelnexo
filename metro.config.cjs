@@ -36,4 +36,6 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
   return context.resolveRequest(context, moduleName, platform);
 };
 
+config.cacheVersion = "usb-v3";
+
 module.exports = config;

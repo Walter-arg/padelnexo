@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { FlatList, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, FlatList, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import PlayerCard from "../components/PlayerCard";
@@ -19,6 +19,7 @@ export default function FavoritosScreen({ navigation }) {
   const { userData } = useAuth();
   const currentUserId = userData?.uid;
   const [favoritePlayers, setFavoritePlayers] = useState(getFavoritePlayers(currentUserId));
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     let isCancelled = false;
@@ -30,11 +31,13 @@ export default function FavoritosScreen({ navigation }) {
 
         if (!isCancelled) {
           setFavoritePlayers(getFavoritePlayers(currentUserId));
+          setIsLoading(false);
         }
       } catch (error) {
         if (!isCancelled) {
           registerPlayersForFavorites(currentUserId, playersMock);
           setFavoritePlayers(getFavoritePlayers(currentUserId));
+          setIsLoading(false);
         }
       }
     };
@@ -63,10 +66,17 @@ export default function FavoritosScreen({ navigation }) {
           data={favoritePlayers}
           keyExtractor={(item) => item.id}
           ListEmptyComponent={
-            <View style={styles.emptyCard}>
-              <Text style={styles.emptyTitle}>Sin favoritos por ahora</Text>
-              <Text style={styles.emptyText}>Agrega perfiles para verlos aca.</Text>
-            </View>
+            isLoading ? (
+              <View style={styles.emptyCard}>
+                <ActivityIndicator color={colors.primaryDark} size="small" />
+                <Text style={styles.emptyTitle}>Cargando jugadores...</Text>
+              </View>
+            ) : (
+              <View style={styles.emptyCard}>
+                <Text style={styles.emptyTitle}>Sin favoritos por ahora</Text>
+                <Text style={styles.emptyText}>Agrega perfiles para verlos aca.</Text>
+              </View>
+            )
           }
           renderItem={({ item }) => (
             <PlayerCard

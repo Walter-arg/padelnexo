@@ -44,6 +44,7 @@ import {
 } from "../services/leaguesService";
 import { sendChatMessage } from "../services/chatService";
 import { listPlayers } from "../services/playersService";
+import { getUserId } from "../utils/getUserId";
 import { formatPlayerShortName, formatTeamShortLabel } from "../utils/playerDisplayName";
 
 function buildNextFixture(currentFixture, roundId, matchId, updater) {
@@ -1160,7 +1161,7 @@ export default function LeagueFixtureScreen({ navigation, route }) {
   const canSaveFixtureChanges = hasFixture && (canEditFixture || canRequestOwnReplacement);
   const hasUnsavedFixtureChanges =
     hasFixture && JSON.stringify(league?.fixture || { generatedAtMillis: 0, rounds: [] }) !== JSON.stringify(fixtureDraft);
-  const currentUserId = String(userData?.uid || userData?.id || "").trim().toLowerCase();
+  const currentUserId = getUserId(userData).toLowerCase();
   const individualFixturePreview = useMemo(
     () => buildIndividualFixturePreview(league || {}),
     [league]
@@ -2820,7 +2821,7 @@ export default function LeagueFixtureScreen({ navigation, route }) {
         requested: true,
         titular: normalizeReplacementPlayer(player, player.type || "league"),
         replacement: null,
-        requestedBy: userData?.uid || userData?.id || "",
+        requestedBy: getUserId(userData),
         requestedByName: userData?.name || player?.nombre || "Jugador",
         requestedAtMillis: Date.now(),
         penaltySnapshot: league?.scoringSettings?.replacementPenalty ?? null,
@@ -3224,7 +3225,7 @@ export default function LeagueFixtureScreen({ navigation, route }) {
     requested: true,
     titular: currentReplacement?.titular || normalizeReplacementPlayer(player, player.type || "league"),
     replacement: currentReplacement?.replacement || null,
-    requestedBy: userData?.uid || userData?.id || "",
+    requestedBy: getUserId(userData),
     requestedByName: userData?.name || player?.nombre || "Jugador",
     requestedAtMillis: currentReplacement?.requestedAtMillis || Date.now(),
     penaltySnapshot:
@@ -3479,7 +3480,7 @@ export default function LeagueFixtureScreen({ navigation, route }) {
         await Promise.allSettled(
           replacementConfirmationNotices.map((notice) =>
             sendChatMessage({
-              currentUserId: userData?.uid || userData?.id || "",
+              currentUserId: getUserId(userData),
               currentUserName: userData?.name || "Organizador",
               otherUserId: notice.recipientId,
               otherUserName: notice.recipientName,

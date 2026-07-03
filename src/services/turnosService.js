@@ -432,9 +432,18 @@ export async function saveOrganizerTurnosConfig(organizerId = "", config = {}) {
 }
 
 export async function listBookableComplexes() {
-  const usersSnapshot = await getDocs(collection(db, "users"));
+  const todayStartMillis = new Date().setHours(0, 0, 0, 0);
+  const usersSnapshot = await getDocs(
+    query(
+      collection(db, "users"),
+      where("role", "==", ORGANIZER_ROLE),
+      where("organizerStatus", "==", ORGANIZER_STATUS.APPROVED)
+    )
+  );
   const configsSnapshot = await getDocs(collection(db, "turnosConfigs"));
-  const reservationsSnapshot = await getDocs(collection(db, "turnoReservations"));
+  const reservationsSnapshot = await getDocs(
+    query(collection(db, "turnoReservations"), where("dateMillis", ">=", todayStartMillis))
+  );
   const configsByOrganizer = new Map(
     configsSnapshot.docs.map((configDoc) => [configDoc.id, configDoc.data()])
   );
@@ -471,12 +480,7 @@ export async function listBookableComplexes() {
   return usersSnapshot.docs
     .filter((docSnapshot) => {
       const data = docSnapshot.data() || {};
-      return (
-        data.role === ORGANIZER_ROLE &&
-        data.organizerStatus === ORGANIZER_STATUS.APPROVED &&
-        Array.isArray(data.complejos) &&
-        data.complejos.length > 0
-      );
+      return Array.isArray(data.complejos) && data.complejos.length > 0;
     })
     .flatMap((docSnapshot) => {
       const organizer = mapUserDocToOrganizer(docSnapshot, configsByOrganizer.get(docSnapshot.id));
@@ -532,7 +536,7 @@ export async function createTurnoReservation(payload = {}) {
   const reservationRef = await addDoc(collection(db, "turnoReservations"), {
     ...payload,
     createdByOrganizer,
-    organizerNotificationUnread: !createdByOrganizer,
+    organizerNotificationUnread: !createdByOrganizer && !isMercadoPagoReservation,
     requiresOrganizerApproval,
     status: isMercadoPagoReservation
       ? "pending_payment"
@@ -619,6 +623,17 @@ export async function updateTurnoReservationStatus(reservationId = "", status = 
   });
 
   return { id: reservationId, status };
+}
+
+export async function markTurnoReservationMercadoPagoNotified(reservationId = "") {
+  if (!reservationId) {
+    throw new Error("No encontramos la reserva.");
+  }
+
+  await updateDoc(doc(db, "turnoReservations", reservationId), {
+    organizerNotificationUnread: true,
+    updatedAt: serverTimestamp(),
+  });
 }
 
 export async function markTurnoReservationNotificationRead(reservationId = "") {

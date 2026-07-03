@@ -5,16 +5,68 @@ const {
   admin,
   applyCors,
   getDb,
-  getMercadoPagoPreferenceClient,
+  getMercadoPagoPreferenceRuntime,
   getOptionalEnv,
   handlePreflight,
   logger,
   mercadoPagoRequest,
+  shouldUseMercadoPagoSandboxCheckout,
 } = require("./mercadoPagoShared");
 
 function normalizeMoney(value) {
   const amount = Number(value || 0);
   return Number.isFinite(amount) && amount > 0 ? Math.round(amount) : 0;
+}
+
+function appendOrganizerIdToNotificationUrl(baseUrl = "", organizerId = "") {
+  const normalizedUrl = String(baseUrl || "").trim();
+  const normalizedOrganizerId = String(organizerId || "").trim();
+
+  if (!normalizedUrl || !normalizedOrganizerId) {
+    return normalizedUrl || undefined;
+  }
+
+  const separator = normalizedUrl.includes("?") ? "&" : "?";
+  return `${normalizedUrl}${separator}organizerId=${encodeURIComponent(normalizedOrganizerId)}`;
+}
+
+async function resolveTurnoOrganizerId(reservationId = "") {
+  const normalizedReservationId = String(reservationId || "").trim();
+
+  if (!normalizedReservationId) {
+    return "";
+  }
+
+  const snapshot = await getDb().collection("turnoReservations").doc(normalizedReservationId).get();
+  const data = snapshot.exists ? snapshot.data() || {} : {};
+
+  return String(data.organizerId || "").trim();
+}
+
+async function resolveLeagueOrganizerId(leagueId = "") {
+  const normalizedLeagueId = String(leagueId || "").trim();
+
+  if (!normalizedLeagueId) {
+    return "";
+  }
+
+  const snapshot = await getDb().collection("leagues").doc(normalizedLeagueId).get();
+  const data = snapshot.exists ? snapshot.data() || {} : {};
+
+  return String(data.organizerId || data.createdBy || "").trim();
+}
+
+async function resolveTournamentOrganizerId(tournamentId = "") {
+  const normalizedTournamentId = String(tournamentId || "").trim();
+
+  if (!normalizedTournamentId) {
+    return "";
+  }
+
+  const snapshot = await getDb().collection("tournaments").doc(normalizedTournamentId).get();
+  const data = snapshot.exists ? snapshot.data() || {} : {};
+
+  return String(data.organizerId || data.createdBy || "").trim();
 }
 
 function buildTurnoItemTitle(payload = {}) {
@@ -236,6 +288,7 @@ const mercadoPagoCreateTurnoPreference = onRequest({ invoker: "public" }, async 
   try {
     const payload = req.body || {};
     const reservationId = String(payload.reservationId || "").trim();
+    const organizerId = String(payload.organizerId || "").trim();
     const amount = normalizeMoney(payload.amount);
 
     if (!reservationId) {
@@ -273,9 +326,11 @@ const mercadoPagoCreateTurnoPreference = onRequest({ invoker: "public" }, async 
       statement_descriptor: String(
         getOptionalEnv("MERCADO_PAGO_STATEMENT_DESCRIPTOR") || "PADELNEXO"
       ).trim(),
-      notification_url: String(
-        payload.notificationUrl || getOptionalEnv("MERCADO_PAGO_WEBHOOK_URL") || ""
-      ).trim() || undefined,
+      notification_url:
+        appendOrganizerIdToNotificationUrl(
+          String(payload.notificationUrl || getOptionalEnv("MERCADO_PAGO_WEBHOOK_URL") || "").trim(),
+          organizerId
+        ) || undefined,
       back_urls:
         payload.successUrl || payload.failureUrl || payload.pendingUrl
           ? {
@@ -289,17 +344,19 @@ const mercadoPagoCreateTurnoPreference = onRequest({ invoker: "public" }, async 
 
     logger.info("Creando preferencia de Checkout Pro", {
       amount,
-      organizerId: String(payload.organizerId || "").trim(),
+      organizerId,
       reservationId,
       title: preferenceBody.items?.[0]?.title || "",
     });
 
-    const preference = await getMercadoPagoPreferenceClient().create({
+    const preferenceRuntime = await getMercadoPagoPreferenceRuntime({ organizerId });
+    const preference = await preferenceRuntime.client.create({
       body: preferenceBody,
     });
 
     logger.info("Preferencia creada correctamente", {
       preferenceId: String(preference.id || "").trim(),
+      paymentSource: preferenceRuntime.context.source,
       reservationId,
     });
     logger.info("URL de Checkout Pro generada correctamente", {
@@ -321,7 +378,9 @@ const mercadoPagoCreateTurnoPreference = onRequest({ invoker: "public" }, async 
 
     res.status(200).json({
       id: preference.id,
+      checkoutMode: shouldUseMercadoPagoSandboxCheckout() ? "sandbox" : "production",
       initPoint: preference.init_point || "",
+      paymentSource: preferenceRuntime.context.source,
       sandboxInitPoint: preference.sandbox_init_point || "",
       preferenceId: preference.id || "",
     });
@@ -914,6 +973,7 @@ const mercadoPagoCreateLeaguePreference = onRequest({ invoker: "public" }, async
   try {
     const payload = req.body || {};
     const leagueId = String(payload.leagueId || "").trim();
+    const organizerId = String(payload.organizerId || "").trim();
     const checkoutTargets = normalizeLeagueCheckoutTargets(payload);
     const primaryTarget = checkoutTargets[0] || {};
     const roundId = String(primaryTarget.roundId || payload.roundId || "").trim();
@@ -962,9 +1022,11 @@ const mercadoPagoCreateLeaguePreference = onRequest({ invoker: "public" }, async
       statement_descriptor: String(
         getOptionalEnv("MERCADO_PAGO_STATEMENT_DESCRIPTOR") || "PADELNEXO"
       ).trim(),
-      notification_url: String(
-        payload.notificationUrl || getOptionalEnv("MERCADO_PAGO_WEBHOOK_URL") || ""
-      ).trim() || undefined,
+      notification_url:
+        appendOrganizerIdToNotificationUrl(
+          String(payload.notificationUrl || getOptionalEnv("MERCADO_PAGO_WEBHOOK_URL") || "").trim(),
+          organizerId
+        ) || undefined,
       back_urls:
         payload.successUrl || payload.failureUrl || payload.pendingUrl
           ? {
@@ -986,13 +1048,15 @@ const mercadoPagoCreateLeaguePreference = onRequest({ invoker: "public" }, async
       title: preferenceBody.items?.[0]?.title || "",
     });
 
-    const preference = await getMercadoPagoPreferenceClient().create({
+    const preferenceRuntime = await getMercadoPagoPreferenceRuntime({ organizerId });
+    const preference = await preferenceRuntime.client.create({
       body: preferenceBody,
     });
 
     logger.info("Preferencia creada correctamente para liga", {
       leagueId,
       participantId,
+      paymentSource: preferenceRuntime.context.source,
       preferenceId: String(preference.id || "").trim(),
       roundId,
     });
@@ -1008,9 +1072,11 @@ const mercadoPagoCreateLeaguePreference = onRequest({ invoker: "public" }, async
       id: preference.id,
       externalReference,
       batchCount: checkoutTargets.length,
+      checkoutMode: shouldUseMercadoPagoSandboxCheckout() ? "sandbox" : "production",
       initPoint: preference.init_point || "",
       leagueId,
       participantId,
+      paymentSource: preferenceRuntime.context.source,
       preferenceId: preference.id || "",
       roundId,
       sandboxInitPoint: preference.sandbox_init_point || "",
@@ -1038,6 +1104,7 @@ const mercadoPagoCreateTournamentPreference = onRequest({ invoker: "public" }, a
   try {
     const payload = req.body || {};
     const tournamentId = String(payload.tournamentId || "").trim();
+    const organizerId = String(payload.organizerId || "").trim();
     const registrationId = String(payload.registrationId || "").trim();
     const playerId = String(payload.playerId || "").trim();
     const amount = normalizeMoney(payload.amount);
@@ -1084,9 +1151,11 @@ const mercadoPagoCreateTournamentPreference = onRequest({ invoker: "public" }, a
       statement_descriptor: String(
         getOptionalEnv("MERCADO_PAGO_STATEMENT_DESCRIPTOR") || "PADELNEXO"
       ).trim(),
-      notification_url: String(
-        payload.notificationUrl || getOptionalEnv("MERCADO_PAGO_WEBHOOK_URL") || ""
-      ).trim() || undefined,
+      notification_url:
+        appendOrganizerIdToNotificationUrl(
+          String(payload.notificationUrl || getOptionalEnv("MERCADO_PAGO_WEBHOOK_URL") || "").trim(),
+          organizerId
+        ) || undefined,
       back_urls:
         payload.successUrl || payload.failureUrl || payload.pendingUrl
           ? {
@@ -1107,12 +1176,14 @@ const mercadoPagoCreateTournamentPreference = onRequest({ invoker: "public" }, a
       tournamentId,
     });
 
-    const preference = await getMercadoPagoPreferenceClient().create({
+    const preferenceRuntime = await getMercadoPagoPreferenceRuntime({ organizerId });
+    const preference = await preferenceRuntime.client.create({
       body: preferenceBody,
     });
 
     logger.info("Preferencia creada correctamente para torneo", {
       playerId,
+      paymentSource: preferenceRuntime.context.source,
       preferenceId: String(preference.id || "").trim(),
       registrationId,
       tournamentId,
@@ -1128,7 +1199,9 @@ const mercadoPagoCreateTournamentPreference = onRequest({ invoker: "public" }, a
     res.status(200).json({
       id: preference.id,
       externalReference,
+      checkoutMode: shouldUseMercadoPagoSandboxCheckout() ? "sandbox" : "production",
       initPoint: preference.init_point || "",
+      paymentSource: preferenceRuntime.context.source,
       sandboxInitPoint: preference.sandbox_init_point || "",
       preferenceId: preference.id || "",
     });
@@ -1156,6 +1229,8 @@ const mercadoPagoSyncTurnoPayment = onRequest({ invoker: "public" }, async (req,
     const payload = req.body || {};
     const paymentId = String(payload.paymentId || "").trim();
     const reservationId = String(payload.reservationId || "").trim();
+    const organizerId =
+      String(payload.organizerId || "").trim() || (await resolveTurnoOrganizerId(reservationId));
 
     if (!paymentId && !reservationId) {
       res.status(400).json({
@@ -1167,9 +1242,13 @@ const mercadoPagoSyncTurnoPayment = onRequest({ invoker: "public" }, async (req,
     let payment = null;
 
     if (paymentId) {
-      payment = await mercadoPagoRequest(`/v1/payments/${paymentId}`, {
-        method: "GET",
-      });
+      payment = await mercadoPagoRequest(
+        `/v1/payments/${paymentId}`,
+        {
+          method: "GET",
+        },
+        { organizerId }
+      );
     } else {
       const searchResult = await mercadoPagoRequest(
         `/v1/payments/search?external_reference=${encodeURIComponent(
@@ -1177,7 +1256,8 @@ const mercadoPagoSyncTurnoPayment = onRequest({ invoker: "public" }, async (req,
         )}&sort=date_created&criteria=desc&limit=1`,
         {
           method: "GET",
-        }
+        },
+        { organizerId }
       );
 
       payment = Array.isArray(searchResult.results) ? searchResult.results[0] || null : null;
@@ -1240,6 +1320,7 @@ const mercadoPagoWebhook = onRequest({ invoker: "public" }, async (req, res) => 
 
     const topic = resolveWebhookTopic(req);
     const paymentId = resolveWebhookPaymentId(req);
+    const organizerId = String(req.query?.organizerId || req.body?.organizerId || "").trim();
 
     if (topic && topic !== "payment") {
       res.status(200).json({ received: true, ignored: true, topic });
@@ -1254,9 +1335,13 @@ const mercadoPagoWebhook = onRequest({ invoker: "public" }, async (req, res) => 
     let payment = null;
 
     try {
-      payment = await mercadoPagoRequest(`/v1/payments/${paymentId}`, {
-        method: "GET",
-      });
+      payment = await mercadoPagoRequest(
+        `/v1/payments/${paymentId}`,
+        {
+          method: "GET",
+        },
+        { organizerId }
+      );
     } catch (error) {
       if (isWebhookSimulation(req)) {
         logger.info("Webhook de simulacion recibido correctamente", {
@@ -1370,6 +1455,8 @@ const mercadoPagoSyncLeaguePayment = onRequest({ invoker: "public" }, async (req
     const resolvedLeagueId = leagueId || parsedPayloadExternalReference.leagueId;
     const resolvedRoundId = roundId || parsedPayloadExternalReference.roundId;
     const resolvedParticipantId = participantId || parsedPayloadExternalReference.participantId;
+    const organizerId =
+      String(payload.organizerId || "").trim() || (await resolveLeagueOrganizerId(resolvedLeagueId));
 
     if (
       !paymentId &&
@@ -1385,9 +1472,13 @@ const mercadoPagoSyncLeaguePayment = onRequest({ invoker: "public" }, async (req
     let payment = null;
 
     if (paymentId) {
-      payment = await mercadoPagoRequest(`/v1/payments/${paymentId}`, {
-        method: "GET",
-      });
+      payment = await mercadoPagoRequest(
+        `/v1/payments/${paymentId}`,
+        {
+          method: "GET",
+        },
+        { organizerId }
+      );
     } else {
       const searchResult = await mercadoPagoRequest(
         `/v1/payments/search?external_reference=${encodeURIComponent(
@@ -1395,7 +1486,8 @@ const mercadoPagoSyncLeaguePayment = onRequest({ invoker: "public" }, async (req
         )}&sort=date_created&criteria=desc&limit=20`,
         {
           method: "GET",
-        }
+        },
+        { organizerId }
       );
 
       payment =
@@ -1569,6 +1661,9 @@ const mercadoPagoSyncTournamentPayment = onRequest({ invoker: "public" }, async 
     const resolvedRegistrationId =
       registrationId || parsedPayloadExternalReference.registrationId;
     const resolvedPlayerId = playerId || parsedPayloadExternalReference.playerId;
+    const organizerId =
+      String(payload.organizerId || "").trim() ||
+      (await resolveTournamentOrganizerId(resolvedTournamentId));
 
     if (!paymentId && !externalReference && (!resolvedTournamentId || !resolvedRegistrationId || !resolvedPlayerId)) {
       res.status(400).json({
@@ -1580,9 +1675,13 @@ const mercadoPagoSyncTournamentPayment = onRequest({ invoker: "public" }, async 
     let payment = null;
 
     if (paymentId) {
-      payment = await mercadoPagoRequest(`/v1/payments/${paymentId}`, {
-        method: "GET",
-      });
+      payment = await mercadoPagoRequest(
+        `/v1/payments/${paymentId}`,
+        {
+          method: "GET",
+        },
+        { organizerId }
+      );
     } else {
       const searchResult = await mercadoPagoRequest(
         `/v1/payments/search?external_reference=${encodeURIComponent(
@@ -1590,7 +1689,8 @@ const mercadoPagoSyncTournamentPayment = onRequest({ invoker: "public" }, async 
         )}&sort=date_created&criteria=desc&limit=20`,
         {
           method: "GET",
-        }
+        },
+        { organizerId }
       );
 
       payment =

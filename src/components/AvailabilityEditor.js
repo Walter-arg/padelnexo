@@ -25,7 +25,6 @@ import {
   removeTournamentCustomSlot,
   toggleTournamentQuickSlot,
 } from "../services/tournamentAvailabilityService";
-import AvailabilitySummary from "./AvailabilitySummary";
 import CustomTimeSheet from "./CustomTimeSheet";
 import DaySelector from "./DaySelector";
 import FeedbackModal from "./FeedbackModal";
@@ -109,19 +108,11 @@ export default function AvailabilityEditor({
     (customDayOptions
       ? "Selecciona fechas reales del torneo y agrega uno o mas horarios posibles."
       : "Indica los dias y horarios en los que soles jugar");
-  const resolvedSummaryEmptyText =
-    summaryEmptyText ||
-    (customDayOptions
-      ? "Todavia no cargaste disponibilidad para este torneo."
-      : "Todavia no configuraste disponibilidad semanal.");
   const resolvedSaveMessage =
     saveSuccessMessage ||
     (customDayOptions
       ? "Tu disponibilidad para el torneo ya quedo actualizada."
       : "Tu disponibilidad semanal ya quedo actualizada.");
-  const resolvedSummaryTitle = customDayOptions
-    ? "RESUMEN DE DISPONIBILIDAD"
-    : "Resumen semanal";
   const resolvedCustomButtonLabel = customDayOptions ? "Agregar horario" : "Personalizar";
   const defaultDayKey = days[0]?.key || "monday";
   const [availability, setAvailability] = useState(() => createEmptyCurrentAvailability());
@@ -136,7 +127,6 @@ export default function AvailabilityEditor({
     message: "",
     tone: "default",
   });
-  const [isClearAllConfirmVisible, setIsClearAllConfirmVisible] = useState(false);
   const quickSlots = useMemo(() => getQuickSlotDefinitions(), []);
   const selectedDay = availability[selectedDayKey] || { quickSlots: [], customSlots: [] };
   const summaryItems = getSummaryItems(availability);
@@ -258,10 +248,6 @@ export default function AvailabilityEditor({
     }
   };
 
-  const handleClearAll = () => {
-    setIsClearAllConfirmVisible(true);
-  };
-
   return (
     <>
       <Modal animationType="slide" onRequestClose={onClose} transparent visible={visible}>
@@ -293,77 +279,39 @@ export default function AvailabilityEditor({
               ) : null}
 
               <View style={styles.dayCard}>
-                <View style={styles.dayCardHeader}>
-                  <Text style={styles.dayCardTitle}>{resolveDayLabel(selectedDayKey)}</Text>
-                  <View style={styles.dayCardActions}>
-                    <Pressable
-                      onPress={handleOpenCustomSheet}
-                      style={({ pressed }) => [
-                        styles.customButtonInline,
-                        pressed && styles.customButtonPressed,
-                      ]}
-                    >
-                      <Text style={styles.customButtonInlineText}>{resolvedCustomButtonLabel}</Text>
-                    </Pressable>
-                    {(selectedDay.quickSlots.length > 0 || selectedDay.customSlots.length > 0) ? (
-                      <Pressable
-                        onPress={() =>
-                          setAvailability((current) =>
-                            clearCurrentDayAvailability(current, selectedDayKey)
-                          )
-                        }
-                        style={styles.clearDayButton}
-                      >
-                        <Text style={styles.clearDayButtonText}>Limpiar dia</Text>
-                      </Pressable>
-                    ) : null}
-                  </View>
-                </View>
-
-                {selectedDay.customSlots.length > 0 ? (
-                  <View style={styles.customSlotsWrap}>
-                    {selectedDay.customSlots.map((slot, index) => (
-                      <View key={`${slot.from}-${slot.to}`} style={styles.customSlotCard}>
-                        <Text style={styles.customSlotText}>
-                          {slot.from} a {slot.to}
-                        </Text>
-                        <Pressable
-                          onPress={() =>
-                            setAvailability((current) =>
-                              removeCurrentCustomSlot(current, selectedDayKey, index)
-                            )
-                          }
-                        >
-                          <Text style={styles.customSlotRemove}>Quitar</Text>
-                        </Pressable>
-                      </View>
-                    ))}
+                {days.some((day) => (availability[day.key]?.customSlots || []).length > 0) ? (
+                  <View style={styles.allSlotsWrap}>
+                    {days.flatMap((day) =>
+                      (availability[day.key]?.customSlots || []).map((slot, slotIndex) => (
+                        <View key={`${day.key}-${slot.from}-${slot.to}-${slotIndex}`} style={styles.allSlotRow}>
+                          <Text numberOfLines={1} style={styles.allSlotDay}>
+                            {resolveDayLabel(day.key)}
+                          </Text>
+                          <Text style={styles.allSlotTime}>{slot.from} - {slot.to}</Text>
+                          <Pressable
+                            onPress={() =>
+                              setAvailability((current) =>
+                                removeCurrentCustomSlot(current, day.key, slotIndex)
+                              )
+                            }
+                          >
+                            <Text style={styles.customSlotRemove}>Quitar</Text>
+                          </Pressable>
+                        </View>
+                      ))
+                    )}
                   </View>
                 ) : null}
-              </View>
 
-              <View style={styles.summaryFooter}>
-                <View style={styles.summaryHeaderRow}>
-                  <View>
-                    <Text style={styles.summaryTitle}>{resolvedSummaryTitle}</Text>
-                    <Text style={styles.summarySubtitle}>
-                      {summaryItems.length > 0
-                        ? `${summaryItems.length} dia${summaryItems.length === 1 ? "" : "s"} con horarios`
-                        : "Todavia no cargaste horarios"}
-                    </Text>
-                  </View>
-                  <Pressable onPress={handleClearAll} style={styles.clearAllButton}>
-                    <Text style={styles.clearAllButtonText}>Limpiar</Text>
-                  </Pressable>
-                </View>
-
-                <AvailabilitySummary
-                  emptyText={resolvedSummaryEmptyText}
-                  items={summaryItems}
-                  onRemoveDay={(dayKey) =>
-                    setAvailability((current) => clearCurrentDayAvailability(current, dayKey))
-                  }
-                />
+                <Pressable
+                  onPress={handleOpenCustomSheet}
+                  style={({ pressed }) => [
+                    styles.customButtonInline,
+                    pressed && styles.customButtonPressed,
+                  ]}
+                >
+                  <Text style={styles.customButtonInlineText}>{resolvedCustomButtonLabel}</Text>
+                </Pressable>
               </View>
 
               <View style={styles.actions}>
@@ -409,48 +357,6 @@ export default function AvailabilityEditor({
         visible={feedback.visible}
       />
 
-      <Modal
-        animationType="fade"
-        onRequestClose={() => setIsClearAllConfirmVisible(false)}
-        transparent
-        visible={isClearAllConfirmVisible}
-      >
-        <View style={styles.confirmOverlay}>
-          <Pressable
-            onPress={() => setIsClearAllConfirmVisible(false)}
-            style={styles.confirmBackdrop}
-          />
-          <View style={styles.confirmCard}>
-            <Text style={styles.confirmTitle}>Limpiar disponibilidad</Text>
-            <Text style={styles.confirmMessage}>
-              Se van a quitar todos los dias y horarios seleccionados.
-            </Text>
-            <View style={styles.confirmActions}>
-              <Pressable
-                onPress={() => setIsClearAllConfirmVisible(false)}
-                style={({ pressed }) => [
-                  styles.confirmSecondaryButton,
-                  pressed && styles.customButtonPressed,
-                ]}
-              >
-                <Text style={styles.confirmSecondaryButtonText}>Cancelar</Text>
-              </Pressable>
-              <Pressable
-                onPress={() => {
-                  setAvailability(createEmptyCurrentAvailability());
-                  setIsClearAllConfirmVisible(false);
-                }}
-                style={({ pressed }) => [
-                  styles.confirmDangerButton,
-                  pressed && styles.customButtonPressed,
-                ]}
-              >
-                <Text style={styles.confirmDangerButtonText}>Limpiar</Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
     </>
   );
 }
@@ -491,8 +397,9 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   subtitle: {
-    color: colors.muted,
+    color: "#0EA5E9",
     fontSize: 14,
+    fontWeight: "700",
     lineHeight: 20,
     marginTop: spacing.xs,
     textAlign: "center",
@@ -503,73 +410,42 @@ const styles = StyleSheet.create({
     paddingHorizontal: 0,
     paddingVertical: 4,
   },
-  dayCardHeader: {
+  allSlotsWrap: {
+    gap: 6,
+    marginBottom: 4,
+  },
+  allSlotRow: {
     alignItems: "center",
     flexDirection: "row",
-    justifyContent: "space-between",
+    gap: 10,
+    paddingVertical: 6,
+    borderBottomColor: colors.border,
+    borderBottomWidth: 1,
   },
-  dayCardActions: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: spacing.xs,
-  },
-  dayCardTitle: {
+  allSlotDay: {
     color: colors.primaryDark,
-    fontSize: 14,
-    fontWeight: "800",
-    textTransform: "uppercase",
+    flex: 1,
+    fontSize: 13,
+    fontWeight: "700",
   },
-  summaryHeaderRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginTop: spacing.lg,
-  },
-  summarySubtitle: {
-    color: colors.muted,
+  allSlotTime: {
+    color: colors.text,
+    flex: 1,
     fontSize: 13,
     fontWeight: "600",
-    marginTop: 2,
-  },
-  clearAllButton: {
-    alignItems: "center",
-    backgroundColor: "#FFF1F1",
-    borderColor: "#E8C8C8",
-    borderRadius: 999,
-    borderWidth: 1,
-    justifyContent: "center",
-    minHeight: 30,
-    paddingHorizontal: 12,
-  },
-  clearAllButtonText: {
-    color: "#B44B4B",
-    fontSize: 12,
-    fontWeight: "800",
-  },
-  clearDayButton: {
-    alignItems: "center",
-    backgroundColor: "#FFF1F1",
-    borderColor: "#E8C8C8",
-    borderRadius: 999,
-    borderWidth: 1,
-    justifyContent: "center",
-    minHeight: 28,
-    paddingHorizontal: 10,
-  },
-  clearDayButtonText: {
-    color: "#B44B4B",
-    fontSize: 12,
-    fontWeight: "800",
+    textAlign: "center",
   },
   customButtonInline: {
     alignItems: "center",
+    alignSelf: "flex-start",
     backgroundColor: "transparent",
     borderColor: "#D3E5DD",
     borderRadius: 999,
     borderWidth: 1,
     justifyContent: "center",
-    minHeight: 24,
-    paddingHorizontal: 10,
+    marginTop: 10,
+    minHeight: 28,
+    paddingHorizontal: 12,
   },
   customButtonPressed: {
     opacity: 0.92,
@@ -579,39 +455,10 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "800",
   },
-  customSlotsWrap: {
-    gap: spacing.xs,
-    marginTop: spacing.sm,
-  },
-  customSlotCard: {
-    alignItems: "center",
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: 16,
-    borderWidth: 1,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    minHeight: 42,
-    paddingHorizontal: spacing.md,
-  },
-  customSlotText: {
-    color: colors.text,
-    fontSize: 14,
-    fontWeight: "700",
-  },
   customSlotRemove: {
     color: "#B44B4B",
     fontSize: 12,
     fontWeight: "800",
-  },
-  summaryTitle: {
-    color: colors.primaryDark,
-    fontSize: 13,
-    fontWeight: "800",
-    textTransform: "uppercase",
-  },
-  summaryFooter: {
-    marginTop: spacing.sm,
   },
   actions: {
     flexDirection: "row",

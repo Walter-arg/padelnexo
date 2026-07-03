@@ -3,6 +3,7 @@ import {
   deleteUser,
   GoogleAuthProvider,
   reauthenticateWithCredential,
+  sendEmailVerification,
   sendPasswordResetEmail,
   signInWithEmailAndPassword,
   signInWithCredential,
@@ -11,12 +12,13 @@ import {
 
 import { auth } from "../../services/firebaseConfig";
 import { getFirebaseErrorMessage } from "./firebaseErrors";
+import devLog from "../utils/devLog";
 
 export async function registerUser(email, password) {
   try {
     return await createUserWithEmailAndPassword(auth, email, password);
   } catch (error) {
-    console.log("[authService] registerUser error:", error?.code, error?.message);
+    devLog("[authService] registerUser error:", error?.code, error?.message);
     throw new Error(
       getFirebaseErrorMessage(error, "No pudimos crear tu cuenta en este momento.")
     );
@@ -27,7 +29,7 @@ export async function loginUser(email, password) {
   try {
     return await signInWithEmailAndPassword(auth, email, password);
   } catch (error) {
-    console.log("[authService] loginUser error:", error?.code, error?.message);
+    devLog("[authService] loginUser error:", error?.code, error?.message);
     throw new Error(
       getFirebaseErrorMessage(error, "No pudimos iniciar sesion en este momento.")
     );
@@ -43,7 +45,7 @@ export async function loginWithGoogleIdToken(idToken) {
     const credential = GoogleAuthProvider.credential(idToken);
     return await signInWithCredential(auth, credential);
   } catch (error) {
-    console.log("[authService] loginWithGoogleIdToken error:", error?.code, error?.message);
+    devLog("[authService] loginWithGoogleIdToken error:", error?.code, error?.message);
     throw new Error(
       getFirebaseErrorMessage(error, "No pudimos ingresar con Google en este momento.")
     );
@@ -104,7 +106,7 @@ export async function deleteCurrentUserAccount(reauthenticate) {
       await deleteUser(auth.currentUser);
     }
   } catch (error) {
-    console.log("[authService] deleteCurrentUserAccount error:", error?.code, error?.message);
+    devLog("[authService] deleteCurrentUserAccount error:", error?.code, error?.message);
     throw new Error(
       getFirebaseErrorMessage(
         error,
@@ -113,6 +115,24 @@ export async function deleteCurrentUserAccount(reauthenticate) {
           : "No pudimos eliminar tu cuenta en este momento."
       )
     );
+  }
+}
+
+export async function resendVerificationEmail() {
+  if (!auth.currentUser) {
+    throw new Error("No hay una sesion activa.");
+  }
+
+  try {
+    await sendEmailVerification(auth.currentUser);
+  } catch (error) {
+    devLog("[authService] resendVerificationEmail error:", error?.code, error?.message);
+
+    if (error?.code === "auth/too-many-requests") {
+      throw new Error("Espera unos minutos antes de volver a solicitarlo.");
+    }
+
+    throw new Error("No pudimos reenviar el email. Intentalo en unos instantes.");
   }
 }
 

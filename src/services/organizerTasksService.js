@@ -79,10 +79,7 @@ export function hasUnreadTurnoReservationNotification(reservation = {}) {
 }
 
 export function isPendingTurnoNotification(reservation = {}) {
-  return (
-    isActionableTurnoReservation(reservation) ||
-    hasUnreadTurnoReservationNotification(reservation)
-  );
+  return isActionableTurnoReservation(reservation);
 }
 
 function mapLeagueRegistrationRequest(docSnapshot) {

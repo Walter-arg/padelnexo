@@ -147,14 +147,14 @@ function appendCheckoutQueryParams(baseUrl = "", params = {}) {
 }
 
 function buildCategoryWarning(tournament = {}, player1 = null, player2 = null) {
+  if (!player1 || !player2) {
+    return "";
+  }
+
   const composition = tournament?.compositionConfig || {};
 
   if (composition.categoryFormat === "suma") {
-    if (player1 && player2) {
-      return "Aviso: la categoria del torneo es orientativa y la pareja se puede cargar igual.";
-    }
-
-    return "";
+    return "Aviso: la categoria del torneo es orientativa y la pareja se puede cargar igual.";
   }
 
   if (!composition.fixedCategoryA) {
@@ -163,7 +163,6 @@ function buildCategoryWarning(tournament = {}, player1 = null, player2 = null) {
 
   const expectedCategory = normalizeCategoryTag(composition.fixedCategoryA);
   const mismatchedPlayers = [player1, player2]
-    .filter(Boolean)
     .filter((player) => normalizeCategoryTag(player?.categoria) !== expectedCategory)
     .map((player) => getPlayerDisplayName(player));
 
@@ -311,7 +310,13 @@ export default function TournamentRegistrationPanel({
   const [playerPickerVisible, setPlayerPickerVisible] = useState(false);
   const [playerPickerQuery, setPlayerPickerQuery] = useState("");
   const [playerCategoryFilter, setPlayerCategoryFilter] = useState("");
-  const [playerCategoryPickerVisible, setPlayerCategoryPickerVisible] = useState(false);
+  const [playerSexFilter, setPlayerSexFilter] = useState("");
+  const [playerCityFilter, setPlayerCityFilter] = useState("");
+  const [playerFilterVisible, setPlayerFilterVisible] = useState(false);
+  const [pendingPairs, setPendingPairs] = useState([]);
+  const [pairMeta, setPairMeta] = useState({});
+  const [activePairForAvailability, setActivePairForAvailability] = useState(null);
+  const [expandedPairPaymentIndex, setExpandedPairPaymentIndex] = useState(null);
   const [guestModalVisible, setGuestModalVisible] = useState(false);
   const [guestTarget, setGuestTarget] = useState("player1");
   const [guestName, setGuestName] = useState("");
@@ -605,17 +610,20 @@ export default function TournamentRegistrationPanel({
     Boolean(selectedPartner);
 
   const occupiedPlayerIds = useMemo(() => {
-    return new Set(
-      registrations
+    const pendingIds = pendingPairs.flatMap((pair) => [pair.player1?.id, pair.player2?.id]).filter(Boolean);
+
+    return new Set([
+      ...registrations
         .filter((entry) => entry?.withdrawalStatus !== "confirmed")
         .filter((entry) => entry.id !== registration?.id)
         .flatMap((entry) => [
           getRegistrationSidePlayerKey(entry, "player1"),
           getRegistrationSidePlayerKey(entry, "player2"),
         ])
-        .filter(Boolean)
-    );
-  }, [registration?.id, registrations]);
+        .filter(Boolean),
+      ...pendingIds,
+    ]);
+  }, [pendingPairs, registration?.id, registrations]);
 
   const selectedPlayer1Id = selectedPlayer1?.id || "";
 
@@ -686,14 +694,6 @@ export default function TournamentRegistrationPanel({
     ).sort((left, right) => left.localeCompare(right));
   }, [playersSource]);
 
-  const playerCategorySelectOptions = useMemo(
-    () => [
-      { label: "Todas las categorias", value: "" },
-      ...playerCategoryOptions.map((category) => ({ label: category, value: category })),
-    ],
-    [playerCategoryOptions]
-  );
-
   const playerPickerResults = useMemo(() => {
     const normalizedQuery = normalizeText(playerPickerQuery);
     const otherSelectedId = activePairSlot === "player1" ? selectedPartner?.id : selectedPlayer1?.id;
@@ -701,13 +701,9 @@ export default function TournamentRegistrationPanel({
     return playersSource
       .filter((player) => normalizeText(player?.id) !== normalizeText(otherSelectedId))
       .filter((player) => !occupiedPlayerIds.has(player.id))
-      .filter((player) => {
-        if (!playerCategoryFilter) {
-          return true;
-        }
-
-        return normalizeText(player?.categoria) === normalizeText(playerCategoryFilter);
-      })
+      .filter((player) => !playerCategoryFilter || normalizeText(player?.categoria) === normalizeText(playerCategoryFilter))
+      .filter((player) => !playerSexFilter || normalizeText(player?.sexo) === normalizeText(playerSexFilter))
+      .filter((player) => !playerCityFilter || normalizeText(player?.ciudad).includes(normalizeText(playerCityFilter)))
       .filter((player) => {
         if (!normalizedQuery) {
           return true;
@@ -723,7 +719,9 @@ export default function TournamentRegistrationPanel({
     activePairSlot,
     occupiedPlayerIds,
     playerCategoryFilter,
+    playerCityFilter,
     playerPickerQuery,
+    playerSexFilter,
     playersSource,
     selectedPartner?.id,
     selectedPlayer1?.id,
@@ -813,6 +811,9 @@ export default function TournamentRegistrationPanel({
     setActivePairSlot(slotKey);
     setPlayerPickerQuery("");
     setPlayerCategoryFilter("");
+    setPlayerSexFilter("");
+    setPlayerCityFilter("");
+    setPlayerFilterVisible(false);
     setPlayerPickerVisible(true);
   };
 
@@ -822,7 +823,29 @@ export default function TournamentRegistrationPanel({
     if (slotKey === "player1") {
       setSelectedPlayer1(player);
       setPlayer1Query(label);
+      if (isOrganizerCreating) {
+        setActivePairSlot("player2");
+        setPlayerPickerQuery("");
+        setPlayerCategoryFilter("");
+        setPlayerSexFilter("");
+        setPlayerCityFilter("");
+        setPlayerFilterVisible(false);
+        return;
+      }
     } else {
+      if (isOrganizerCreating) {
+        setPendingPairs((prev) => [...prev, { player1: selectedPlayer1, player2: player }]);
+        setSelectedPlayer1(null);
+        setPlayer1Query("");
+        setActivePairSlot("player1");
+        setPlayerPickerQuery("");
+        setPlayerCategoryFilter("");
+        setPlayerSexFilter("");
+        setPlayerCityFilter("");
+        setPlayerFilterVisible(false);
+        return;
+      }
+
       setSelectedPartner(player);
       setPartnerQuery(label);
     }
@@ -909,21 +932,51 @@ export default function TournamentRegistrationPanel({
       isGuest: true,
     };
 
+    const resetGuest = () => {
+      setGuestModalVisible(false);
+      setGuestTarget("player1");
+      setGuestName("");
+      setGuestLastName("");
+      setGuestCategory("");
+      setGuestSex("Masculino");
+    };
+
     if (guestTarget === "player1") {
       setSelectedPlayer1(guestPlayer);
       setPlayer1Query(buildPartnerLabel(guestPlayer) || guestPlayer.nombre);
+      if (isOrganizerCreating) {
+        resetGuest();
+        setActivePairSlot("player2");
+        setPlayerPickerQuery("");
+        setPlayerCategoryFilter("");
+        setPlayerSexFilter("");
+        setPlayerCityFilter("");
+        setPlayerFilterVisible(false);
+        setPlayerPickerVisible(true);
+        return;
+      }
     } else {
+      if (isOrganizerCreating) {
+        setPendingPairs((prev) => [...prev, { player1: selectedPlayer1, player2: guestPlayer }]);
+        setSelectedPlayer1(null);
+        setPlayer1Query("");
+        resetGuest();
+        setActivePairSlot("player1");
+        setPlayerPickerQuery("");
+        setPlayerCategoryFilter("");
+        setPlayerSexFilter("");
+        setPlayerCityFilter("");
+        setPlayerFilterVisible(false);
+        setPlayerPickerVisible(true);
+        return;
+      }
+
       setSelectedPartner(guestPlayer);
       setPartnerQuery(buildPartnerLabel(guestPlayer) || guestPlayer.nombre);
     }
 
     setPlayerPickerVisible(false);
-    setGuestModalVisible(false);
-    setGuestTarget("player1");
-    setGuestName("");
-    setGuestLastName("");
-    setGuestCategory("");
-    setGuestSex("Masculino");
+    resetGuest();
   };
 
   const handleStartTournamentMercadoPagoPayment = async () => {
@@ -1084,16 +1137,69 @@ export default function TournamentRegistrationPanel({
       return;
     }
 
+    if (isOrganizerCreating) {
+      if (!pendingPairs.length) {
+        showFeedback("Sin parejas", "Selecciona al menos una pareja para inscribir.", "danger");
+        return;
+      }
+
+      try {
+        setSubmitting(true);
+
+        for (let i = 0; i < pendingPairs.length; i++) {
+          const pair = pendingPairs[i];
+          const meta = pairMeta[i] || {};
+          const p1 = pair.player1?.isGuest
+            ? buildManualPlayerPayload(pair.player1)
+            : buildPartnerPayload(pair.player1);
+          const p2 = pair.player2?.isGuest
+            ? buildManualPlayerPayload(pair.player2)
+            : buildPartnerPayload(pair.player2);
+
+          const pairPaymentsOverride = meta.paymentMethod
+            ? [p1, p2]
+                .filter((p) => p?.playerId)
+                .map((p) => ({ playerId: p.playerId, userId: p.userId, method: meta.paymentMethod }))
+            : [];
+
+          await registerPairToTournament(tournament.id, {
+            allowGuestPlayers: true,
+            availability: meta.availability || [],
+            organizerConfirmed: true,
+            paymentsOverride: pairPaymentsOverride,
+            player1: p1,
+            player2: p2,
+          });
+        }
+
+        await onRegistrationCreated?.();
+        setPendingPairs([]);
+        setPairMeta({});
+
+        showFeedback(
+          "Inscripciones cargadas",
+          pendingPairs.length === 1
+            ? "La pareja fue inscripta exitosamente."
+            : `${pendingPairs.length} parejas inscriptas exitosamente.`,
+          "success"
+        );
+      } catch (error) {
+        showFeedback(
+          "No pudimos cargar las parejas",
+          error?.message || "Intenta nuevamente en unos instantes.",
+          "danger"
+        );
+      } finally {
+        setSubmitting(false);
+      }
+
+      return;
+    }
+
     try {
       setSubmitting(true);
 
-      const player1Payload = isOrganizerCreating
-        ? selectedPlayer1?.isGuest
-          ? buildManualPlayerPayload(selectedPlayer1)
-          : selectedPlayer1
-          ? buildPartnerPayload(selectedPlayer1)
-          : null
-        : buildCurrentPlayerPayload(currentUser, currentPlayerRecord);
+      const player1Payload = buildCurrentPlayerPayload(currentUser, currentPlayerRecord);
       const player2Payload = selectedPartner
         ? selectedPartner?.isGuest
           ? buildManualPlayerPayload(selectedPartner)
@@ -1111,12 +1217,6 @@ export default function TournamentRegistrationPanel({
 
       if (!player1Payload) {
         showFeedback("Falta jugador principal", "Selecciona o crea el jugador principal de la pareja.", "danger");
-        setSubmitting(false);
-        return;
-      }
-
-      if (isOrganizerCreating && !player2Payload) {
-        showFeedback("Falta compañero", "Completa el jugador 2 para conformar la pareja.", "danger");
         setSubmitting(false);
         return;
       }
@@ -1213,6 +1313,8 @@ export default function TournamentRegistrationPanel({
     : isOrganizerCreating
     ? submitting
       ? "CARGANDO..."
+      : pendingPairs.length > 1
+      ? `CARGAR ${pendingPairs.length} PAREJAS`
       : "CARGAR PAREJA"
     : submitting
     ? "ENVIANDO..."
@@ -1315,7 +1417,7 @@ export default function TournamentRegistrationPanel({
           </View>
         ) : null}
 
-        <View style={styles.registrationActionRow}>
+        {isOrganizerCreating ? null : <View style={styles.registrationActionRow}>
           {registrationSteps.map((step) => (
             <Pressable
               key={step.key}
@@ -1391,70 +1493,143 @@ export default function TournamentRegistrationPanel({
               )}
             </Pressable>
           ))}
-        </View>
+        </View>}
       </View>
 
-      {activePanel === "partner" ? (
+      {isOrganizerCreating || activePanel === "partner" ? (
         <View style={styles.blockCard}>
           <Text style={styles.blockTitleCentered}>
             {isOrganizerCreating ? "CONFORMAR PAREJA" : "MI COMPAÑERO"}
           </Text>
           {isOrganizerCreating ? (
             <View style={styles.organizerPairSection}>
-              <View style={styles.pairSlotsColumn}>
-                {[
-                  { key: "player1", label: "Jugador 1", player: selectedPlayer1 },
-                  { key: "player2", label: "Jugador 2", player: selectedPartner },
-                ].map((slot) => {
-                  const isSelected = Boolean(slot.player);
-
-                  return (
-                    <View key={slot.key} style={styles.organizerPlayerCard}>
-                      <View style={styles.pairSlotHeader}>
-                        <Text style={styles.organizerPlayerLabel}>{slot.label}</Text>
-                        <View style={styles.organizerPlayerStatusIconWrap}>
-                          <Ionicons
-                            color={isSelected ? "#1D7A34" : "#B24343"}
-                            name={isSelected ? "checkmark-circle" : "hourglass-outline"}
-                            size={18}
-                          />
-                        </View>
-                      </View>
-                      <Text numberOfLines={2} style={styles.organizerPlayerName}>
-                        {slot.player ? getPlayerDisplayName(slot.player) : "Sin jugador asignado"}
-                      </Text>
-                      <View style={styles.organizerPlayerActions}>
-                        <Pressable
-                          onPress={() => handleOpenPlayerPicker(slot.key)}
-                          style={styles.organizerAddButton}
-                        >
-                          <Text style={styles.organizerAddButtonText}>
-                            AGREGAR
-                          </Text>
-                        </Pressable>
-
-                        {slot.player ? (
-                          <Pressable
-                            onPress={() => {
-                              if (slot.key === "player1") {
-                                setSelectedPlayer1(null);
-                                setPlayer1Query("");
-                                return;
-                              }
-
-                              setSelectedPartner(null);
-                              setPartnerQuery("");
-                            }}
-                            style={styles.deletePlayerIconButton}
-                          >
-                            <Ionicons color="#B24343" name="trash" size={16} />
-                          </Pressable>
-                        ) : null}
-                      </View>
+              {pendingPairs.map((pair, index) => {
+                const meta = pairMeta[index] || {};
+                const availCount = (meta.availability || []).length;
+                return (
+                  <View key={index} style={styles.confirmedPairCard}>
+                    <View style={styles.confirmedPairHeader}>
+                      <Ionicons color="#1D7A34" name="checkmark-circle" size={15} />
+                      <Text style={styles.confirmedPairLabel}>Pareja {index + 1}</Text>
+                      <Pressable
+                        onPress={() => {
+                          setPendingPairs((prev) => prev.filter((_, i) => i !== index));
+                          setPairMeta((prev) => {
+                            const next = { ...prev };
+                            delete next[index];
+                            return next;
+                          });
+                          if (expandedPairPaymentIndex === index) setExpandedPairPaymentIndex(null);
+                        }}
+                        style={styles.confirmedPairDelete}
+                      >
+                        <Ionicons color="#B24343" name="trash-outline" size={14} />
+                      </Pressable>
                     </View>
-                  );
-                })}
-              </View>
+                    <Text numberOfLines={1} style={styles.confirmedPairNames}>
+                      <Text style={styles.confirmedPairSlotLabel}>J1 </Text>
+                      {getPlayerDisplayName(pair.player1)}
+                    </Text>
+                    <Text numberOfLines={1} style={styles.confirmedPairNames}>
+                      <Text style={styles.confirmedPairSlotLabel}>J2 </Text>
+                      {getPlayerDisplayName(pair.player2)}
+                    </Text>
+
+                    <View style={styles.pairMetaRow}>
+                      <Pressable
+                        onPress={() => {
+                          setActivePairForAvailability(index);
+                          setAvailabilityEditorVisible(true);
+                        }}
+                        style={[styles.pairMetaButton, availCount > 0 && styles.pairMetaButtonActive]}
+                      >
+                        <Ionicons
+                          color={availCount > 0 ? "#1A7F5A" : colors.muted}
+                          name="calendar-outline"
+                          size={13}
+                        />
+                        <Text style={[styles.pairMetaButtonText, availCount > 0 && styles.pairMetaButtonTextActive]}>
+                          {availCount > 0 ? `${availCount} día${availCount === 1 ? "" : "s"}` : "Disponibilidad"}
+                        </Text>
+                      </Pressable>
+
+                      <Pressable
+                        onPress={() => setExpandedPairPaymentIndex((v) => v === index ? null : index)}
+                        style={[styles.pairMetaButton, meta.paymentMethod && styles.pairMetaButtonActive]}
+                      >
+                        <Ionicons
+                          color={meta.paymentMethod ? "#1A7F5A" : colors.muted}
+                          name="card-outline"
+                          size={13}
+                        />
+                        <Text style={[styles.pairMetaButtonText, meta.paymentMethod && styles.pairMetaButtonTextActive]}>
+                          {meta.paymentMethod === "efectivo" ? "Efectivo" : meta.paymentMethod === "transferencia" ? "Transferencia" : "Pago"}
+                        </Text>
+                      </Pressable>
+                    </View>
+
+                    {expandedPairPaymentIndex === index ? (
+                      <View style={styles.pairMetaPaymentRow}>
+                        {[{ key: "efectivo", label: "Efectivo" }, { key: "transferencia", label: "Transferencia" }].map((opt) => (
+                          <Pressable
+                            key={opt.key}
+                            onPress={() => setPairMeta((prev) => ({
+                              ...prev,
+                              [index]: { ...(prev[index] || {}), paymentMethod: meta.paymentMethod === opt.key ? "" : opt.key },
+                            }))}
+                            style={[styles.pairMetaPaymentChip, meta.paymentMethod === opt.key && styles.pairMetaPaymentChipActive]}
+                          >
+                            <Text style={[styles.pairMetaPaymentChipText, meta.paymentMethod === opt.key && styles.pairMetaPaymentChipTextActive]}>
+                              {opt.label}
+                            </Text>
+                          </Pressable>
+                        ))}
+                      </View>
+                    ) : null}
+                  </View>
+                );
+              })}
+
+              {selectedPlayer1 && !pendingPairs.length ? (
+                <View style={styles.pairSlotsColumn}>
+                  <View style={styles.organizerPlayerCard}>
+                    <View style={styles.pairSlotHeader}>
+                      <Text style={styles.organizerPlayerLabel}>Jugador 1</Text>
+                      <Ionicons color="#1D7A34" name="checkmark-circle" size={18} />
+                    </View>
+                    <Text numberOfLines={2} style={styles.organizerPlayerName}>
+                      {getPlayerDisplayName(selectedPlayer1)}
+                    </Text>
+                    <View style={styles.organizerPlayerActions}>
+                      <Pressable
+                        onPress={() => handleOpenPlayerPicker("player2")}
+                        style={styles.organizerAddButton}
+                      >
+                        <Text style={styles.organizerAddButtonText}>AGREGAR JUGADOR 2</Text>
+                      </Pressable>
+                      <Pressable
+                        onPress={() => { setSelectedPlayer1(null); setPlayer1Query(""); }}
+                        style={styles.deletePlayerIconButton}
+                      >
+                        <Ionicons color="#B24343" name="trash" size={16} />
+                      </Pressable>
+                    </View>
+                  </View>
+                </View>
+              ) : null}
+
+              {!selectedPlayer1 ? (
+                <Pressable
+                  onPress={() => handleOpenPlayerPicker("player1")}
+                  style={styles.addPairButton}
+                >
+                  <Ionicons color="#1A7F5A" name="people-outline" size={20} />
+                  <Text style={styles.addPairButtonText}>
+                    {pendingPairs.length > 0 ? "AGREGAR OTRA PAREJA" : "SELECCIONAR PAREJA"}
+                  </Text>
+                </Pressable>
+              ) : null}
+
               {categoryWarning ? (
                 <View style={styles.categoryWarningCard}>
                   <Ionicons color="#A15B00" name="alert-circle-outline" size={18} />
@@ -1513,7 +1688,7 @@ export default function TournamentRegistrationPanel({
         </View>
       ) : null}
 
-      {activePanel === "availability" ? (
+      {!isOrganizerCreating && activePanel === "availability" ? (
         <View style={styles.blockCard}>
           <Text style={styles.blockTitleCentered}>DISPONIBILIDAD</Text>
           <Text style={styles.blockTextCentered}>
@@ -1532,7 +1707,7 @@ export default function TournamentRegistrationPanel({
         </View>
       ) : null}
 
-      {activePanel === "payments" ? (
+      {!isOrganizerCreating && activePanel === "payments" ? (
         <View style={styles.blockCard}>
           <Text style={styles.blockTitleCentered}>PAGOS</Text>
           {isOrganizerPaymentEditor ? (
@@ -1617,13 +1792,6 @@ export default function TournamentRegistrationPanel({
                 </View>
               ) : null}
             </>
-          ) : tournamentMercadoPagoEnabled ? (
-            <View style={styles.registrationHintCard}>
-              <Ionicons color={colors.primaryDark} name="wallet-outline" size={18} />
-              <Text style={styles.registrationHintText}>
-                El organizador habilito Mercado Pago para este torneo. La transferencia queda desactivada.
-              </Text>
-            </View>
           ) : null}
           {!isOrganizerPaymentEditor && currentPlayerPayment?.status ? (
             <Text style={styles.paymentStatusText}>
@@ -1631,11 +1799,19 @@ export default function TournamentRegistrationPanel({
             </Text>
           ) : null}
           {!isOrganizerPaymentEditor && canStartTournamentMercadoPagoPayment ? (
-            <AppButton
+            <Pressable
+              disabled={submitting}
               onPress={handleStartTournamentMercadoPagoPayment}
-              style={styles.sectionButton}
-              title={submitting ? "ABRIENDO..." : "PAGAR CON MERCADO PAGO"}
-            />
+              style={({ pressed }) => [
+                styles.mpPayButton,
+                pressed && !submitting ? { opacity: 0.85 } : null,
+              ]}
+            >
+              <Ionicons color="#1A7F5A" name="wallet-outline" size={18} />
+              <Text style={styles.mpPayButtonText}>
+                {submitting ? "Abriendo..." : "Pagar con Mercado Pago"}
+              </Text>
+            </Pressable>
           ) : null}
           {tournamentMercadoPagoEnabled ? null : requiresTransferReceipt ? (
             <>
@@ -1732,8 +1908,9 @@ export default function TournamentRegistrationPanel({
       <AppButton
         disabled={
           submitting ||
-          (isOrganizerCreating && (!selectedPlayer1 || !selectedPartner)) ||
-          (!isOrganizerPaymentEditor &&
+          (isOrganizerCreating && !pendingPairs.length) ||
+          (!isOrganizerCreating &&
+            !isOrganizerPaymentEditor &&
             requiresTransferReceipt &&
             !receiptAsset?.uri &&
             !hasExistingReceipt &&
@@ -1745,17 +1922,48 @@ export default function TournamentRegistrationPanel({
 
       <AvailabilityEditor
         dayOptions={Array.isArray(tournamentDayOptions) && tournamentDayOptions.length ? tournamentDayOptions : null}
-        initialAvailability={availability}
+        initialAvailability={
+          isOrganizerCreating && activePairForAvailability !== null
+            ? (pairMeta[activePairForAvailability]?.availability || [])
+            : availability
+        }
         loading={false}
-        onClose={() => setAvailabilityEditorVisible(false)}
+        onClose={() => {
+          setAvailabilityEditorVisible(false);
+          setActivePairForAvailability(null);
+        }}
         onSave={async (nextAvailability) => {
-          setAvailability(nextAvailability);
+          if (isOrganizerCreating && activePairForAvailability !== null) {
+            setPairMeta((prev) => ({
+              ...prev,
+              [activePairForAvailability]: { ...(prev[activePairForAvailability] || {}), availability: nextAvailability },
+            }));
+            setActivePairForAvailability(null);
+          } else {
+            setAvailability(nextAvailability);
+          }
           setAvailabilityEditorVisible(false);
         }}
-        saveSuccessMessage="Tu disponibilidad para este torneo ya quedo actualizada."
-        subtitle="Selecciona una o mas fechas reales del torneo y agrega los horarios disponibles."
-        summaryEmptyText="Todavia no cargaste disponibilidad para este torneo."
-        title="Disponibilidad para el torneo"
+        saveSuccessMessage={
+          isOrganizerCreating && activePairForAvailability !== null
+            ? "Disponibilidad cargada para esta pareja."
+            : "Tu disponibilidad para el torneo ya quedo actualizada."
+        }
+        subtitle={
+          isOrganizerCreating && activePairForAvailability !== null
+            ? "Agrega día y horas para jugar Zonas."
+            : "Agrega dias y horarios disponibles para jugar zonas."
+        }
+        summaryEmptyText={
+          isOrganizerCreating && activePairForAvailability !== null
+            ? "Todavia no cargaste disponibilidad para esta pareja."
+            : "Todavia no cargaste disponibilidad para este torneo."
+        }
+        title={
+          isOrganizerCreating && activePairForAvailability !== null
+            ? `Pareja ${activePairForAvailability + 1}`
+            : "Disponibilidad para el torneo"
+        }
         visible={availabilityEditorVisible}
       />
 
@@ -1819,31 +2027,122 @@ export default function TournamentRegistrationPanel({
         >
           <Pressable onPress={() => setPlayerPickerVisible(false)} style={styles.modalBackdrop} />
           <View style={[styles.modalCard, styles.playerPickerModalCard]}>
-            <Text style={styles.modalTitle}>
-              {activePairSlot === "player1" ? "Seleccionar Jugador 1" : "Seleccionar Jugador 2"}
-            </Text>
+            {isOrganizerCreating ? (
+              <View style={styles.pickerStepHeader}>
+                <Text style={styles.modalTitle}>
+                  PAREJA {pendingPairs.length + 1}
+                </Text>
+                <View style={styles.pickerStepDots}>
+                  <View style={[styles.pickerDot, activePairSlot === "player1" ? styles.pickerDotActive : styles.pickerDotDone]} />
+                  <View style={[styles.pickerDot, activePairSlot === "player2" ? styles.pickerDotActive : styles.pickerDotInactive]} />
+                </View>
+                <Text style={styles.pickerPairLabel}>
+                  {activePairSlot === "player1" ? "Seleccioná el jugador 1" : "Seleccioná el jugador 2"}
+                </Text>
+              </View>
+            ) : (
+              <Text style={styles.modalTitle}>
+                {activePairSlot === "player1" ? "Seleccionar Jugador 1" : "Seleccionar Jugador 2"}
+              </Text>
+            )}
 
-            <TextInput
-              onChangeText={setPlayerPickerQuery}
-              placeholder="Buscar jugador"
-              placeholderTextColor={colors.muted}
-              style={styles.modalInput}
-              value={playerPickerQuery}
-            />
+            {isOrganizerCreating && activePairSlot === "player2" && selectedPlayer1 ? (
+              <View style={styles.pickerPlayer1Confirmed}>
+                <Ionicons color="#1D7A34" name="checkmark-circle" size={16} />
+                <Text style={styles.pickerPlayer1ConfirmedText} numberOfLines={1}>
+                  {getPlayerDisplayName(selectedPlayer1)}
+                </Text>
+                <Text style={styles.pickerPlayer1ConfirmedLabel}>J1 ✓</Text>
+              </View>
+            ) : null}
 
-            <SelectField
-              containerStyle={styles.playerCategorySelectWrap}
-              fieldStyle={styles.playerCategorySelectField}
-              label="Categoria"
-              labelStyle={styles.playerCategorySelectLabel}
-              onClose={() => setPlayerCategoryPickerVisible(false)}
-              onOpen={() => setPlayerCategoryPickerVisible(true)}
-              onSelect={setPlayerCategoryFilter}
-              options={playerCategorySelectOptions}
-              placeholder="Todas las categorias"
-              value={playerCategoryFilter}
-              visible={playerCategoryPickerVisible}
-            />
+            {isOrganizerCreating && pendingPairs.length > 0 ? (
+              <View style={styles.pickerConfirmedList}>
+                {pendingPairs.map((pair, index) => (
+                  <View key={index} style={styles.pickerConfirmedItem}>
+                    <Ionicons color="#1D7A34" name="checkmark-circle" size={13} />
+                    <Text style={styles.pickerConfirmedItemText} numberOfLines={1}>
+                      <Text style={styles.pickerConfirmedItemLabel}>P{index + 1} </Text>
+                      {getPlayerDisplayName(pair.player1)} · {getPlayerDisplayName(pair.player2)}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            ) : null}
+
+            <View style={[styles.pickerSearchRow, (playerCategoryFilter || playerSexFilter || playerCityFilter) && styles.pickerSearchRowActive]}>
+              <TextInput
+                onChangeText={setPlayerPickerQuery}
+                placeholder="Buscar jugador"
+                placeholderTextColor={colors.muted}
+                style={styles.pickerSearchInput}
+                value={playerPickerQuery}
+              />
+              <Pressable
+                onPress={() => setPlayerFilterVisible((v) => !v)}
+                style={styles.pickerFilterButton}
+              >
+                <Ionicons
+                  color={playerCategoryFilter || playerSexFilter || playerCityFilter ? "#1A7F5A" : colors.muted}
+                  name="options-outline"
+                  size={15}
+                />
+                {(playerCategoryFilter || playerSexFilter || playerCityFilter) ? (
+                  <View style={styles.pickerFilterDot} />
+                ) : null}
+              </Pressable>
+            </View>
+
+            {playerFilterVisible ? (
+              <View style={styles.pickerFilterPanel}>
+                {playerCategoryOptions.length > 0 ? (
+                  <View style={styles.pickerFilterGroup}>
+                    <Text style={styles.pickerFilterGroupLabel}>Categoría</Text>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pickerFilterChips}>
+                      {playerCategoryOptions.map((cat) => (
+                        <Pressable
+                          key={cat}
+                          onPress={() => setPlayerCategoryFilter((v) => v === cat ? "" : cat)}
+                          style={[styles.pickerFilterChip, playerCategoryFilter === cat && styles.pickerFilterChipActive]}
+                        >
+                          <Text style={[styles.pickerFilterChipText, playerCategoryFilter === cat && styles.pickerFilterChipTextActive]}>
+                            {cat}
+                          </Text>
+                        </Pressable>
+                      ))}
+                    </ScrollView>
+                  </View>
+                ) : null}
+
+                <View style={styles.pickerFilterGroup}>
+                  <Text style={styles.pickerFilterGroupLabel}>Sexo</Text>
+                  <View style={styles.pickerFilterChips}>
+                    {["Masculino", "Femenino"].map((sex) => (
+                      <Pressable
+                        key={sex}
+                        onPress={() => setPlayerSexFilter((v) => v === sex ? "" : sex)}
+                        style={[styles.pickerFilterChip, playerSexFilter === sex && styles.pickerFilterChipActive]}
+                      >
+                        <Text style={[styles.pickerFilterChipText, playerSexFilter === sex && styles.pickerFilterChipTextActive]}>
+                          {sex}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                </View>
+
+                <View style={styles.pickerFilterGroup}>
+                  <Text style={styles.pickerFilterGroupLabel}>Ciudad</Text>
+                  <TextInput
+                    onChangeText={setPlayerCityFilter}
+                    placeholder="Escribí una ciudad..."
+                    placeholderTextColor={colors.muted}
+                    style={styles.pickerFilterCityInput}
+                    value={playerCityFilter}
+                  />
+                </View>
+              </View>
+            ) : null}
 
             <Pressable
               onPress={() => {
@@ -1853,7 +2152,13 @@ export default function TournamentRegistrationPanel({
               }}
               style={styles.createGuestInlineButton}
             >
-              <Text style={styles.createGuestInlineButtonText}>Crear no registrado</Text>
+              <Text style={styles.createGuestInlineButtonText}>
+                {isOrganizerCreating
+                  ? activePairSlot === "player1"
+                    ? "Crear jugador no registrado"
+                    : "Crear jugador no registrado"
+                  : "Crear no registrado"}
+              </Text>
             </Pressable>
 
             <ScrollView
@@ -1893,7 +2198,9 @@ export default function TournamentRegistrationPanel({
 
             <View style={styles.modalActions}>
               <Pressable onPress={() => setPlayerPickerVisible(false)} style={styles.secondaryButton}>
-                <Text style={styles.secondaryButtonText}>Cancelar</Text>
+                <Text style={styles.secondaryButtonText}>
+                  {isOrganizerCreating && pendingPairs.length > 0 ? "Finalizar" : "Cancelar"}
+                </Text>
               </Pressable>
             </View>
           </View>
@@ -2024,6 +2331,182 @@ const styles = StyleSheet.create({
   },
   organizerPairSection: {
     marginBottom: spacing.sm,
+  },
+  addPairButton: {
+    alignItems: "center",
+    backgroundColor: "#F3FBF7",
+    borderColor: "#BFE5CD",
+    borderRadius: 14,
+    borderStyle: "dashed",
+    borderWidth: 1.5,
+    flexDirection: "row",
+    gap: 8,
+    justifyContent: "center",
+    paddingVertical: 18,
+  },
+  addPairButtonText: {
+    color: "#1A7F5A",
+    fontSize: 13,
+    fontWeight: "800",
+    letterSpacing: 0.5,
+  },
+  pickerPairLabel: {
+    color: "#5A9E80",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  pickerStepHeader: {
+    alignItems: "center",
+    gap: 5,
+    marginBottom: 4,
+  },
+  pickerConfirmedList: {
+    gap: 3,
+    marginBottom: 8,
+  },
+  pickerConfirmedItem: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 5,
+  },
+  pickerConfirmedItemText: {
+    color: "#4B7A64",
+    flex: 1,
+    fontSize: 12,
+  },
+  pickerConfirmedItemLabel: {
+    fontWeight: "700",
+  },
+  confirmedPairCard: {
+    backgroundColor: "#EEF7F3",
+    borderColor: "#BFE5CD",
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  confirmedPairHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 6,
+    marginBottom: 4,
+  },
+  confirmedPairLabel: {
+    color: "#1D7A34",
+    flex: 1,
+    fontSize: 11,
+    fontWeight: "800",
+    textTransform: "uppercase",
+  },
+  confirmedPairDelete: {
+    padding: 2,
+  },
+  confirmedPairNames: {
+    color: "#144234",
+    fontSize: 13,
+    fontWeight: "600",
+    marginLeft: 21,
+  },
+  confirmedPairSlotLabel: {
+    color: "#1D7A34",
+    fontWeight: "800",
+  },
+  pairMetaRow: {
+    borderTopColor: "#E5EFE9",
+    borderTopWidth: 1,
+    flexDirection: "row",
+    gap: 6,
+    marginTop: 8,
+    paddingTop: 8,
+  },
+  pairMetaButton: {
+    alignItems: "center",
+    borderColor: colors.border,
+    borderRadius: 99,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 4,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+  },
+  pairMetaButtonActive: {
+    backgroundColor: "#EEF7F3",
+    borderColor: "#BFE5CD",
+  },
+  pairMetaButtonText: {
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: "600",
+  },
+  pairMetaButtonTextActive: {
+    color: "#1A7F5A",
+  },
+  pairMetaPaymentRow: {
+    flexDirection: "row",
+    gap: 6,
+    marginTop: 6,
+  },
+  pairMetaPaymentChip: {
+    borderColor: colors.border,
+    borderRadius: 99,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  pairMetaPaymentChipActive: {
+    backgroundColor: "#1A7F5A",
+    borderColor: "#1A7F5A",
+  },
+  pairMetaPaymentChipText: {
+    color: colors.text,
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  pairMetaPaymentChipTextActive: {
+    color: "#FFFFFF",
+  },
+  pickerStepDots: {
+    flexDirection: "row",
+    gap: 6,
+  },
+  pickerDot: {
+    borderRadius: 99,
+    height: 6,
+    width: 6,
+  },
+  pickerDotActive: {
+    backgroundColor: "#1A7F5A",
+    width: 18,
+  },
+  pickerDotDone: {
+    backgroundColor: "#1A7F5A",
+  },
+  pickerDotInactive: {
+    backgroundColor: "#D1D5DB",
+  },
+  pickerPlayer1Confirmed: {
+    alignItems: "center",
+    backgroundColor: "#EEF7F3",
+    borderColor: "#BFE5CD",
+    borderRadius: 10,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 6,
+    marginBottom: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  pickerPlayer1ConfirmedText: {
+    color: "#144234",
+    flex: 1,
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  pickerPlayer1ConfirmedLabel: {
+    color: "#1D7A34",
+    fontSize: 11,
+    fontWeight: "800",
   },
   pairSlotsColumn: {
     gap: spacing.sm,
@@ -2333,8 +2816,8 @@ const styles = StyleSheet.create({
   createGuestInlineButton: {
     alignItems: "center",
     alignSelf: "center",
-    backgroundColor: "#FFF2D9",
-    borderColor: "#E8BA63",
+    backgroundColor: "#EBF4FF",
+    borderColor: "#93C5FD",
     borderRadius: 999,
     borderWidth: 1,
     justifyContent: "center",
@@ -2343,7 +2826,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
   },
   createGuestInlineButtonText: {
-    color: "#A15B00",
+    color: "#1D4ED8",
     fontSize: 12,
     fontWeight: "800",
     textTransform: "uppercase",
@@ -2418,6 +2901,95 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
+  },
+  pickerSearchRow: {
+    alignItems: "center",
+    backgroundColor: "#F8FAFC",
+    borderColor: colors.border,
+    borderRadius: 14,
+    borderWidth: 1,
+    flexDirection: "row",
+    marginTop: spacing.sm,
+    paddingRight: 6,
+  },
+  pickerSearchRowActive: {
+    borderColor: "#BFE5CD",
+  },
+  pickerSearchInput: {
+    color: colors.text,
+    flex: 1,
+    fontSize: 14,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  pickerFilterButton: {
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 4,
+  },
+  pickerFilterDot: {
+    backgroundColor: "#1A7F5A",
+    borderRadius: 99,
+    height: 5,
+    position: "absolute",
+    right: 2,
+    top: 2,
+    width: 5,
+  },
+  pickerFilterPanel: {
+    backgroundColor: "#F8FAFC",
+    borderColor: colors.border,
+    borderRadius: 14,
+    borderWidth: 1,
+    gap: 10,
+    marginTop: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  pickerFilterGroup: {
+    gap: 6,
+  },
+  pickerFilterGroupLabel: {
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
+  },
+  pickerFilterChips: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+  },
+  pickerFilterChip: {
+    backgroundColor: "#FFFFFF",
+    borderColor: colors.border,
+    borderRadius: 99,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  pickerFilterChipActive: {
+    backgroundColor: "#1A7F5A",
+    borderColor: "#1A7F5A",
+  },
+  pickerFilterChipText: {
+    color: colors.text,
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  pickerFilterChipTextActive: {
+    color: "#FFFFFF",
+  },
+  pickerFilterCityInput: {
+    backgroundColor: "#FFFFFF",
+    borderColor: colors.border,
+    borderRadius: 10,
+    borderWidth: 1,
+    color: colors.text,
+    fontSize: 13,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
   },
   guestSexRow: {
     flexDirection: "row",
@@ -2756,6 +3328,25 @@ const styles = StyleSheet.create({
   },
   sectionButton: {
     marginTop: spacing.sm,
+  },
+  mpPayButton: {
+    alignItems: "center",
+    backgroundColor: "#F3FBF7",
+    borderColor: "#BFE5CD",
+    borderRadius: 999,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 8,
+    justifyContent: "center",
+    marginTop: spacing.sm,
+    marginBottom: spacing.xs,
+    minHeight: 44,
+    paddingHorizontal: spacing.md,
+  },
+  mpPayButtonText: {
+    color: "#1A7F5A",
+    fontSize: 14,
+    fontWeight: "800",
   },
   selectedPartnerCard: {
     alignItems: "center",

@@ -13,6 +13,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as DocumentPicker from "expo-document-picker";
+import * as ImagePicker from "expo-image-picker";
 import { getDownloadURL, ref, uploadBytes } from "../../services/firebaseStorage";
 import { useFocusEffect } from "@react-navigation/native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -40,6 +41,7 @@ import {
 } from "../services/mercadoPagoCheckoutService";
 import { sendChatMessage } from "../services/chatService";
 import { storage } from "../../services/firebaseConfig";
+import { getUserId } from "../utils/getUserId";
 
 const STATUS_META = {
   pendiente: {
@@ -85,6 +87,22 @@ function isImageProof(asset = {}) {
   const mimeType = String(asset?.mimeType || asset?.type || "").toLowerCase();
 
   return mimeType.startsWith("image/") || /\.(jpe?g|png|webp|heic|heif)$/i.test(fileName);
+}
+
+function buildProofFileDescriptor(asset = {}) {
+  const originalName = asset.name || asset.fileName || "";
+  const detectedPdf = isPdfProof(asset);
+  const extension = originalName.split(".").pop() || (detectedPdf ? "pdf" : "jpg");
+  const fileName = `${Date.now()}.${extension}`;
+  const contentType =
+    asset.mimeType ||
+    asset.type ||
+    (extension.toLowerCase() === "pdf" ? "application/pdf" : "image/jpeg");
+
+  return {
+    contentType,
+    fileName,
+  };
 }
 
 function resolveCurrentPaymentsRoundId(rounds = []) {
@@ -178,6 +196,16 @@ function getPositiveMoneyValue(value) {
   const amount = Number.parseFloat(String(value ?? "0").replace(",", "."));
 
   return Number.isFinite(amount) && amount > 0 ? amount : 0;
+}
+
+function getRoundAmount(round = {}, fallbackAmount = 0) {
+  const configuredAmount = getPositiveMoneyValue(round?.amountPerEntry);
+
+  if (configuredAmount > 0) {
+    return configuredAmount;
+  }
+
+  return getPositiveMoneyValue(fallbackAmount);
 }
 
 function getPaymentAmountSummary(entries = [], amountPerEntry = 0) {
@@ -297,7 +325,7 @@ function buildReminderMessage(leagueName, roundTitle, participantLabel) {
 }
 
 function getCurrentUserId(userData = {}) {
-  return String(userData?.uid || userData?.id || "").trim().toLowerCase();
+  return getUserId(userData).toLowerCase();
 }
 
 function isEntryForCurrentUser(entry = {}, currentUserId = "") {
@@ -376,6 +404,37 @@ function patchRoundPaymentEntry(roundPayments = [], roundId = "", participantId 
           ),
         }
   );
+}
+
+function patchRoundPaymentEntries(roundPayments = [], targets = [], patch = {}, actor = {}) {
+  const targetKeys = new Set(
+    (Array.isArray(targets) ? targets : [])
+      .filter((target) => target?.roundId && target?.participantId)
+      .map((target) => `${target.roundId}::${target.participantId}`)
+  );
+
+  if (!targetKeys.size) {
+    return roundPayments;
+  }
+
+  return roundPayments.map((round) => ({
+    ...round,
+    entries: (round.entries || []).map((entry) => {
+      const key = `${round.roundId}::${entry.participantId}`;
+
+      if (!targetKeys.has(key)) {
+        return entry;
+      }
+
+      return {
+        ...entry,
+        ...patch,
+        updatedAtMillis: Date.now(),
+        updatedBy: actor?.id || "",
+        updatedByName: actor?.name || "",
+      };
+    }),
+  }));
 }
 
 function groupEntriesByPair(entries = []) {
@@ -473,6 +532,11 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
   const [expandedRoundIds, setExpandedRoundIds] = useState([]);
   const [selectedEntry, setSelectedEntry] = useState(null);
   const [selectedRound, setSelectedRound] = useState(null);
+  const [selectedRegistrationEntry, setSelectedRegistrationEntry] = useState(null);
+  const [selectedPaymentSelection, setSelectedPaymentSelection] = useState({
+    round: true,
+    registration: false,
+  });
   const [reminderCenterVisible, setReminderCenterVisible] = useState(false);
   const [reminderChannel, setReminderChannel] = useState("");
   const [reminderAction, setReminderAction] = useState("");
@@ -482,6 +546,7 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
   const [reminderValueStart, setReminderValueStart] = useState("now");
   const [entryMenuVisible, setEntryMenuVisible] = useState(false);
   const [methodPickerVisible, setMethodPickerVisible] = useState(false);
+  const [pendingPickerVisible, setPendingPickerVisible] = useState(false);
   const [proofReviewVisible, setProofReviewVisible] = useState(false);
   const [transferProofPickerVisible, setTransferProofPickerVisible] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -538,11 +603,10 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
   const canManage = league ? canManageLeague(league, userData) : false;
   const currentUserId = getCurrentUserId(userData);
   const actor = {
-    id: userData?.uid || userData?.id || "",
+    id: getUserId(userData),
     name: userData?.name || userData?.displayName || "Usuario",
   };
   const leagueName = league?.nombre || fallbackLeagueName;
-  const hasFixture = Array.isArray(league?.fixture?.rounds) && league.fixture.rounds.length > 0;
   const leagueRoundPrice = getPositiveMoneyValue(league?.paymentConfig?.roundPricePerPlayer);
   const leagueMercadoPagoConfig = useMemo(
     () => normalizeMercadoPagoConfig(league?.paymentConfig?.mercadoPago),
@@ -550,7 +614,6 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
   );
   const defaultRoundPrice = getPositiveMoneyValue(userData?.leaguePaymentDefaults?.roundPricePerPlayer);
   const roundPricePerPlayer = leagueRoundPrice || defaultRoundPrice;
-  const roundPriceLabel = roundPricePerPlayer > 0 ? `${formatCurrency(roundPricePerPlayer)} por jugador` : "";
   const hasPendingChanges = useMemo(() => {
     const original = JSON.stringify(resolveLeaguePaymentRounds(league || {}));
     const current = JSON.stringify(roundPaymentsDraft);
@@ -558,7 +621,7 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
   }, [league, roundPaymentsDraft]);
 
   const globalSummary = useMemo(() => {
-    const playedRoundIds = new Set(
+    const playedFixtureRoundIds = new Set(
       Array.isArray(league?.fixture?.rounds)
         ? league.fixture.rounds
             .filter((round) => Number(round?.completedAtMillis || 0) > 0)
@@ -566,14 +629,18 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
         : []
     );
 
-    const playedPaymentRounds = roundPaymentsDraft.filter(
+    const payableRounds = roundPaymentsDraft.filter(
       (round) =>
-        playedRoundIds.has(round.roundId) ||
+        round?.paymentKind === "registration" ||
+        playedFixtureRoundIds.has(round.roundId) ||
         (round.entries || []).some((entry) => entry.completedAtMillis || hasPaymentMovement(entry))
     );
-    const totals = playedPaymentRounds.reduce(
+    const totals = payableRounds.reduce(
       (summary, round) => {
-        const roundAmountSummary = getPaymentAmountSummary(round.entries || [], roundPricePerPlayer);
+        const roundAmountSummary = getPaymentAmountSummary(
+          round.entries || [],
+          getRoundAmount(round, roundPricePerPlayer)
+        );
 
         summary.cash += roundAmountSummary.cash;
         summary.transfer += roundAmountSummary.transfer;
@@ -587,7 +654,7 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
 
     return {
       ...totals,
-      totalPlayedRounds: playedPaymentRounds.length,
+      totalPlayedRounds: payableRounds.length,
       totalRounds: roundPaymentsDraft.length,
     };
   }, [league, roundPaymentsDraft, roundPricePerPlayer]);
@@ -602,6 +669,15 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
         .filter((round) => round.entries.length > 0),
     [currentUserId, roundPaymentsDraft]
   );
+  const registrationPaymentRound = useMemo(
+    () => roundPaymentsDraft.find((round) => round?.paymentKind === "registration") || null,
+    [roundPaymentsDraft]
+  );
+  const fixturePaymentRounds = useMemo(
+    () => roundPaymentsDraft.filter((round) => round?.paymentKind !== "registration"),
+    [roundPaymentsDraft]
+  );
+  const firstFixturePaymentRoundId = fixturePaymentRounds[0]?.roundId || "";
   const playerMercadoPagoBatchTargets = useMemo(
     () =>
       playerPaymentRounds
@@ -626,10 +702,14 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
     [playerMercadoPagoBatchTargets, selectedBatchRoundIds]
   );
   const hasMercadoPagoBatchSelection = selectedMercadoPagoBatchTargets.length > 0;
-  const selectedMercadoPagoBatchAmount = roundPricePerPlayer * selectedMercadoPagoBatchTargets.length;
+  const selectedMercadoPagoBatchAmount = selectedMercadoPagoBatchTargets.reduce(
+    (total, { round }) => total + getRoundAmount(round, roundPricePerPlayer),
+    0
+  );
   const playedPaymentRoundsForReminders = useMemo(
     () =>
       roundPaymentsDraft.filter((round) =>
+        round?.paymentKind !== "registration" &&
         (round.entries || []).some((entry) => Number(entry.completedAtMillis || 0) > 0)
       ),
     [roundPaymentsDraft]
@@ -647,17 +727,22 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
     );
   };
 
-  const openEntryMenu = (round, entry) => {
+  const openEntryMenu = (round, entry, registrationEntry = null) => {
     setSelectedRound(round);
     setSelectedEntry(entry);
+    setSelectedRegistrationEntry(registrationEntry);
+    setSelectedPaymentSelection({ round: true, registration: false });
     setEntryMenuVisible(true);
   };
 
   const closeEntryMenu = () => {
     setSelectedEntry(null);
     setSelectedRound(null);
+    setSelectedRegistrationEntry(null);
+    setSelectedPaymentSelection({ round: true, registration: false });
     setEntryMenuVisible(false);
     setMethodPickerVisible(false);
+    setPendingPickerVisible(false);
     setProofReviewVisible(false);
     setTransferProofPickerVisible(false);
   };
@@ -686,6 +771,59 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
         ? current.filter((currentRoundId) => currentRoundId !== roundId)
         : [...current, roundId]
     );
+  };
+
+  const togglePaymentSelection = (key) => {
+    setSelectedPaymentSelection((current) => {
+      const selectingForPending = pendingPickerVisible;
+      const roundSelectable = selectingForPending
+        ? selectedEntry?.paymentStatus === "pagado"
+        : selectedEntry?.paymentStatus !== "pagado";
+      const registrationSelectable = selectingForPending
+        ? selectedRegistrationEntry?.paymentStatus === "pagado"
+        : selectedRegistrationEntry?.paymentStatus !== "pagado";
+
+      if ((key === "round" && !roundSelectable) || (key === "registration" && !registrationSelectable)) {
+        return current;
+      }
+
+      const next = {
+        round: current?.round === true,
+        registration: current?.registration === true,
+      };
+
+      next[key] = !next[key];
+
+      if (!next.round && !next.registration) {
+        return current;
+      }
+
+      return next;
+    });
+  };
+
+  const getSelectedPaymentTargets = (selection = selectedPaymentSelection) => {
+    const targets = [];
+
+    if (selectedRound?.roundId && selectedEntry?.participantId) {
+      if (selection?.round) {
+        targets.push({
+          roundId: selectedRound.roundId,
+          participantId: selectedEntry.participantId,
+        });
+      }
+    }
+
+    if (selectedRegistrationEntry?.participantId && registrationPaymentRound?.roundId) {
+      if (selection?.registration) {
+        targets.push({
+          roundId: registrationPaymentRound.roundId,
+          participantId: selectedRegistrationEntry.participantId,
+        });
+      }
+    }
+
+    return targets;
   };
 
   const showWhatsAppFutureFeedback = () => {
@@ -798,11 +936,46 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
     });
   };
 
-  const openPaymentMethodPicker = (round, entry) => {
+  const openPaymentMethodPicker = (round, entry, registrationEntry = null) => {
     setSelectedRound(round);
     setSelectedEntry(entry);
+    setSelectedRegistrationEntry(registrationEntry);
+    const roundPending = entry?.paymentStatus !== "pagado";
+    const registrationPending = registrationEntry?.paymentStatus !== "pagado";
+
+    setSelectedPaymentSelection({
+      round: roundPending,
+      registration: registrationEntry ? !roundPending && registrationPending : false,
+    });
     setEntryMenuVisible(false);
     setMethodPickerVisible(true);
+  };
+
+  const openPendingPicker = (round, entry, registrationEntry = null) => {
+    const roundPaid = entry?.paymentStatus === "pagado";
+    const registrationPaid = registrationEntry?.paymentStatus === "pagado";
+
+    if (!roundPaid && !registrationPaid) {
+      setFeedback({
+        visible: true,
+        title: "Nada para revertir",
+        message: "Todavia no hay pagos confirmados para volver a marcar como impagos.",
+        tone: "warning",
+      });
+      closeEntryMenu();
+      return;
+    }
+
+    setSelectedRound(round);
+    setSelectedEntry(entry);
+    setSelectedRegistrationEntry(registrationEntry);
+
+    setSelectedPaymentSelection({
+      round: roundPaid,
+      registration: registrationEntry ? registrationPaid : false,
+    });
+    setEntryMenuVisible(false);
+    setPendingPickerVisible(true);
   };
 
   const openProofReview = (round, entry) => {
@@ -824,31 +997,50 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
 
   const markPending = () => {
     if (!selectedRound || !selectedEntry) return;
-    updateEntry(selectedRound.roundId, selectedEntry.participantId, {
+    const nextPayments = patchRoundPaymentEntries(
+      roundPaymentsDraft,
+      getSelectedPaymentTargets(),
+      {
       paymentStatus: "pendiente",
       paymentMethod: "",
+      paymentGateway: "",
+      mercadoPagoPreferenceId: "",
+      mercadoPagoCheckoutUrl: "",
+      mercadoPagoPaymentId: "",
+      mercadoPagoStatus: "",
+      mercadoPagoStatusDetail: "",
       confirmedAtMillis: 0,
       confirmedBy: "",
       confirmedByName: "",
       rejectedAtMillis: Date.now(),
       rejectedBy: actor.id,
       rejectedByName: actor.name,
-    });
+    },
+      actor
+    );
+    setRoundPaymentsDraft(nextPayments);
     closeEntryMenu();
   };
 
   const markPaidWithMethod = (paymentMethod) => {
     if (!selectedRound || !selectedEntry) return;
-    updateEntry(selectedRound.roundId, selectedEntry.participantId, {
+    const nextPayments = patchRoundPaymentEntries(
+      roundPaymentsDraft,
+      getSelectedPaymentTargets(),
+      {
       paymentStatus: "pagado",
       paymentMethod,
+      paymentGateway: paymentMethod === "mercado_pago" ? "mercado_pago" : "",
       confirmedAtMillis: Date.now(),
       confirmedBy: actor.id,
       confirmedByName: actor.name,
       rejectedAtMillis: 0,
       rejectedBy: "",
       rejectedByName: "",
-    });
+    },
+      actor
+    );
+    setRoundPaymentsDraft(nextPayments);
     closeEntryMenu();
   };
 
@@ -859,7 +1051,10 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
 
   const confirmTransferPayment = () => {
     if (!selectedRound || !selectedEntry) return;
-    updateEntry(selectedRound.roundId, selectedEntry.participantId, {
+    const nextPayments = patchRoundPaymentEntries(
+      roundPaymentsDraft,
+      getSelectedPaymentTargets(),
+      {
       paymentStatus: "pagado",
       paymentMethod: "transferencia",
       confirmedAtMillis: Date.now(),
@@ -868,7 +1063,10 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
       rejectedAtMillis: 0,
       rejectedBy: "",
       rejectedByName: "",
-    });
+    },
+      actor
+    );
+    setRoundPaymentsDraft(nextPayments);
     closeEntryMenu();
   };
 
@@ -895,75 +1093,33 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
     }
   };
 
-  const handleUploadProof = async (round, entry, proofType = "any", options = {}) => {
-    if (!round || !entry) {
+  const uploadProofAsset = async (round, entry, asset = {}, options = {}) => {
+    if (!round || !entry || !asset?.uri) {
       return;
     }
 
     const markAsPaid = options?.markAsPaid === true;
+    const targetEntries = markAsPaid
+      ? getSelectedPaymentTargets()
+      : [{ roundId: round.roundId, participantId: entry.participantId }];
 
     try {
-      const pickerType =
-        proofType === "pdf"
-          ? "application/pdf"
-          : proofType === "image"
-          ? "image/*"
-          : ["image/*", "application/pdf"];
-      const result = await DocumentPicker.getDocumentAsync({
-        copyToCacheDirectory: true,
-        multiple: false,
-        type: pickerType,
-      });
-
-      if (result.canceled || !result.assets?.length) {
-        return;
-      }
-
-      const asset = result.assets[0];
-      const isSupported =
-        proofType === "pdf"
-          ? isPdfProof(asset)
-          : proofType === "image"
-          ? isImageProof(asset)
-          : isPdfProof(asset) || isImageProof(asset);
-
-      if (!isSupported) {
-        setFeedback({
-          visible: true,
-          title: "Archivo no compatible",
-          message:
-            proofType === "pdf"
-              ? "Adjunta un comprobante en PDF."
-              : proofType === "image"
-              ? "Adjunta un comprobante en imagen."
-              : "Adjunta un comprobante en imagen o PDF.",
-          tone: "danger",
-        });
-        return;
-      }
-
       setSaving(true);
       const response = await fetch(asset.uri);
       const blob = await response.blob();
-      const originalName = asset.name || asset.fileName || "";
-      const detectedPdf = isPdfProof(asset);
-      const extension = originalName.split(".").pop() || (detectedPdf ? "pdf" : "jpg");
-      const fileName = `${entry.participantId}-${Date.now()}.${extension}`;
+      const descriptor = buildProofFileDescriptor(asset);
+      const fileName = `${entry.participantId}-${descriptor.fileName}`;
       const proofRef = ref(storage, `league-payment-proofs/${leagueId}/${round.roundId}/${fileName}`);
-      const proofContentType =
-        blob.type ||
-        asset.mimeType ||
-        (extension.toLowerCase() === "pdf" ? "application/pdf" : "image/jpeg");
+      const proofContentType = blob.type || descriptor.contentType;
 
       await uploadBytes(proofRef, blob, {
         contentType: proofContentType,
       });
 
       const proofUrl = await getDownloadURL(proofRef);
-      const nextPayments = patchRoundPaymentEntry(
+      const nextPayments = patchRoundPaymentEntries(
         roundPaymentsDraft,
-        round.roundId,
-        entry.participantId,
+        targetEntries,
         {
           paymentStatus: markAsPaid ? "pagado" : "informo_transferencia",
           paymentMethod: "transferencia",
@@ -1016,6 +1172,62 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
     }
   };
 
+  const handleUploadProof = async (round, entry, proofType = "any", options = {}) => {
+    if (!round || !entry) {
+      return;
+    }
+
+    try {
+      const pickerType =
+        proofType === "pdf"
+          ? "application/pdf"
+          : proofType === "image"
+          ? "image/*"
+          : ["image/*", "application/pdf"];
+      const result = await DocumentPicker.getDocumentAsync({
+        copyToCacheDirectory: true,
+        multiple: false,
+        type: pickerType,
+      });
+
+      if (result.canceled || !result.assets?.length) {
+        return;
+      }
+
+      const asset = result.assets[0];
+      const isSupported =
+        proofType === "pdf"
+          ? isPdfProof(asset)
+          : proofType === "image"
+          ? isImageProof(asset)
+          : isPdfProof(asset) || isImageProof(asset);
+
+      if (!isSupported) {
+        setFeedback({
+          visible: true,
+          title: "Archivo no compatible",
+          message:
+            proofType === "pdf"
+              ? "Adjunta un comprobante en PDF."
+              : proofType === "image"
+              ? "Adjunta un comprobante en imagen."
+              : "Adjunta un comprobante en imagen o PDF.",
+          tone: "danger",
+        });
+        return;
+      }
+
+      await uploadProofAsset(round, entry, asset, options);
+    } catch (error) {
+      setFeedback({
+        visible: true,
+        title: "No pudimos subir el comprobante",
+        message: error?.message || "Intenta nuevamente en unos instantes.",
+        tone: "danger",
+      });
+    }
+  };
+
   const handleStartLeagueMercadoPago = async (round, entry) => {
     if (!round || !entry) {
       return;
@@ -1031,11 +1243,16 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
       return;
     }
 
-    if (roundPricePerPlayer <= 0) {
+    const amountToCharge = getRoundAmount(round, roundPricePerPlayer);
+
+    if (amountToCharge <= 0) {
       setFeedback({
         visible: true,
         title: "Falta el importe",
-        message: "La liga no tiene configurado un valor por fecha para cobrar con Mercado Pago.",
+        message:
+          round?.paymentKind === "registration"
+            ? "La liga no tiene configurado el valor de la inscripcion para cobrar con Mercado Pago."
+            : "La liga no tiene configurado un valor por fecha para cobrar con Mercado Pago.",
         tone: "warning",
       });
       return;
@@ -1052,7 +1269,7 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
         source: "leagues",
       };
       const checkout = await createLeagueMercadoPagoPreference({
-        amount: roundPricePerPlayer,
+        amount: amountToCharge,
         leagueId,
         leagueName,
         organizerId: String(league?.organizerId || "").trim(),
@@ -1129,8 +1346,8 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
     if (!selectedMercadoPagoBatchTargets.length) {
       setFeedback({
         visible: true,
-        title: "Selecciona fechas",
-        message: "Elige al menos una fecha impaga para pagarla con Mercado Pago.",
+        title: "Selecciona cobros",
+        message: "Elige al menos un cobro impago para pagarlo con Mercado Pago.",
         tone: "warning",
       });
       return;
@@ -1146,11 +1363,16 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
       return;
     }
 
-    if (roundPricePerPlayer <= 0) {
+    const totalAmount = selectedMercadoPagoBatchTargets.reduce(
+      (total, { round }) => total + getRoundAmount(round, roundPricePerPlayer),
+      0
+    );
+
+    if (totalAmount <= 0) {
       setFeedback({
         visible: true,
         title: "Falta el importe",
-        message: "La liga no tiene configurado un valor por fecha para cobrar con Mercado Pago.",
+        message: "Los cobros seleccionados no tienen un importe valido para cobrar con Mercado Pago.",
         tone: "warning",
       });
       return;
@@ -1167,7 +1389,6 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
         roundTitle: round?.title || "",
       }));
       const primaryTarget = targets[0] || {};
-      const totalAmount = roundPricePerPlayer * targets.length;
       const checkout = await createLeagueMercadoPagoPreference({
         amount: totalAmount,
         leagueId,
@@ -1180,7 +1401,7 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
         payerEmail: String(userData?.email || "").trim(),
         payerName: primaryTarget.participantLabel || userData?.name || "Jugador",
         roundId: primaryTarget.roundId || "",
-        roundTitle: `${targets.length} fechas`,
+        roundTitle: `${targets.length} cobros`,
         targets,
         successUrl: appendCheckoutQueryParams(returnUrls.successUrl, {
           batch_count: String(targets.length),
@@ -1268,8 +1489,8 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
     if (!selectedMercadoPagoBatchTargets.length) {
       setFeedback({
         visible: true,
-        title: "Selecciona fechas",
-        message: "Elige al menos una fecha para adjuntar el comprobante.",
+        title: "Selecciona cobros",
+        message: "Elige al menos un cobro para adjuntar el comprobante.",
         tone: "warning",
       });
       return;
@@ -1402,6 +1623,100 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
     await handleUploadProof(selectedRound, selectedEntry, "any", { markAsPaid: true });
   };
 
+  const handlePickLeagueTransferImage = async () => {
+    if (!selectedRound || !selectedEntry) {
+      return;
+    }
+
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+    if (permission.status !== "granted") {
+      setFeedback({
+        visible: true,
+        title: "Permiso necesario",
+        message: "Necesitamos acceso a tus fotos para adjuntar el comprobante.",
+        tone: "danger",
+      });
+      return;
+    }
+
+    const pickerResult = await ImagePicker.launchImageLibraryAsync({
+      allowsEditing: true,
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.8,
+    });
+
+    if (pickerResult.canceled) {
+      return;
+    }
+
+    const asset = pickerResult.assets?.[0];
+
+    if (!asset?.uri) {
+      return;
+    }
+
+    closeEntryMenu();
+    await uploadProofAsset(selectedRound, selectedEntry, asset, { markAsPaid: true });
+  };
+
+  const handlePickLeagueTransferCamera = async () => {
+    if (!selectedRound || !selectedEntry) {
+      return;
+    }
+
+    const permission = await ImagePicker.requestCameraPermissionsAsync();
+
+    if (permission.status !== "granted") {
+      setFeedback({
+        visible: true,
+        title: "Permiso necesario",
+        message: "Necesitamos acceso a la camara para fotografiar el comprobante.",
+        tone: "danger",
+      });
+      return;
+    }
+
+    const cameraResult = await ImagePicker.launchCameraAsync({
+      allowsEditing: true,
+      cameraType: ImagePicker.CameraType.back,
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.8,
+    });
+
+    if (cameraResult.canceled) {
+      return;
+    }
+
+    const asset = cameraResult.assets?.[0];
+
+    if (!asset?.uri) {
+      return;
+    }
+
+    closeEntryMenu();
+    await uploadProofAsset(selectedRound, selectedEntry, asset, { markAsPaid: true });
+  };
+
+  const selectedPaymentTotal = useMemo(() => {
+    let total = 0;
+
+    if (selectedPaymentSelection?.round && selectedRound) {
+      total += getRoundAmount(selectedRound, roundPricePerPlayer);
+    }
+
+    if (selectedPaymentSelection?.registration && registrationPaymentRound) {
+      total += getRoundAmount(registrationPaymentRound, roundPricePerPlayer);
+    }
+
+    return total;
+  }, [
+    selectedPaymentSelection,
+    selectedRound,
+    registrationPaymentRound,
+    roundPricePerPlayer,
+  ]);
+
   const handleOpenWhatsAppReminder = async () => {
     if (!selectedEntry || !selectedRound) return;
 
@@ -1496,6 +1811,7 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
     const methodLabel = getPaymentMethodLabel(entry);
     const hasProof = Boolean(entry.proofUrl);
     const updatedLabel = formatUpdatedAt(entry.updatedAtMillis);
+    const entryAmount = getRoundAmount(round, roundPricePerPlayer);
     const isFocused =
       (!!focusPlayerId &&
         [entry.participantId, ...(entry.playerIds || []), ...(entry.players || []).flatMap((player) => [player?.linkedUserId, player?.id])]
@@ -1519,8 +1835,8 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
             >
               {entry.participantLabel}
             </Text>
-            {roundPricePerPlayer > 0 ? (
-              <Text style={styles.entryAmountLabel}>{formatCurrency(roundPricePerPlayer)}</Text>
+            {entryAmount > 0 ? (
+              <Text style={styles.entryAmountLabel}>{formatCurrency(entryAmount)}</Text>
             ) : null}
           </View>
           <View style={[styles.entryMetaRow, !canManage ? styles.playerEntryMetaRow : null]}>
@@ -1611,8 +1927,35 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
   const renderPaymentTableRow = (round, entry) => {
     const statusMeta = getStatusMeta(entry.paymentStatus);
     const methodLabel = getPaymentMethodLabel(entry);
+    const entryAmount = getRoundAmount(round, roundPricePerPlayer);
+    const registrationEntry =
+      canManage &&
+      registrationPaymentRound &&
+      round?.paymentKind === "round" &&
+      round?.roundId === firstFixturePaymentRoundId
+        ? (registrationPaymentRound.entries || []).find(
+            (registrationItem) => registrationItem.participantId === entry.participantId
+          ) || null
+        : null;
+    const registrationStatusMeta = registrationEntry
+      ? getStatusMeta(registrationEntry.paymentStatus)
+      : null;
+    const registrationMethodLabel = registrationEntry ? getPaymentMethodLabel(registrationEntry) : "";
+    const registrationAmount = registrationEntry
+      ? getRoundAmount(registrationPaymentRound, roundPricePerPlayer)
+      : 0;
     const statusLabel =
       entry.paymentStatus === "informo_transferencia" ? "Pago a\nVerificar" : statusMeta.label;
+    const registrationStatusLabel =
+      registrationEntry?.paymentStatus === "informo_transferencia"
+        ? "Pago a\nVerificar"
+        : registrationStatusMeta?.label || "";
+    const bothPaid = registrationEntry
+      ? entry.paymentStatus === "pagado" && registrationEntry.paymentStatus === "pagado"
+      : entry.paymentStatus === "pagado";
+    const hasAnyPendingPayment = registrationEntry
+      ? entry.paymentStatus === "pendiente" || registrationEntry.paymentStatus === "pendiente"
+      : entry.paymentStatus === "pendiente";
     const isFocused =
       (!!focusPlayerId &&
         [entry.participantId, ...(entry.playerIds || []), ...(entry.players || []).flatMap((player) => [player?.linkedUserId, player?.id])]
@@ -1635,18 +1978,40 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
           <Text numberOfLines={1} style={styles.paymentTablePlayerName}>
             {formatCompactPlayerName(entry.participantLabel)}
           </Text>
+          {registrationEntry ? (
+            <Text numberOfLines={1} style={styles.paymentTableSecondaryLabel}>
+              Inscripcion
+            </Text>
+          ) : null}
         </View>
 
         <View style={styles.paymentTableStatusCell}>
           <Text numberOfLines={2} style={[styles.paymentTableStatusText, { color: statusMeta.accent }]}>
             {statusLabel}
           </Text>
+          {registrationEntry ? (
+            <Text
+              numberOfLines={2}
+              style={[
+                styles.paymentTableStatusText,
+                styles.paymentTableSecondaryStatusText,
+                { color: registrationStatusMeta?.accent || colors.textMuted },
+              ]}
+            >
+              {registrationStatusLabel}
+            </Text>
+          ) : null}
         </View>
 
         <View style={styles.paymentTableMethodCell}>
           <Text numberOfLines={2} style={styles.paymentTableMethodText}>
             {methodLabel || "-"}
           </Text>
+          {registrationEntry ? (
+            <Text numberOfLines={2} style={[styles.paymentTableMethodText, styles.paymentTableSecondaryMethodText]}>
+              {registrationMethodLabel || "-"}
+            </Text>
+          ) : null}
         </View>
 
         <View style={styles.paymentTableProofCell}>
@@ -1665,24 +2030,49 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
           ) : (
             <Text style={styles.paymentTableMutedText}>-</Text>
           )}
+          {registrationEntry ? (
+            registrationEntry.proofUrl ? (
+              <Pressable
+                onPress={() =>
+                  canManage
+                    ? openProofReview(registrationPaymentRound, registrationEntry)
+                    : handleOpenProof(registrationEntry.proofUrl)
+                }
+                style={({ pressed }) => [
+                  styles.paymentTableProofButton,
+                  styles.paymentTableSecondaryProofButton,
+                  pressed ? styles.pressedState : null,
+                ]}
+              >
+                <Ionicons color={colors.primaryDark} name="document-text-outline" size={14} />
+              </Pressable>
+            ) : (
+              <Text style={[styles.paymentTableMutedText, styles.paymentTableSecondaryMutedText]}>-</Text>
+            )
+          ) : null}
         </View>
 
         <View style={styles.paymentTableAmountCell}>
           <Text numberOfLines={1} style={styles.paymentTableAmountText}>
-            {roundPricePerPlayer > 0 ? formatCurrency(roundPricePerPlayer) : "-"}
+            {entryAmount > 0 ? formatCurrency(entryAmount) : "-"}
           </Text>
+          {registrationEntry ? (
+            <Text numberOfLines={1} style={[styles.paymentTableAmountText, styles.paymentTableSecondaryAmountText]}>
+              {registrationAmount > 0 ? formatCurrency(registrationAmount) : "-"}
+            </Text>
+          ) : null}
         </View>
 
         <View style={styles.paymentTableActionsCell}>
           {canManage ? (
             <View style={styles.paymentTableActionsRow}>
               <Pressable
-                onPress={() => openPaymentMethodPicker(round, entry)}
+                onPress={() => openPaymentMethodPicker(round, entry, registrationEntry)}
                 style={({ pressed }) => [
                   styles.paymentTableActionButton,
-                  entry.paymentStatus === "pagado"
+                  bothPaid
                     ? styles.quickPaidButtonPaid
-                    : entry.paymentStatus === "pendiente"
+                    : hasAnyPendingPayment
                     ? styles.quickPaidButtonPending
                     : styles.quickPaidButtonTransfer,
                   pressed ? styles.pressedState : null,
@@ -1691,7 +2081,7 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
                 <Ionicons color={colors.surface} name="cash-outline" size={14} />
               </Pressable>
               <Pressable
-                onPress={() => openEntryMenu(round, entry)}
+                onPress={() => openEntryMenu(round, entry, registrationEntry)}
                 style={({ pressed }) => [
                   styles.paymentTableMenuButton,
                   pressed ? styles.pressedState : null,
@@ -1737,7 +2127,12 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
     );
   }
 
-  const paymentsToRender = canManage ? roundPaymentsDraft : playerPaymentRounds;
+  const paymentsToRender = canManage
+    ? fixturePaymentRounds.length
+      ? fixturePaymentRounds
+      : roundPaymentsDraft
+    : playerPaymentRounds;
+  const hasPaymentItems = paymentsToRender.length > 0;
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -1756,16 +2151,18 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
           teamType={league?.teamType}
         />
 
-        {!hasFixture ? (
+        {!hasPaymentItems ? (
           <View style={styles.emptyCard}>
-            <Text style={styles.emptyTitle}>Todavia no hay fechas cargadas</Text>
+            <Text style={styles.emptyTitle}>Todavia no hay pagos para mostrar</Text>
             <Text style={styles.emptyText}>
-              Genera el fixture de la liga y despues podras controlar pagos por fecha.
+              {league?.paymentConfig?.registrationFeeEnabled
+                ? "Confirma participantes o genera el fixture para empezar a gestionar cobros."
+                : "Genera el fixture de la liga y despues podras controlar pagos por fecha."}
             </Text>
           </View>
         ) : null}
 
-        {hasFixture && !canManage && !paymentsToRender.length ? (
+        {hasPaymentItems && !canManage && !paymentsToRender.length ? (
           <View style={styles.emptyCard}>
             <Text style={styles.emptyTitle}>No encontramos pagos asociados a tu usuario</Text>
             <Text style={styles.emptyText}>
@@ -1774,7 +2171,7 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
           </View>
         ) : null}
 
-        {hasFixture && canManage && hasPendingChanges ? (
+        {hasPaymentItems && canManage && hasPendingChanges ? (
           <View style={styles.unsavedChangesBanner}>
             <Ionicons color="#3F4EA8" name="sync-outline" size={17} />
             <Text style={styles.unsavedChangesText}>
@@ -1786,14 +2183,17 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
         {!canManage && playerMercadoPagoBatchTargets.length ? (
           <View style={styles.batchSelectionHint}>
             <Ionicons color={colors.primaryDark} name="information-circle-outline" size={15} />
-            <Text style={styles.batchSelectionHintText}>Selecciona 1 o varias y paga.</Text>
+            <Text style={styles.batchSelectionHintText}>Selecciona 1 o varios cobros y paga.</Text>
           </View>
         ) : null}
 
         {paymentsToRender.map((round) => {
           const isExpanded = expandedRoundIds.includes(round.roundId);
           const roundSummary = getLeaguePaymentRoundSummary(round);
-          const roundAmountSummary = getPaymentAmountSummary(round.entries || [], roundPricePerPlayer);
+          const roundAmountSummary = getPaymentAmountSummary(
+            round.entries || [],
+            getRoundAmount(round, roundPricePerPlayer)
+          );
           const roundDateMeta = getPaymentRoundDateMeta(round);
           const playerPrimaryEntry = !canManage ? (round.entries || [])[0] || null : null;
           const playerStatusMeta = !canManage && playerPrimaryEntry ? getStatusMeta(playerPrimaryEntry.paymentStatus) : null;
@@ -1845,6 +2245,9 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
                     <Text
                       style={[
                         styles.roundTitle,
+                        round.paymentKind === "registration"
+                          ? styles.roundTitleRegistration
+                          : null,
                         roundDateMeta.reprogrammed ? styles.roundDatePillReprogrammed : null,
                       ]}
                     >
@@ -1867,8 +2270,12 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
                       </View>
                     ) : null}
                   </View>
-                  {roundPriceLabel ? <Text style={styles.roundPriceText}>{roundPriceLabel}</Text> : null}
-                  {round.pendingReprogrammedMatchesCount > 0 ? (
+                  {getRoundAmount(round, roundPricePerPlayer) > 0 ? (
+                    <Text style={styles.roundPriceText}>
+                      {formatCurrency(getRoundAmount(round, roundPricePerPlayer))} por jugador
+                    </Text>
+                  ) : null}
+                  {round.paymentKind !== "registration" && round.pendingReprogrammedMatchesCount > 0 ? (
                     <Text style={styles.roundReprogrammedNotice}>
                       {round.pendingReprogrammedMatchesCount} partido(s) reprogramado(s) pendiente(s)
                       no generan deuda todavia.
@@ -1943,7 +2350,7 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
                         </Text>
                       </View>
                       <Text style={styles.playerPaymentHelpText}>
-                        Selecciona una o varias fechas desde la tarjeta cerrada y adjunta un comprobante para todas.
+                        Selecciona uno o varios cobros desde la tarjeta cerrada y adjunta un comprobante para todos.
                       </Text>
                     </View>
                   ) : null}
@@ -1984,11 +2391,11 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
           );
         })}
 
-        {hasFixture && canManage ? (
+        {hasPaymentItems && canManage ? (
           <View style={styles.footerSummaryCard}>
             <Text style={styles.footerSummaryTitle}>RESUMEN TOTAL DE LIGA</Text>
             <Text style={styles.footerSummarySubtitle}>
-              Acumulado de las fechas jugadas: {globalSummary.totalPlayedRounds}/{globalSummary.totalRounds}
+              Cobros contabilizados: {globalSummary.totalPlayedRounds}/{globalSummary.totalRounds}
             </Text>
             <View style={styles.amountSummaryGrid}>
               {getPaymentAmountSummaryItems(globalSummary).map((item) => (
@@ -2016,7 +2423,7 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
           </View>
         ) : null}
 
-        {hasFixture && canManage ? (
+        {hasPaymentItems && canManage ? (
           <Pressable
             onPress={openReminderCenter}
             style={({ pressed }) => [
@@ -2034,12 +2441,12 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
         <View style={styles.batchFloatingBar}>
           <View style={styles.batchFloatingSummary}>
             <Text style={styles.batchFloatingTitle}>
-              {selectedMercadoPagoBatchTargets.length} fecha(s) seleccionada(s)
+              {selectedMercadoPagoBatchTargets.length} cobro(s) seleccionado(s)
             </Text>
             <Text style={styles.batchFloatingSubtitle}>
               {leagueMercadoPagoConfig.enabled
                 ? `Total ${formatCurrency(selectedMercadoPagoBatchAmount)}`
-                : "Adjuntaras un comprobante para las fechas elegidas"}
+                : "Adjuntaras un comprobante para los cobros elegidos"}
             </Text>
           </View>
           <Pressable
@@ -2077,7 +2484,7 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
         </View>
       ) : null}
 
-      {hasFixture && canManage ? (
+      {hasPaymentItems && canManage ? (
         <View style={styles.stickyActionsWrap}>
           <Pressable
             disabled={!hasPendingChanges || saving}
@@ -2400,7 +2807,10 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
             <Pressable onPress={handleOpenInternalReminder} style={({ pressed }) => [styles.modalAction, pressed ? styles.pressedState : null]}>
               <Text style={styles.modalActionText}>Enviar por mensajeria interna</Text>
             </Pressable>
-            <Pressable onPress={markPending} style={({ pressed }) => [styles.modalActionDanger, pressed ? styles.pressedState : null]}>
+            <Pressable
+              onPress={() => openPendingPicker(selectedRound, selectedEntry, selectedRegistrationEntry)}
+              style={({ pressed }) => [styles.modalActionDanger, pressed ? styles.pressedState : null]}
+            >
               <Text style={styles.modalActionDangerText}>Marcar impago</Text>
             </Pressable>
 
@@ -2465,12 +2875,115 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
         animationType="fade"
         transparent
         visible={methodPickerVisible}
-        onRequestClose={() => setMethodPickerVisible(false)}
+        onRequestClose={closeEntryMenu}
       >
         <View style={styles.modalOverlay}>
-          <Pressable style={styles.modalBackdrop} onPress={() => setMethodPickerVisible(false)} />
+          <Pressable style={styles.modalBackdrop} onPress={closeEntryMenu} />
           <View style={styles.modalCardSmall}>
             <Text style={styles.modalTitle}>Marcar como pagado</Text>
+            {selectedRegistrationEntry ? (
+              <>
+                <Text style={styles.modalSubtitle}>
+                  Selecciona que quieres cobrar con esta misma operacion.
+                </Text>
+                <View style={styles.paymentScopeColumn}>
+                  <Pressable
+                    disabled={selectedEntry?.paymentStatus === "pagado"}
+                    onPress={() => togglePaymentSelection("round")}
+                    style={({ pressed }) => [
+                      styles.paymentScopeButton,
+                      selectedPaymentSelection?.round ? styles.paymentScopeButtonActive : null,
+                      selectedEntry?.paymentStatus === "pagado" ? styles.paymentScopeButtonDisabled : null,
+                      pressed ? styles.pressedState : null,
+                    ]}
+                  >
+                    <Ionicons
+                      color={
+                        selectedEntry?.paymentStatus === "pagado"
+                          ? "#9AA7A1"
+                          : selectedPaymentSelection?.round
+                          ? "#22685D"
+                          : colors.textMuted
+                      }
+                      name={
+                        selectedEntry?.paymentStatus === "pagado"
+                          ? "checkmark-circle"
+                          : selectedPaymentSelection?.round
+                          ? "checkmark-circle"
+                          : "ellipse-outline"
+                      }
+                      size={18}
+                    />
+                    <View style={styles.paymentScopeCopy}>
+                      <Text
+                        style={[
+                          styles.paymentScopeButtonText,
+                          selectedEntry?.paymentStatus === "pagado"
+                            ? styles.paymentScopeButtonTextDisabled
+                            : null,
+                          selectedPaymentSelection?.round ? styles.paymentScopeButtonTextActive : null,
+                        ]}
+                      >
+                        Fecha
+                      </Text>
+                    </View>
+                    <Text style={styles.paymentScopeAmountText}>
+                      {formatCurrency(getRoundAmount(selectedRound, roundPricePerPlayer))}
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    disabled={selectedRegistrationEntry?.paymentStatus === "pagado"}
+                    onPress={() => togglePaymentSelection("registration")}
+                    style={({ pressed }) => [
+                      styles.paymentScopeButton,
+                      selectedPaymentSelection?.registration ? styles.paymentScopeButtonActive : null,
+                      selectedRegistrationEntry?.paymentStatus === "pagado"
+                        ? styles.paymentScopeButtonDisabled
+                        : null,
+                      pressed ? styles.pressedState : null,
+                    ]}
+                  >
+                    <Ionicons
+                      color={
+                        selectedRegistrationEntry?.paymentStatus === "pagado"
+                          ? "#9AA7A1"
+                          : selectedPaymentSelection?.registration
+                          ? "#22685D"
+                          : colors.textMuted
+                      }
+                      name={
+                        selectedRegistrationEntry?.paymentStatus === "pagado" ||
+                        selectedPaymentSelection?.registration
+                          ? "checkmark-circle"
+                          : "ellipse-outline"
+                      }
+                      size={18}
+                    />
+                    <View style={styles.paymentScopeCopy}>
+                      <Text
+                        style={[
+                          styles.paymentScopeButtonText,
+                          selectedRegistrationEntry?.paymentStatus === "pagado"
+                            ? styles.paymentScopeButtonTextDisabled
+                            : null,
+                          selectedPaymentSelection?.registration
+                            ? styles.paymentScopeButtonTextActive
+                            : null,
+                        ]}
+                      >
+                        Inscripcion
+                      </Text>
+                    </View>
+                    <Text style={styles.paymentScopeAmountText}>
+                      {formatCurrency(getRoundAmount(registrationPaymentRound, roundPricePerPlayer))}
+                    </Text>
+                  </Pressable>
+                </View>
+                <Text style={styles.paymentScopeTotalText}>
+                  Total seleccionado: {formatCurrency(selectedPaymentTotal)}
+                </Text>
+              </>
+            ) : null}
             {PAYMENT_METHOD_OPTIONS.map((option) => (
               <Pressable
                 key={option.key}
@@ -2491,13 +3004,144 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
       <Modal
         animationType="fade"
         transparent
+        visible={pendingPickerVisible}
+        onRequestClose={closeEntryMenu}
+      >
+        <View style={styles.modalOverlay}>
+          <Pressable style={styles.modalBackdrop} onPress={closeEntryMenu} />
+          <View style={styles.modalCardSmall}>
+            <Text style={styles.modalTitle}>Marcar como impago</Text>
+            {selectedRegistrationEntry ? (
+              <>
+                <Text style={styles.modalSubtitle}>
+                  Selecciona que quieres volver a marcar como impago.
+                </Text>
+                <View style={styles.paymentScopeColumn}>
+                  <Pressable
+                    disabled={selectedEntry?.paymentStatus !== "pagado"}
+                    onPress={() => togglePaymentSelection("round")}
+                    style={({ pressed }) => [
+                      styles.paymentScopeButton,
+                      selectedPaymentSelection?.round ? styles.paymentScopeButtonActive : null,
+                      selectedEntry?.paymentStatus !== "pagado" ? styles.paymentScopeButtonDisabled : null,
+                      pressed ? styles.pressedState : null,
+                    ]}
+                  >
+                    <Ionicons
+                      color={
+                        selectedEntry?.paymentStatus !== "pagado"
+                          ? "#9AA7A1"
+                          : selectedPaymentSelection?.round
+                          ? "#22685D"
+                          : colors.textMuted
+                      }
+                      name={
+                        selectedEntry?.paymentStatus !== "pagado"
+                          ? "checkmark-circle"
+                          : selectedPaymentSelection?.round
+                          ? "checkmark-circle"
+                          : "ellipse-outline"
+                      }
+                      size={18}
+                    />
+                    <View style={styles.paymentScopeCopy}>
+                      <Text
+                        style={[
+                          styles.paymentScopeButtonText,
+                          selectedEntry?.paymentStatus !== "pagado"
+                            ? styles.paymentScopeButtonTextDisabled
+                            : null,
+                          selectedPaymentSelection?.round ? styles.paymentScopeButtonTextActive : null,
+                        ]}
+                      >
+                        Fecha
+                      </Text>
+                    </View>
+                    <Text style={styles.paymentScopeAmountText}>
+                      {formatCurrency(getRoundAmount(selectedRound, roundPricePerPlayer))}
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    disabled={selectedRegistrationEntry?.paymentStatus !== "pagado"}
+                    onPress={() => togglePaymentSelection("registration")}
+                    style={({ pressed }) => [
+                      styles.paymentScopeButton,
+                      selectedPaymentSelection?.registration ? styles.paymentScopeButtonActive : null,
+                      selectedRegistrationEntry?.paymentStatus !== "pagado"
+                        ? styles.paymentScopeButtonDisabled
+                        : null,
+                      pressed ? styles.pressedState : null,
+                    ]}
+                  >
+                    <Ionicons
+                      color={
+                        selectedRegistrationEntry?.paymentStatus !== "pagado"
+                          ? "#9AA7A1"
+                          : selectedPaymentSelection?.registration
+                          ? "#22685D"
+                          : colors.textMuted
+                      }
+                      name={
+                        selectedRegistrationEntry?.paymentStatus !== "pagado" ||
+                        selectedPaymentSelection?.registration
+                          ? "checkmark-circle"
+                          : "ellipse-outline"
+                      }
+                      size={18}
+                    />
+                    <View style={styles.paymentScopeCopy}>
+                      <Text
+                        style={[
+                          styles.paymentScopeButtonText,
+                          selectedRegistrationEntry?.paymentStatus !== "pagado"
+                            ? styles.paymentScopeButtonTextDisabled
+                            : null,
+                          selectedPaymentSelection?.registration
+                            ? styles.paymentScopeButtonTextActive
+                            : null,
+                        ]}
+                      >
+                        Inscripcion
+                      </Text>
+                    </View>
+                    <Text style={styles.paymentScopeAmountText}>
+                      {formatCurrency(getRoundAmount(registrationPaymentRound, roundPricePerPlayer))}
+                    </Text>
+                  </Pressable>
+                </View>
+                <Text style={styles.paymentScopeTotalText}>
+                  Total seleccionado: {formatCurrency(selectedPaymentTotal)}
+                </Text>
+              </>
+            ) : null}
+            <Pressable
+              onPress={markPending}
+              style={({ pressed }) => [
+                styles.modalActionDanger,
+                !getSelectedPaymentTargets().length ? styles.modalActionDisabled : null,
+                pressed ? styles.pressedState : null,
+              ]}
+              disabled={!getSelectedPaymentTargets().length}
+            >
+              <Text style={styles.modalActionDangerText}>Confirmar impago</Text>
+            </Pressable>
+            <Pressable onPress={closeEntryMenu} style={({ pressed }) => [styles.modalCloseButton, pressed ? styles.pressedState : null]}>
+              <Text style={styles.modalCloseButtonText}>Cerrar</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        animationType="fade"
+        transparent
         visible={transferProofPickerVisible}
-        onRequestClose={() => setTransferProofPickerVisible(false)}
+        onRequestClose={closeEntryMenu}
       >
         <View style={styles.modalOverlay}>
           <Pressable
             style={styles.modalBackdrop}
-            onPress={() => setTransferProofPickerVisible(false)}
+            onPress={closeEntryMenu}
           />
           <View style={styles.modalCardSmall}>
             <Text style={styles.modalTitle}>Transferencia</Text>
@@ -2511,13 +3155,25 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
               <Text style={styles.modalActionText}>Marcar sin comprobante</Text>
             </Pressable>
             <Pressable
-              onPress={() => handleOrganizerTransferSelection(true)}
+              onPress={handlePickLeagueTransferImage}
               style={({ pressed }) => [styles.modalAction, pressed ? styles.pressedState : null]}
             >
-              <Text style={styles.modalActionText}>Cargar comprobante</Text>
+              <Text style={styles.modalActionText}>Cargar imagen</Text>
             </Pressable>
             <Pressable
-              onPress={() => setTransferProofPickerVisible(false)}
+              onPress={() => handleUploadProof(selectedRound, selectedEntry, "pdf", { markAsPaid: true })}
+              style={({ pressed }) => [styles.modalAction, pressed ? styles.pressedState : null]}
+            >
+              <Text style={styles.modalActionText}>Cargar PDF</Text>
+            </Pressable>
+            <Pressable
+              onPress={handlePickLeagueTransferCamera}
+              style={({ pressed }) => [styles.modalAction, pressed ? styles.pressedState : null]}
+            >
+              <Text style={styles.modalActionText}>Abrir camara</Text>
+            </Pressable>
+            <Pressable
+              onPress={closeEntryMenu}
               style={({ pressed }) => [styles.modalCloseButton, pressed ? styles.pressedState : null]}
             >
               <Text style={styles.modalCloseButtonText}>Cerrar</Text>
@@ -2638,6 +3294,9 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
     textAlign: "center",
     flex: 1,
+  },
+  roundTitleRegistration: {
+    backgroundColor: "#2F7F78",
   },
   roundStatusChip: {
     borderRadius: 999,
@@ -2797,6 +3456,14 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 12,
     fontWeight: "800",
+    lineHeight: 12,
+  },
+  paymentTableSecondaryLabel: {
+    color: "#4F6D63",
+    fontSize: 10,
+    fontWeight: "800",
+    lineHeight: 11,
+    marginTop: 4,
   },
   paymentTablePlayerMate: {
     color: colors.textMuted,
@@ -2824,6 +3491,9 @@ const styles = StyleSheet.create({
     textAlign: "left",
     lineHeight: 11,
   },
+  paymentTableSecondaryStatusText: {
+    marginTop: 4,
+  },
   paymentTableMethodCell: {
     flex: 0.95,
     alignItems: "center",
@@ -2841,6 +3511,10 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: "700",
     textAlign: "center",
+    lineHeight: 11,
+  },
+  paymentTableSecondaryMethodText: {
+    marginTop: 4,
   },
   paymentTableProofCell: {
     flex: 0.75,
@@ -2863,6 +3537,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  paymentTableSecondaryProofButton: {
+    marginTop: 4,
+  },
   paymentTableAmountCell: {
     flex: 0.9,
     alignItems: "center",
@@ -2879,6 +3556,10 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: "900",
     textAlign: "center",
+    lineHeight: 11,
+  },
+  paymentTableSecondaryAmountText: {
+    marginTop: 4,
   },
   paymentTableActionsCell: {
     flex: 0.8,
@@ -2930,6 +3611,9 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: "700",
     textAlign: "center",
+  },
+  paymentTableSecondaryMutedText: {
+    marginTop: 4,
   },
   pairPaymentCard: {
     borderRadius: 12,
@@ -3349,7 +4033,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     left: spacing.lg,
     right: spacing.lg,
-    bottom: BOTTOM_QUICK_ACTIONS_SPACE + 18,
+    bottom: BOTTOM_QUICK_ACTIONS_SPACE + 34,
     backgroundColor: colors.surface,
     borderColor: colors.border,
     borderRadius: 16,
@@ -3574,6 +4258,57 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 14,
     fontWeight: "800",
+    textAlign: "center",
+  },
+  paymentScopeColumn: {
+    gap: spacing.xs,
+    marginTop: spacing.xs,
+    marginBottom: spacing.sm,
+  },
+  paymentScopeButton: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.sm,
+    justifyContent: "space-between",
+    minHeight: 42,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#D7E0DB",
+    backgroundColor: "#F4F7F6",
+  },
+  paymentScopeButtonActive: {
+    borderColor: "#65A89A",
+    backgroundColor: "#E7F5F1",
+  },
+  paymentScopeButtonDisabled: {
+    borderColor: "#D9E1DD",
+    backgroundColor: "#F2F5F4",
+  },
+  paymentScopeCopy: {
+    flex: 1,
+  },
+  paymentScopeButtonText: {
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: "800",
+    textAlign: "left",
+  },
+  paymentScopeButtonTextActive: {
+    color: "#22685D",
+  },
+  paymentScopeButtonTextDisabled: {
+    color: "#8B9892",
+  },
+  paymentScopeAmountText: {
+    color: colors.text,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  paymentScopeTotalText: {
+    color: colors.primaryDark,
+    fontSize: 12,
+    fontWeight: "900",
     textAlign: "center",
   },
   modalActionDanger: {

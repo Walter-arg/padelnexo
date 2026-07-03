@@ -1,6 +1,6 @@
 export const googleAuthConfig = {
   androidClientId: "553114005250-9mi9h1f9v9r2ogpn38sidiencn5fal3a.apps.googleusercontent.com",
-  iosClientId: "",
+  iosClientId: "553114005250-9c71v4oo3imvc17hbhr2jg5r9ok0em0n.apps.googleusercontent.com",
   redirectUri: "com.padelnexo.app:/oauthredirect",
   webClientId: "553114005250-khcbjn19g7l892kaan1v5amv8mv5pns9.apps.googleusercontent.com",
 };

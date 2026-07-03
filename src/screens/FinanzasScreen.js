@@ -35,6 +35,7 @@ import {
 } from "../services/pushNotificationsService";
 import { listTournamentRegistrations, listTournaments } from "../services/tournamentsService";
 import { listOrganizerTurnoReservations } from "../services/turnosService";
+import devLog from "../utils/devLog";
 
 const FINANCE_MODULES = [
   { key: "ligas", label: "Ligas", icon: "tennisball-outline" },
@@ -2318,7 +2319,7 @@ export default function FinanzasScreen({ navigation }) {
           stageLabel: "Manual",
         });
       } catch (pushError) {
-        console.log("[FinanzasScreen] No se pudo enviar push:", pushError?.message || pushError);
+        devLog("[FinanzasScreen] No se pudo enviar push:", pushError?.message || pushError);
       }
 
       const nextPayments = resolveLeaguePaymentRounds(item.league).map((round) =>
@@ -2399,7 +2400,7 @@ export default function FinanzasScreen({ navigation }) {
           tournamentName: item.tournament?.name || "Torneo",
         });
       } catch (pushError) {
-        console.log("[FinanzasScreen] No se pudo enviar push torneo:", pushError?.message || pushError);
+        devLog("[FinanzasScreen] No se pudo enviar push torneo:", pushError?.message || pushError);
       }
 
       showFeedback(

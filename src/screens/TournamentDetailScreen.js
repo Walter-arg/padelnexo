@@ -6,6 +6,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
@@ -46,6 +47,7 @@ import {
   reviewTournamentPayment,
   uploadTournamentPaymentReceipt,
   updateTournament,
+  updateTournamentCapacity,
 } from "../services/tournamentsService";
 
 const TAB_LABELS = {
@@ -571,12 +573,6 @@ function InfoTab({ role, tournament, groups, matches, registrations }) {
     { label: "Sedes", value: tournament?.venueMode === "multiple" ? "Multiples sedes" : "Sede unica" },
   ];
 
-  if (role === "organizer") {
-    summaryItems.push({
-      label: "Cupos",
-      value: `${registrations.length}/${tournament?.maxPairs || 0} parejas`,
-    });
-  }
 
   return (
     <View style={styles.tabBody}>
@@ -1052,14 +1048,7 @@ function RegistrationTab({
           {activePanel === "payments" ? (
             <View style={styles.blockCard}>
               <Text style={styles.blockTitleCentered}>PAGOS</Text>
-              {tournamentMercadoPagoEnabled ? (
-                <View style={styles.registrationHintCard}>
-                  <Ionicons color={colors.primaryDark} name="wallet-outline" size={18} />
-                  <Text style={styles.registrationHintText}>
-                    El organizador habilito Mercado Pago para este torneo. La transferencia queda desactivada.
-                  </Text>
-                </View>
-              ) : requiresTransferReceipt ? (
+              {tournamentMercadoPagoEnabled ? null : requiresTransferReceipt ? (
                 <>
                   <Text style={styles.blockTextCentered}>
                     Alias: {tournament?.paymentAlias || "Alias a confirmar por organizador"}
@@ -1610,6 +1599,15 @@ function ManagementTab({
   tournament,
 }) {
   const [actionLoadingKey, setActionLoadingKey] = useState("");
+  const [minPairsInput, setMinPairsInput] = useState(
+    tournament?.minPairs > 0 ? String(tournament.minPairs) : ""
+  );
+  const [maxPairsInput, setMaxPairsInput] = useState(
+    tournament?.maxPairs > 0 ? String(tournament.maxPairs) : ""
+  );
+  const [showOccupancyCard, setShowOccupancyCard] = useState(
+    Boolean(tournament?.showOccupancyCard)
+  );
 
   const runAction = async (key, action, successMessage) => {
     try {
@@ -1625,29 +1623,32 @@ function ManagementTab({
       );
     } finally {
       setActionLoadingKey("");
-      }
+    }
   };
 
-  const actionButtons = [
-    {
-      key: "edit-details",
-      title: "Editar detalles",
-      variant: "secondary",
-      onPress: onEditDetails,
-    },
+  const handleSaveCapacity = async () => {
+    const min = Number(minPairsInput) || 0;
+    const max = Number(maxPairsInput) || 0;
+    const effectiveMin = min > 0 ? Math.max(min, 6) : 0;
+    if (min > 0 && min < 6) {
+      setMinPairsInput("6");
+    }
+    await runAction(
+      "save-capacity",
+      () => updateTournamentCapacity(tournament.id, { minPairs: effectiveMin, maxPairs: max, showOccupancyCard }),
+      "Los cupos del torneo fueron actualizados."
+    );
+  };
+
+  const statusActionButton =
     tournament.status === "draft"
       ? {
           key: "publish",
           title: "Publicar torneo",
           onPress: () =>
-            runAction(
-              "publish",
-              () => publishTournament(tournament.id),
-              "El torneo ya quedo publicado."
-            ),
+            runAction("publish", () => publishTournament(tournament.id), "El torneo ya quedo publicado."),
         }
-      : null,
-    tournament.status === "published" || tournament.status === "registration_closed"
+      : tournament.status === "published" || tournament.status === "registration_closed"
       ? {
           key: "open-registration",
           title: "Abrir inscripcion",
@@ -1658,8 +1659,7 @@ function ManagementTab({
               "La inscripcion ya quedo abierta."
             ),
         }
-      : null,
-    tournament.status === "registration_open"
+      : tournament.status === "registration_open"
       ? {
           key: "close-registration",
           title: "Cerrar inscripcion",
@@ -1670,56 +1670,99 @@ function ManagementTab({
               "La inscripcion ya quedo cerrada."
             ),
         }
-      : null,
-    tournament.status !== "cancelled" && tournament.status !== "finished"
-      ? {
-          key: "cancel-tournament",
-          title: "Cancelar torneo",
-          variant: "danger",
-          onPress: () =>
-            runAction(
-              "cancel-tournament",
-              () =>
-                cancelTournament({
-                  tournamentId: tournament.id,
-                  reason: "Cancelado por el organizador",
-                  organizerId: currentUser?.uid || "",
-                  organizerName: currentUser?.name || "Organizador",
-                }),
-              "El torneo ya quedo cancelado."
-            ),
-        }
-      : null,
-  ].filter(Boolean);
+      : null;
+
+  const canCancel = tournament.status !== "cancelled" && tournament.status !== "finished";
 
   return (
     <View style={styles.tabBody}>
       <View style={styles.blockCard}>
-        <View style={styles.managementButtonsWrap}>
-          {actionButtons.length ? (
-            actionButtons.map((button) => (
-              <AppButton
-                key={button.key}
-                disabled={Boolean(actionLoadingKey)}
-                onPress={button.onPress}
-                style={styles.managementButton}
-                textStyle={button.variant === "danger" ? styles.dangerButtonText : null}
-                title={actionLoadingKey === button.key ? "Guardando..." : button.title}
-                variant={
-                  button.key === "close-registration" ||
-                  button.variant === "danger" ||
-                  button.variant === "secondary"
-                    ? "secondary"
-                    : "primary"
-                }
-              />
-            ))
-          ) : (
-            <Text style={styles.blockText}>
-              No hay acciones inmediatas pendientes para este estado del torneo.
-            </Text>
-          )}
+        <Text style={[styles.blockTitle, { textAlign: "center" }]}>CUPOS DE PAREJAS</Text>
+        <View style={styles.managementCapacityRow}>
+          <View style={styles.managementCapacityField}>
+            <Text style={styles.managementCapacityLabel}>CUPO MÍNIMO DE PAREJAS</Text>
+            <TextInput
+              keyboardType="number-pad"
+              maxLength={3}
+              onChangeText={setMinPairsInput}
+              placeholder="—"
+              style={styles.managementCapacityInput}
+              value={minPairsInput}
+            />
+            <Text style={styles.managementCapacityHint}>Mín. efectivo: 6</Text>
+          </View>
+          <View style={styles.managementCapacityField}>
+            <Text style={styles.managementCapacityLabel}>CUPO MÁXIMO DE PAREJAS</Text>
+            <TextInput
+              keyboardType="number-pad"
+              maxLength={3}
+              onChangeText={setMaxPairsInput}
+              placeholder="—"
+              style={styles.managementCapacityInput}
+              value={maxPairsInput}
+            />
+          </View>
         </View>
+        <Pressable
+          onPress={() => setShowOccupancyCard((v) => !v)}
+          style={styles.managementCapacityToggleRow}
+        >
+          <Text style={styles.managementCapacityToggleLabel}>
+            MOSTRAR PORCENTAJE DE CUPOS CUBIERTOS
+          </Text>
+          <View style={[styles.togglePill, showOccupancyCard && styles.togglePillActive]}>
+            <View style={[styles.toggleDot, showOccupancyCard && styles.toggleDotActive]} />
+          </View>
+        </Pressable>
+        <AppButton
+          disabled={Boolean(actionLoadingKey)}
+          onPress={handleSaveCapacity}
+          style={styles.managementCapacitySave}
+          title={actionLoadingKey === "save-capacity" ? "Guardando..." : "Guardar cupos"}
+          variant="secondary"
+        />
+      </View>
+
+      <View style={styles.blockCard}>
+        <AppButton
+          disabled={Boolean(actionLoadingKey)}
+          onPress={onEditDetails}
+          style={styles.managementButton}
+          title="Editar detalles"
+          variant="secondary"
+        />
+        {statusActionButton ? (
+          <AppButton
+            disabled={Boolean(actionLoadingKey)}
+            onPress={statusActionButton.onPress}
+            style={styles.managementButton}
+            title={actionLoadingKey === statusActionButton.key ? "Guardando..." : statusActionButton.title}
+            variant="primary"
+          />
+        ) : null}
+        {canCancel ? (
+          <Pressable
+            disabled={Boolean(actionLoadingKey)}
+            onPress={() =>
+              runAction(
+                "cancel-tournament",
+                () =>
+                  cancelTournament({
+                    tournamentId: tournament.id,
+                    reason: "Cancelado por el organizador",
+                    organizerId: currentUser?.uid || "",
+                    organizerName: currentUser?.name || "Organizador",
+                  }),
+                "El torneo ya quedo cancelado."
+              )
+            }
+            style={styles.managementCancelLink}
+          >
+            <Text style={styles.managementCancelLinkText}>
+              {actionLoadingKey === "cancel-tournament" ? "Cancelando..." : "Cancelar torneo"}
+            </Text>
+          </Pressable>
+        ) : null}
       </View>
     </View>
   );
@@ -2776,11 +2819,96 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     marginLeft: spacing.sm,
   },
-  managementButtonsWrap: {
-    marginTop: spacing.sm,
-  },
   managementButton: {
     marginBottom: spacing.sm,
+  },
+  managementCapacityRow: {
+    flexDirection: "row",
+    gap: spacing.md,
+    justifyContent: "center",
+    marginTop: spacing.md,
+  },
+  managementCapacityField: {
+    alignItems: "center",
+    flex: 1,
+    maxWidth: 160,
+  },
+  managementCapacityLabel: {
+    color: colors.textSecondary,
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 0.5,
+    marginBottom: 6,
+    textAlign: "center",
+  },
+  managementCapacityInput: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 10,
+    borderWidth: 1,
+    color: colors.text,
+    fontSize: 22,
+    fontWeight: "800",
+    height: 52,
+    textAlign: "center",
+    width: "100%",
+  },
+  managementCapacityHint: {
+    color: colors.textSecondary,
+    fontSize: 10,
+    marginTop: 4,
+    textAlign: "center",
+  },
+  managementCapacityToggleRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: spacing.sm,
+    marginTop: spacing.md,
+    paddingVertical: 4,
+  },
+  managementCapacityToggleLabel: {
+    color: colors.textSecondary,
+    flex: 1,
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 0.4,
+    textAlign: "center",
+  },
+  togglePill: {
+    backgroundColor: colors.border,
+    borderRadius: 999,
+    height: 26,
+    justifyContent: "center",
+    paddingHorizontal: 3,
+    width: 46,
+  },
+  togglePillActive: {
+    backgroundColor: "#0EA5E9",
+  },
+  toggleDot: {
+    backgroundColor: "#fff",
+    borderRadius: 999,
+    height: 20,
+    width: 20,
+  },
+  toggleDotActive: {
+    alignSelf: "flex-end",
+  },
+  managementCapacitySave: {
+    alignSelf: "center",
+    marginTop: spacing.md,
+    minWidth: 160,
+  },
+  managementCancelLink: {
+    alignItems: "center",
+    marginTop: spacing.xs,
+    paddingVertical: spacing.sm,
+  },
+  managementCancelLinkText: {
+    color: colors.danger,
+    fontSize: 13,
+    fontWeight: "600",
   },
   dangerButtonText: {
     color: colors.danger,

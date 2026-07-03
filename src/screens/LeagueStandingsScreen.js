@@ -12,6 +12,7 @@ import SectionHeader from "../components/SectionHeader";
 import { colors, spacing } from "../config/theme";
 import { useAuth } from "../context/AuthContext";
 import { buildLeagueStandings, getLeagueById } from "../services/leaguesService";
+import { getUserId } from "../utils/getUserId";
 
 const STANDINGS_LEGEND = [
   { key: "Pts", label: "Puntos" },
@@ -62,7 +63,7 @@ function normalizeText(value = "") {
 }
 
 function buildCurrentUserStandingRowIds(league = {}, userData = {}) {
-  const currentUserId = normalizeText(userData?.uid || userData?.id || "");
+  const currentUserId = getUserId(userData).toLowerCase();
 
   if (!currentUserId) {
     return new Set();

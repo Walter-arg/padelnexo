@@ -7,11 +7,13 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import BottomQuickActionsBar, {
   BOTTOM_QUICK_ACTIONS_SPACE,
 } from "../components/BottomQuickActionsBar";
+import FeedbackModal from "../components/FeedbackModal";
 import SectionHeader from "../components/SectionHeader";
 import { colors, spacing } from "../config/theme";
 import { useAuth } from "../context/AuthContext";
 import { sendChatMessage } from "../services/chatService";
 import { isLeagueParticipant, listLeagues, updateLeagueFixture } from "../services/leaguesService";
+import { getUserId } from "../utils/getUserId";
 import { formatPlayerShortName } from "../utils/playerDisplayName";
 
 function normalizeText(value = "") {
@@ -157,7 +159,7 @@ function buildReplacementRejectedMessage(request = {}) {
 }
 
 function collectReplacementRequests(leagues = [], userData = {}) {
-  const currentUserId = normalizeText(userData?.uid || userData?.id || "");
+  const currentUserId = getUserId(userData).toLowerCase();
 
   return leagues
     .filter((league) => normalizeText(league.organizerId || league.createdBy) === currentUserId)
@@ -188,6 +190,7 @@ export default function OrganizerReplacementsScreen({ navigation }) {
   const [loading, setLoading] = useState(true);
   const [leaguesSource, setLeaguesSource] = useState([]);
   const [candidateActionId, setCandidateActionId] = useState("");
+  const [feedback, setFeedback] = useState({ visible: false, title: "", message: "", tone: "default" });
 
   useFocusEffect(
     useCallback(() => {
@@ -271,7 +274,7 @@ export default function OrganizerReplacementsScreen({ navigation }) {
 
       try {
         await sendChatMessage({
-          currentUserId: userData?.uid || userData?.id || "",
+          currentUserId: getUserId(userData),
           currentUserName: userData?.name || "Organizador",
           otherUserId: candidate.linkedUserId || candidate.id || "",
           otherUserName: formatPlayerShortName(candidate),
@@ -281,7 +284,7 @@ export default function OrganizerReplacementsScreen({ navigation }) {
         // El remplazo queda asignado aunque el aviso por mensaje no se pueda enviar.
       }
     } catch (error) {
-      // La tarjeta se mantiene sin cambios si Firestore falla.
+      setFeedback({ visible: true, title: "No pudimos asignar el remplazo", message: "Revisa tu conexion e intenta de nuevo.", tone: "danger" });
     } finally {
       setCandidateActionId("");
     }
@@ -309,7 +312,7 @@ export default function OrganizerReplacementsScreen({ navigation }) {
 
       try {
         await sendChatMessage({
-          currentUserId: userData?.uid || userData?.id || "",
+          currentUserId: getUserId(userData),
           currentUserName: userData?.name || "Organizador",
           otherUserId: candidate.linkedUserId || candidate.id || "",
           otherUserName: formatPlayerShortName(candidate),
@@ -319,7 +322,7 @@ export default function OrganizerReplacementsScreen({ navigation }) {
         // La postulacion queda rechazada aunque el aviso por mensaje no se pueda enviar.
       }
     } catch (error) {
-      // Si falla, dejamos visible la postulacion para que el organizador pueda reintentar.
+      setFeedback({ visible: true, title: "No pudimos rechazar la postulacion", message: "Revisa tu conexion e intenta de nuevo.", tone: "danger" });
     } finally {
       setCandidateActionId("");
     }
@@ -512,6 +515,13 @@ export default function OrganizerReplacementsScreen({ navigation }) {
       </View>
 
       <BottomQuickActionsBar />
+      <FeedbackModal
+        message={feedback.message}
+        onClose={() => setFeedback((prev) => ({ ...prev, visible: false }))}
+        title={feedback.title}
+        tone={feedback.tone}
+        visible={feedback.visible}
+      />
     </SafeAreaView>
   );
 }

@@ -15,6 +15,7 @@ import {
 
 import { db } from "../../services/firebaseConfig";
 import { sendOrganizerRequestNotificationToAdmins } from "./chatService";
+import devLog from "../utils/devLog";
 import { ORGANIZER_ROLE, ORGANIZER_STATUS, USER_ROLE } from "./roleService";
 
 export function createEmptyComplex() {
@@ -200,7 +201,7 @@ export async function submitOrganizerRequest(userId, payload) {
   };
 
   sendOrganizerRequestNotificationToAdmins(submittedRequest).catch((error) => {
-    console.log("[organizerService] No pudimos notificar a administradores", error);
+    devLog("[organizerService] No pudimos notificar a administradores", error);
   });
 
   return submittedRequest;

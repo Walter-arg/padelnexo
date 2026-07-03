@@ -5,6 +5,8 @@ const defaultMercadoPagoConfig = {
   scheme: "com.padelnexo.app",
   leaguesCheckoutUrl: "",
   leaguesSyncUrl: "",
+  oauthCompleteUrl: "",
+  oauthStartUrl: "",
   tournamentsCheckoutUrl: "",
   tournamentsSyncUrl: "",
   turnosCheckoutUrl: "",
@@ -36,6 +38,8 @@ export function getMercadoPagoConfig() {
       defaultMercadoPagoConfig.scheme,
     leaguesCheckoutUrl: String(configured.leaguesCheckoutUrl || "").trim(),
     leaguesSyncUrl: String(configured.leaguesSyncUrl || "").trim(),
+    oauthCompleteUrl: String(configured.oauthCompleteUrl || "").trim(),
+    oauthStartUrl: String(configured.oauthStartUrl || "").trim(),
     tournamentsCheckoutUrl: String(configured.tournamentsCheckoutUrl || "").trim(),
     tournamentsSyncUrl: String(configured.tournamentsSyncUrl || "").trim(),
     turnosCheckoutUrl: String(configured.turnosCheckoutUrl || "").trim(),
@@ -89,6 +93,12 @@ export function hasMercadoPagoCheckoutRuntimeConfig() {
   const config = getMercadoPagoConfig();
 
   return Boolean(config.publicKey && config.turnosCheckoutUrl);
+}
+
+export function hasMercadoPagoOAuthRuntimeConfig() {
+  const config = getMercadoPagoConfig();
+
+  return Boolean(config.oauthStartUrl && config.oauthCompleteUrl);
 }
 
 export function getMercadoPagoReturnUrls() {

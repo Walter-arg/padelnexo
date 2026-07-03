@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import devLog from "../utils/devLog";
 import {
   collection,
   getDocs,
@@ -156,7 +157,7 @@ export default function LocationPicker({
 
         setResults(nextResults);
       } catch (error) {
-        console.log("[LocationPicker] Error al buscar localidades:", error);
+        devLog("[LocationPicker] Error al buscar localidades:", error);
         setResults([]);
       } finally {
         if (!isCancelled) {

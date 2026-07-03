@@ -3,17 +3,7 @@ import { Ionicons } from "@expo/vector-icons";
 
 import { colors, spacing } from "../config/theme";
 import LeagueSuspensionNotice from "./LeagueSuspensionNotice";
-import { getActiveLeagueSuspensionNotice } from "../services/leaguesService";
-
-const DAY_LABELS = {
-  monday: "Lunes",
-  tuesday: "Martes",
-  wednesday: "Miercoles",
-  thursday: "Jueves",
-  friday: "Viernes",
-  saturday: "Sabado",
-  sunday: "Domingo",
-};
+import { DAY_LABELS, getActiveLeagueSuspensionNotice } from "../services/leaguesService";
 
 function buildScheduleSummary(league = {}) {
   const timeSlots = Array.isArray(league?.scheduleConfig?.timeSlots)

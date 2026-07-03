@@ -12,9 +12,10 @@ import SectionHeader from "../components/SectionHeader";
 import { colors, spacing } from "../config/theme";
 import { useAuth } from "../context/AuthContext";
 import { isLeagueParticipant, listLeagues } from "../services/leaguesService";
+import { getUserId } from "../utils/getUserId";
 
 function countPendingReplacementRequests(league = {}, userData = {}) {
-  const currentUserId = String(userData?.uid || userData?.id || "").trim().toLowerCase();
+  const currentUserId = getUserId(userData).toLowerCase();
 
   if (!currentUserId) {
     return 0;

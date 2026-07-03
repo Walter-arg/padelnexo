@@ -188,12 +188,7 @@ export default function BottomQuickActionsBar() {
             label="Notificaciones"
             onPress={() => navigation.navigate("OrganizerRegistrations")}
             renderIcon={() => (
-              <View style={styles.composedIconWrap}>
-                <Ionicons color="#2D5E97" name="clipboard-outline" size={20} />
-                {pendingRegistrationsCount > 0 ? (
-                  <Ionicons color="#FF8A00" name="alert-circle" size={12} style={styles.timeIcon} />
-                ) : null}
-              </View>
+              <Ionicons color="#2D5E97" name="clipboard-outline" size={20} />
             )}
             showBadge={pendingRegistrationsCount > 0}
             badgeTone="important"

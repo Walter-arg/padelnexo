@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
   FlatList,
   Keyboard,
@@ -20,6 +21,9 @@ import FeedbackModal from "../components/FeedbackModal";
 import ReportModal from "../components/ReportModal";
 import { colors, spacing } from "../config/theme";
 import { useAuth } from "../context/AuthContext";
+import { getUserId } from "../utils/getUserId";
+import devLog from "../utils/devLog";
+import { esMenorRestringido } from "../utils/ageUtils";
 import {
   blockUser,
   getConversationBlockStatus,
@@ -112,7 +116,7 @@ function buildMessagesWithDateDividers(messages = []) {
 export default function MensajesScreen({ navigation, route }) {
   const { userData } = useAuth();
   const insets = useSafeAreaInsets();
-  const currentUserId = userData?.uid || userData?.id;
+  const currentUserId = getUserId(userData);
   const currentUserName = userData?.name || userData?.email || "Jugador";
   const selectedPlayerId = route?.params?.playerId;
   const selectedPlayerName = route?.params?.playerName?.trim();
@@ -150,6 +154,8 @@ export default function MensajesScreen({ navigation, route }) {
     isBlocked: false,
   });
   const listRef = useRef(null);
+  const conversationListReadyRef = useRef(false);
+  const [isConversationListLoading, setIsConversationListLoading] = useState(true);
 
   const handleMessageAction = (action) => {
     if (!action?.type) {
@@ -169,6 +175,10 @@ export default function MensajesScreen({ navigation, route }) {
     const unsubscribe = subscribeToUserConversations({
       currentUserId,
       onData: (nextConversations) => {
+        if (!conversationListReadyRef.current) {
+          conversationListReadyRef.current = true;
+          setIsConversationListLoading(false);
+        }
         setConversationList(
           nextConversations.map((item) => ({
             ...item,
@@ -176,7 +186,13 @@ export default function MensajesScreen({ navigation, route }) {
           }))
         );
       },
-      onError: () => setConversationList([]),
+      onError: () => {
+        if (!conversationListReadyRef.current) {
+          conversationListReadyRef.current = true;
+          setIsConversationListLoading(false);
+        }
+        setConversationList([]);
+      },
     });
 
     return unsubscribe;
@@ -241,7 +257,7 @@ export default function MensajesScreen({ navigation, route }) {
       currentUserId,
       otherUserId: activeConversation.playerId,
     }).catch((error) => {
-      console.log("[MensajesScreen] No pudimos marcar como leido", error);
+      devLog("[MensajesScreen] No pudimos marcar como leido", error);
     });
   }, [activeConversation, currentUserId, conversationMessages]);
 
@@ -299,7 +315,7 @@ export default function MensajesScreen({ navigation, route }) {
       });
       setDraftMessage("");
     } catch (error) {
-      console.log("[MensajesScreen] No pudimos enviar el mensaje", error);
+      devLog("[MensajesScreen] No pudimos enviar el mensaje", error);
       if (error?.message === "CHAT_BLOCKED") {
         Alert.alert(
           "Chat bloqueado",
@@ -516,6 +532,35 @@ export default function MensajesScreen({ navigation, route }) {
       setSubmittingReport(false);
     }
   };
+
+  if (!userData?.fechaNacimiento) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <SectionHeader onBack={() => navigation.goBack()} subtitle="Mensajes" />
+        <View style={styles.restrictionContainer}>
+          <Text style={styles.restrictionTitle}>Completa tu perfil</Text>
+          <Text style={styles.restrictionText}>
+            Para habilitar la seccion de mensajes necesitas completar tu fecha de nacimiento en tu perfil.
+          </Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (esMenorRestringido(userData?.fechaNacimiento)) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <SectionHeader onBack={() => navigation.goBack()} subtitle="Mensajes" />
+        <View style={styles.restrictionContainer}>
+          <Text style={styles.restrictionTitle}>Mensajes no disponibles</Text>
+          <Text style={styles.restrictionText}>
+            Esta funcion esta restringida para usuarios menores de 14 anos.{"\n"}
+            Podes seguir participando en ligas y torneos normalmente.
+          </Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   if (activeConversation) {
     const messagesToRender =
@@ -855,10 +900,17 @@ export default function MensajesScreen({ navigation, route }) {
           data={conversationList}
           keyExtractor={(item) => item.id}
           ListEmptyComponent={
-            <View style={styles.emptyCard}>
-              <Text style={styles.emptyTitle}>No hay mensajes</Text>
-              <Text style={styles.emptyText}>Cuando inicies un chat, aparecera aca.</Text>
-            </View>
+            isConversationListLoading ? (
+              <View style={styles.emptyCard}>
+                <ActivityIndicator color={colors.primaryDark} size="small" />
+                <Text style={styles.emptyTitle}>Cargando mensajes...</Text>
+              </View>
+            ) : (
+              <View style={styles.emptyCard}>
+                <Text style={styles.emptyTitle}>No hay mensajes</Text>
+                <Text style={styles.emptyText}>Cuando inicies un chat, aparecera aca.</Text>
+              </View>
+            )
           }
           renderItem={({ item }) => {
             const hasUnread = item.hasUnread || item.unreadCount > 0;
@@ -1521,6 +1573,25 @@ const styles = StyleSheet.create({
   },
   modalButtonPressed: {
     opacity: 0.9,
+  },
+  restrictionContainer: {
+    alignItems: "center",
+    flex: 1,
+    justifyContent: "center",
+    paddingHorizontal: spacing.lg,
+  },
+  restrictionTitle: {
+    color: colors.text,
+    fontSize: 20,
+    fontWeight: "800",
+    marginBottom: spacing.sm,
+    textAlign: "center",
+  },
+  restrictionText: {
+    color: colors.muted,
+    fontSize: 15,
+    lineHeight: 22,
+    textAlign: "center",
   },
 });
 

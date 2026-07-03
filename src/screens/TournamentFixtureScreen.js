@@ -43,6 +43,7 @@ import {
   buildTournamentDayOptions,
   getTournamentDayLabel,
 } from "../services/tournamentAvailabilityService";
+import devLog from "../utils/devLog";
 
 const MATCH_FORMAT_OPTIONS = [
   {
@@ -7187,7 +7188,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
         tone: "success",
       });
     } catch (error) {
-      console.log("[TournamentFixture] zonePlanning update error", {
+      devLog("[TournamentFixture] zonePlanning update error", {
         code: error?.code,
         message: error?.message,
         name: error?.name,
@@ -7511,7 +7512,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
       },
       { total: 0, byes: 0, scheduled: 0, pending: 0, manualWinners: 0, scoredMatches: 0 }
     );
-    console.log("[TournamentFixture] Crear llaves", {
+    devLog("[TournamentFixture] Crear llaves", {
       tournamentId,
       ruleSet: tournamentRuleSet,
       zonesForBracket: zonesForBracket.map((zone) => ({

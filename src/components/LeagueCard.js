@@ -3,19 +3,10 @@ import { Ionicons } from "@expo/vector-icons";
 
 import { colors, spacing } from "../config/theme";
 import LeagueSuspensionNotice from "./LeagueSuspensionNotice";
-import { getActiveLeagueSuspensionNotice } from "../services/leaguesService";
+import { DAY_LABELS, getActiveLeagueSuspensionNotice } from "../services/leaguesService";
 
 const FAVORITE_COLOR = "#1FAB89";
 const COMPLEX_NAME_COLORS = ["#24A8D8", "#5B63C8", "#B965B8"];
-const DAY_LABELS = {
-  monday: "Lunes",
-  tuesday: "Martes",
-  wednesday: "Miercoles",
-  thursday: "Jueves",
-  friday: "Viernes",
-  saturday: "Sabado",
-  sunday: "Domingo",
-};
 
 function buildScheduleSummary(league) {
   const timeSlots = Array.isArray(league?.scheduleConfig?.timeSlots)

@@ -1,6 +1,6 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
-import { Animated, Easing, Image, StyleSheet, Text, View } from "react-native";
+import { AppState, Animated, Easing, Image, Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { colors, spacing } from "../config/theme";
@@ -118,15 +118,82 @@ function AuthLoadingScreen() {
   );
 }
 
+function EmailVerificationBanner({ email, onResend, onDismiss }) {
+  const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleResend = async () => {
+    if (sending || sent) return;
+    setSending(true);
+    setError("");
+    try {
+      await onResend();
+      setSent(true);
+    } catch (e) {
+      setError(e?.message || "No pudimos reenviar el email.");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <View style={styles.verificationBanner}>
+      <View style={styles.verificationBannerContent}>
+        <Text style={styles.verificationBannerText} numberOfLines={2}>
+          {sent
+            ? "Email reenviado. Revisá tu bandeja."
+            : `Verificá el email enviado a ${email}`}
+        </Text>
+        {error ? (
+          <Text style={styles.verificationBannerError}>{error}</Text>
+        ) : null}
+        {!sent ? (
+          <Pressable onPress={handleResend} disabled={sending}>
+            <Text style={styles.verificationBannerResend}>
+              {sending ? "Enviando..." : "Reenviar"}
+            </Text>
+          </Pressable>
+        ) : null}
+      </View>
+      <Pressable onPress={onDismiss} style={styles.verificationBannerClose} hitSlop={8}>
+        <Text style={styles.verificationBannerCloseText}>✕</Text>
+      </Pressable>
+    </View>
+  );
+}
+
 export default function AppNavigator() {
-  const { initializing } = useAuth();
+  const { initializing, user, emailVerified, resendVerificationEmail, refreshEmailVerified } = useAuth();
+  const [bannerDismissed, setBannerDismissed] = useState(false);
+
+  const isEmailPasswordUser = user?.providerData?.[0]?.providerId === "password";
+  const showBanner = Boolean(user && !emailVerified && isEmailPasswordUser && !bannerDismissed);
+
+  useEffect(() => {
+    if (!showBanner) return;
+    const subscription = AppState.addEventListener("change", async (nextState) => {
+      if (nextState === "active") {
+        await refreshEmailVerified();
+      }
+    });
+    return () => subscription.remove();
+  }, [showBanner, refreshEmailVerified]);
 
   if (initializing) {
     return <AuthLoadingScreen />;
   }
 
   return (
-    <Stack.Navigator
+    <View style={styles.navigatorRoot}>
+      {showBanner ? (
+        <EmailVerificationBanner
+          email={user?.email || ""}
+          onResend={resendVerificationEmail}
+          onDismiss={() => setBannerDismissed(true)}
+        />
+      ) : null}
+      <Stack.Navigator
       initialRouteName="Home"
       screenOptions={{
         headerStyle: {
@@ -319,6 +386,7 @@ export default function AppNavigator() {
         options={{ title: "Crear cuenta" }}
       />
     </Stack.Navigator>
+    </View>
   );
 }
 
@@ -369,6 +437,49 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     color: colors.muted,
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  navigatorRoot: {
+    flex: 1,
+  },
+  verificationBanner: {
+    alignItems: "center",
+    backgroundColor: "#FEF9E7",
+    borderBottomColor: "#F9E79F",
+    borderBottomWidth: 1,
+    flexDirection: "row",
+    paddingHorizontal: spacing.md,
+    paddingVertical: 10,
+  },
+  verificationBannerContent: {
+    flex: 1,
+    gap: 2,
+  },
+  verificationBannerText: {
+    color: "#7D6608",
+    fontSize: 12,
+    fontWeight: "600",
+    lineHeight: 16,
+  },
+  verificationBannerError: {
+    color: "#922B21",
+    fontSize: 11,
+    marginTop: 2,
+  },
+  verificationBannerResend: {
+    color: "#B7950B",
+    fontSize: 12,
+    fontWeight: "800",
+    marginTop: 2,
+    textDecorationLine: "underline",
+  },
+  verificationBannerClose: {
+    marginLeft: spacing.sm,
+    padding: 4,
+  },
+  verificationBannerCloseText: {
+    color: "#7D6608",
     fontSize: 14,
     fontWeight: "700",
   },

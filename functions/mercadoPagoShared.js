@@ -82,12 +82,133 @@ function logMercadoPagoAccessTokenLoaded(context = "general") {
   return accessToken;
 }
 
-async function mercadoPagoRequest(path, options = {}) {
-  const accessToken = logMercadoPagoAccessTokenLoaded("mercadoPagoRequest");
+function shouldUseLinkedMercadoPagoAccounts() {
+  return String(getOptionalEnv("MERCADO_PAGO_USE_LINKED_ACCOUNTS") || "true")
+    .trim()
+    .toLowerCase() !== "false";
+}
+
+function shouldRequireLinkedMercadoPagoAccounts() {
+  return String(getOptionalEnv("MERCADO_PAGO_REQUIRE_LINKED_ACCOUNTS") || "")
+    .trim()
+    .toLowerCase() === "true";
+}
+
+function shouldUseOAuthTestToken() {
+  return String(getOptionalEnv("MERCADO_PAGO_OAUTH_TEST_TOKEN") || "")
+    .trim()
+    .toLowerCase() === "true";
+}
+
+async function readOrganizerMercadoPagoAccount(organizerId = "") {
+  const normalizedOrganizerId = String(organizerId || "").trim();
+
+  if (!normalizedOrganizerId) {
+    return null;
+  }
+
+  const snapshot = await getDb()
+    .collection(MERCADO_PAGO_ACCOUNTS_COLLECTION)
+    .doc(normalizedOrganizerId)
+    .get();
+
+  if (!snapshot.exists) {
+    return null;
+  }
+
+  const data = snapshot.data() || {};
+
+  return {
+    accessToken: String(data.accessToken || "").trim(),
+    accountDisplayName: String(data.accountDisplayName || "").trim(),
+    organizerId: normalizedOrganizerId,
+    publicKey: String(data.publicKey || "").trim(),
+    refreshToken: String(data.refreshToken || "").trim(),
+    sellerId: String(data.sellerId || "").trim(),
+    tokenMode: String(data.tokenMode || "").trim().toLowerCase(),
+  };
+}
+
+async function resolveMercadoPagoRuntimeContext(options = {}) {
+  const organizerId = String(options.organizerId || "").trim();
+  const requireOrganizerAccount =
+    options.requireOrganizerAccount === true || shouldRequireLinkedMercadoPagoAccounts();
+
+  if (organizerId && shouldUseLinkedMercadoPagoAccounts()) {
+    const [{ currentConfig }, organizerAccount] = await Promise.all([
+      readOrganizerMercadoPagoConfig(organizerId),
+      readOrganizerMercadoPagoAccount(organizerId),
+    ]);
+
+    const expectedTokenMode = shouldUseOAuthTestToken() ? "test" : "production";
+    const organizerTokenMode = String(organizerAccount?.tokenMode || "")
+      .trim()
+      .toLowerCase();
+
+    if (
+      currentConfig.accountLinked &&
+      organizerAccount?.accessToken &&
+      organizerTokenMode === expectedTokenMode
+    ) {
+      logger.info("Usando cuenta vinculada del organizador en Mercado Pago", {
+        context: String(options.context || "general").trim() || "general",
+        organizerId,
+        source: "organizer_account",
+        tokenMode: organizerTokenMode,
+      });
+
+      return {
+        accessToken: organizerAccount.accessToken,
+        accountDisplayName: organizerAccount.accountDisplayName,
+        organizerId,
+        publicKey: organizerAccount.publicKey,
+        source: "organizer_account",
+        tokenMode: organizerTokenMode,
+      };
+    }
+
+    if (currentConfig.accountLinked && organizerAccount?.accessToken) {
+      logger.warn("La cuenta vinculada de Mercado Pago no coincide con el modo actual", {
+        expectedTokenMode,
+        organizerId,
+        tokenMode: organizerTokenMode || "unknown",
+      });
+    }
+
+    if (requireOrganizerAccount) {
+      throw new Error(
+        !organizerTokenMode
+          ? "El organizador debe volver a vincular su cuenta de Mercado Pago para actualizar el modo de cobro."
+          : expectedTokenMode === "production"
+            ? "El organizador debe vincular una cuenta real de Mercado Pago para recibir pagos."
+            : "El organizador debe vincular una cuenta de prueba de Mercado Pago para probar pagos."
+      );
+    }
+  }
+
+  const accessToken = logMercadoPagoAccessTokenLoaded(
+    String(options.context || "general").trim() || "general"
+  );
+
+  return {
+    accessToken,
+    accountDisplayName: "",
+    organizerId,
+    publicKey: "",
+    source: "global_test",
+    tokenMode: shouldUseOAuthTestToken() ? "test" : "production",
+  };
+}
+
+async function mercadoPagoRequest(path, options = {}, runtimeOptions = {}) {
+  const runtimeContext = await resolveMercadoPagoRuntimeContext({
+    context: "mercadoPagoRequest",
+    ...runtimeOptions,
+  });
   const response = await fetch(`https://api.mercadopago.com${path}`, {
     method: options.method || "GET",
     headers: {
-      Authorization: `Bearer ${accessToken}`,
+      Authorization: `Bearer ${runtimeContext.accessToken}`,
       Accept: "application/json",
       "Content-Type": "application/json",
       ...(options.headers || {}),
@@ -116,8 +237,7 @@ async function mercadoPagoRequest(path, options = {}) {
   return json;
 }
 
-function getMercadoPagoSdkClient() {
-  const accessToken = logMercadoPagoAccessTokenLoaded("sdkClient");
+function createMercadoPagoSdkClient(accessToken) {
   const { MercadoPagoConfig } = getMercadoPagoSdk();
 
   return new MercadoPagoConfig({
@@ -129,13 +249,36 @@ function getMercadoPagoSdkClient() {
 function getMercadoPagoOAuthClient() {
   const { OAuth } = getMercadoPagoSdk();
 
-  return new OAuth(getMercadoPagoSdkClient());
+  return new OAuth(createMercadoPagoSdkClient(logMercadoPagoAccessTokenLoaded("sdkClient")));
 }
 
-function getMercadoPagoPreferenceClient() {
-  const { Preference } = getMercadoPagoSdk();
+function shouldUseMercadoPagoSandboxCheckout() {
+  return String(getOptionalEnv("MERCADO_PAGO_CHECKOUT_SANDBOX") || "")
+    .trim()
+    .toLowerCase() === "true";
+}
 
-  return new Preference(getMercadoPagoSdkClient());
+async function getMercadoPagoPreferenceClient(runtimeOptions = {}) {
+  const { Preference } = getMercadoPagoSdk();
+  const runtimeContext = await resolveMercadoPagoRuntimeContext({
+    context: "sdkClient",
+    ...runtimeOptions,
+  });
+
+  return new Preference(createMercadoPagoSdkClient(runtimeContext.accessToken));
+}
+
+async function getMercadoPagoPreferenceRuntime(runtimeOptions = {}) {
+  const { Preference } = getMercadoPagoSdk();
+  const runtimeContext = await resolveMercadoPagoRuntimeContext({
+    context: "sdkClient",
+    ...runtimeOptions,
+  });
+
+  return {
+    client: new Preference(createMercadoPagoSdkClient(runtimeContext.accessToken)),
+    context: runtimeContext,
+  };
 }
 
 function createRandomId() {
@@ -194,6 +337,7 @@ module.exports = {
   getEnv,
   getMercadoPagoOAuthClient,
   getMercadoPagoPreferenceClient,
+  getMercadoPagoPreferenceRuntime,
   getOptionalEnv,
   handlePreflight,
   logger,
@@ -201,5 +345,11 @@ module.exports = {
   maskSecret,
   mercadoPagoRequest,
   normalizeOrganizerMercadoPagoConfig,
+  readOrganizerMercadoPagoAccount,
   readOrganizerMercadoPagoConfig,
+  resolveMercadoPagoRuntimeContext,
+  shouldUseMercadoPagoSandboxCheckout,
+  shouldRequireLinkedMercadoPagoAccounts,
+  shouldUseLinkedMercadoPagoAccounts,
+  shouldUseOAuthTestToken,
 };

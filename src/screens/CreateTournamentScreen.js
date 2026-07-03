@@ -176,7 +176,7 @@ function buildInitialForm(userData = {}) {
     sumTarget: "",
     fixedCategoryA: "",
     fixedCategoryB: "",
-    pairConfirmationMode: "both_paid",
+    pairConfirmationMode: "manual",
     buildMode: fixtureDefaults.mode || "automatic",
     recommendedGroupSize: 3,
     startDateMillis: "",
@@ -402,8 +402,8 @@ function buildFormFromTournament(tournament = {}, userData = {}) {
     recommendedGroupSize: Number(tournament?.recommendedGroupSize || 3),
     startDateMillis: tournament?.startDateMillis || "",
     endDateMillis: tournament?.endDateMillis || "",
-    minPairs: tournament?.minPairs ? String(tournament.minPairs) : "4",
-    maxPairs: tournament?.maxPairs ? String(tournament.maxPairs) : "16",
+    minPairs: "",
+    maxPairs: "",
   };
 }
 
@@ -850,22 +850,19 @@ export default function CreateTournamentScreen({ navigation, route }) {
 
     setForm((current) => {
       if (datePickerTarget === "startDateMillis") {
-        const nextEndDate =
-          Number(current.endDateMillis || 0) > 0 &&
-          Number(current.endDateMillis || 0) < normalizedMillis
-            ? normalizedMillis
-            : current.endDateMillis;
-
+        const endMs = Number(current.endDateMillis || 0);
         return {
           ...current,
           startDateMillis: normalizedMillis,
-          endDateMillis: nextEndDate,
+          endDateMillis: endMs > 0 && endMs < normalizedMillis ? normalizedMillis : current.endDateMillis,
         };
       }
 
+      const startMs = Number(current.startDateMillis || 0);
       return {
         ...current,
         endDateMillis: normalizedMillis,
+        startDateMillis: startMs > 0 && startMs > normalizedMillis ? normalizedMillis : current.startDateMillis,
       };
     });
 
@@ -999,21 +996,7 @@ export default function CreateTournamentScreen({ navigation, route }) {
       return "La fecha de finalizacion no puede ser anterior al inicio.";
     }
 
-    if ((Number.parseInt(form.minPairs || "0", 10) || 0) < 2) {
-      return "El minimo de parejas debe ser al menos 2.";
-    }
 
-    if ((Number.parseInt(form.maxPairs || "0", 10) || 0) < 2) {
-      return "El maximo de parejas debe ser al menos 2.";
-    }
-
-    if ((Number.parseInt(form.minPairs || "0", 10) || 0) > (Number.parseInt(form.maxPairs || "0", 10) || 0)) {
-      return "El minimo de parejas no puede superar al maximo.";
-    }
-
-    if (parseMoneyInput(form.entryFee) > 0 && !String(form.paymentAlias || "").trim()) {
-      return "Si el torneo cobra inscripcion, necesitamos el alias de transferencia.";
-    }
 
     if (form.creationMode === "multiple") {
       const quantity = Number.parseInt(form.quantity || "0", 10) || 0;
@@ -1348,20 +1331,11 @@ export default function CreateTournamentScreen({ navigation, route }) {
           <AppInput
             label="Nombre del torneo"
             labelStyle={styles.centeredFieldLabel}
-            onChangeText={(value) => updateField("name", value)}
+            onChangeText={(value) => updateField("name", value.toUpperCase())}
             placeholder={
               form.creationMode === "multiple" && !isEditingDraft ? "Torneo Apertura" : "Torneo de invierno"
             }
             value={form.name}
-          />
-          <AppInput
-            label="Descripcion"
-            labelStyle={styles.centeredFieldLabel}
-            multiline
-            numberOfLines={4}
-            onChangeText={(value) => updateField("description", value)}
-            placeholder="Esta descripcion es Opcional"
-            value={form.description}
           />
 
           {multiplePreviewNames.length ? (
@@ -1751,74 +1725,38 @@ export default function CreateTournamentScreen({ navigation, route }) {
             labelStyle={styles.centeredFieldLabel}
             inputStyle={styles.centeredMoneyInput}
             onChangeText={(value) => updateField("paymentAlias", value)}
-            placeholder="padelnexo.torneo"
+            placeholder="INGRESA TU ALIAS"
             value={form.paymentAlias}
           />
-          <View style={styles.mercadoPagoStatusCard}>
-            <View style={styles.mercadoPagoStatusHeader}>
-              <Ionicons
-                color={tournamentMercadoPagoConfig.enabled ? "#1A7F5A" : "#7B8794"}
-                name="wallet-outline"
-                size={18}
-              />
-              <Text style={styles.mercadoPagoStatusTitle}>Mercado Pago</Text>
-            </View>
-            <Text style={styles.mercadoPagoStatusText}>
-              {tournamentMercadoPagoConfig.enabled
-                ? isEditingDraft
-                  ? "Este torneo queda preparado para cobrar tambien con Mercado Pago."
-                  : "Tus proximos torneos pueden quedar preparados para cobrar tambien con Mercado Pago."
-                : "Activalo desde el perfil del organizador para cobrar tambien con Mercado Pago en torneos nuevos."}
-            </Text>
-          </View>
         </View>
 
         <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>FECHAS Y CUPOS</Text>
+          <Text style={styles.sectionTitle}>DURACIÓN DEL TORNEO</Text>
 
-          <Text style={styles.inputLabel}>TORNEO COMIENZA:</Text>
-          <Pressable
-            onPress={() => setDatePickerTarget("startDateMillis")}
-            style={({ pressed }) => [styles.dateField, pressed && styles.dateFieldPressed]}
-          >
-            <Ionicons color={colors.primaryDark} name="calendar-outline" size={18} />
-            <Text style={styles.dateFieldText}>{formatDateLabel(form.startDateMillis)}</Text>
-          </Pressable>
+          <View style={styles.datesRow}>
+            <Pressable
+              onPress={() => setDatePickerTarget("startDateMillis")}
+              style={({ pressed }) => [styles.datePicker, pressed && styles.datePickerPressed]}
+            >
+              <Text style={styles.datePickerTitle}>{"EL TORNEO\nCOMIENZA"}</Text>
+              <Ionicons color={colors.primaryDark} name="calendar-outline" size={20} />
+              <Text style={styles.datePickerSelect}>Seleccionar</Text>
+              <Text style={form.startDateMillis ? styles.datePickerValue : styles.datePickerPlaceholder}>
+                {formatDateLabel(form.startDateMillis)}
+              </Text>
+            </Pressable>
 
-          <Text style={[styles.inputLabel, styles.secondLabel]}>EL TORNEO FINALIZA:</Text>
-          <Pressable
-            onPress={() => setDatePickerTarget("endDateMillis")}
-            style={({ pressed }) => [styles.dateField, pressed && styles.dateFieldPressed]}
-          >
-            <Ionicons color={colors.primaryDark} name="calendar-outline" size={18} />
-            <Text style={styles.dateFieldText}>{formatDateLabel(form.endDateMillis)}</Text>
-          </Pressable>
-
-          <View style={styles.pairsRow}>
-            <View style={styles.pairsField}>
-              <AppInput
-                keyboardType="number-pad"
-                label="Minimo de parejas"
-                labelStyle={styles.centeredFieldLabel}
-                inputStyle={styles.centeredMoneyInput}
-                maxLength={2}
-                onChangeText={(value) => updateField("minPairs", sanitizeInteger(value, 2))}
-                placeholder="4"
-                value={form.minPairs}
-              />
-            </View>
-            <View style={styles.pairsField}>
-              <AppInput
-                keyboardType="number-pad"
-                label="Maximo de parejas"
-                labelStyle={styles.centeredFieldLabel}
-                inputStyle={styles.centeredMoneyInput}
-                maxLength={2}
-                onChangeText={(value) => updateField("maxPairs", sanitizeInteger(value, 2))}
-                placeholder="16"
-                value={form.maxPairs}
-              />
-            </View>
+            <Pressable
+              onPress={() => setDatePickerTarget("endDateMillis")}
+              style={({ pressed }) => [styles.datePicker, pressed && styles.datePickerPressed]}
+            >
+              <Text style={styles.datePickerTitle}>{"EL TORNEO\nFINALIZA"}</Text>
+              <Ionicons color={colors.primaryDark} name="calendar-outline" size={20} />
+              <Text style={styles.datePickerSelect}>Seleccionar</Text>
+              <Text style={form.endDateMillis ? styles.datePickerValue : styles.datePickerPlaceholder}>
+                {formatDateLabel(form.endDateMillis)}
+              </Text>
+            </Pressable>
           </View>
         </View>
 
@@ -2272,13 +2210,48 @@ const styles = StyleSheet.create({
   secondLabel: {
     marginTop: spacing.sm,
   },
-  pairsRow: {
+  datesRow: {
     flexDirection: "row",
     gap: spacing.sm,
-    marginTop: spacing.xs,
   },
-  pairsField: {
+  datePicker: {
+    alignItems: "center",
+    backgroundColor: "#F4FAF7",
+    borderColor: colors.border,
+    borderRadius: 10,
+    borderWidth: 1,
     flex: 1,
+    gap: 4,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.xs,
+  },
+  datePickerPressed: {
+    backgroundColor: "#E8F5EE",
+    borderColor: colors.primaryLight,
+  },
+  datePickerTitle: {
+    color: colors.text,
+    fontSize: 10,
+    fontWeight: "900",
+    letterSpacing: 0.4,
+    textAlign: "center",
+    textTransform: "uppercase",
+  },
+  datePickerSelect: {
+    color: colors.primaryDark,
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  datePickerValue: {
+    color: colors.primaryDark,
+    fontSize: 12,
+    fontWeight: "800",
+    textAlign: "center",
+  },
+  datePickerPlaceholder: {
+    color: colors.muted,
+    fontSize: 11,
+    textAlign: "center",
   },
   chipRow: {
     flexDirection: "row",

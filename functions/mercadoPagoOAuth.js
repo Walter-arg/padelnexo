@@ -1,4 +1,5 @@
 const { onRequest } = require("firebase-functions/v2/https");
+const crypto = require("crypto");
 
 const {
   MERCADO_PAGO_ACCOUNTS_COLLECTION,
@@ -14,6 +15,7 @@ const {
   handlePreflight,
   logger,
   readOrganizerMercadoPagoConfig,
+  shouldUseOAuthTestToken,
 } = require("./mercadoPagoShared");
 
 function isOAuthConfigured() {
@@ -30,6 +32,48 @@ function sendOAuthNotConfigured(res) {
     message:
       "OAuth de Mercado Pago todavia no esta configurado. Checkout Pro sigue funcionando sin Client ID ni Client Secret.",
   });
+}
+
+function base64UrlEncode(buffer) {
+  return buffer
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+}
+
+function createPkcePair() {
+  const verifier = base64UrlEncode(crypto.randomBytes(48));
+  const challenge = base64UrlEncode(crypto.createHash("sha256").update(verifier).digest());
+
+  return {
+    challenge,
+    method: "S256",
+    verifier,
+  };
+}
+
+function buildMercadoPagoAuthorizationUrl({
+  clientId = "",
+  redirectUri = "",
+  state = "",
+  codeChallenge = "",
+  codeChallengeMethod = "S256",
+}) {
+  const authorizationUrl = new URL("https://auth.mercadopago.com/authorization");
+
+  authorizationUrl.searchParams.set("client_id", clientId);
+  authorizationUrl.searchParams.set("redirect_uri", redirectUri);
+  authorizationUrl.searchParams.set("state", state);
+  authorizationUrl.searchParams.set("response_type", "code");
+  authorizationUrl.searchParams.set("platform_id", "mp");
+
+  if (codeChallenge) {
+    authorizationUrl.searchParams.set("code_challenge", codeChallenge);
+    authorizationUrl.searchParams.set("code_challenge_method", codeChallengeMethod);
+  }
+
+  return authorizationUrl.toString();
 }
 
 const mercadoPagoOAuthStart = onRequest({ invoker: "public" }, async (req, res) => {
@@ -68,8 +112,12 @@ const mercadoPagoOAuthStart = onRequest({ invoker: "public" }, async (req, res) 
     const oauthRedirectUri = getEnv("MERCADO_PAGO_OAUTH_REDIRECT_URL");
     const sessionId = createRandomId();
     const state = createRandomId();
+    const pkce = createPkcePair();
 
     await getDb().collection(OAUTH_SESSIONS_COLLECTION).doc(sessionId).set({
+      codeChallenge: pkce.challenge,
+      codeChallengeMethod: pkce.method,
+      codeVerifier: pkce.verifier,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
       nativeRedirectUri,
       organizerId,
@@ -79,12 +127,12 @@ const mercadoPagoOAuthStart = onRequest({ invoker: "public" }, async (req, res) 
       status: "pending",
     });
 
-    const authUrl = getMercadoPagoOAuthClient().getAuthorizationURL({
-      options: {
-        client_id: clientId,
-        redirect_uri: oauthRedirectUri,
-        state,
-      },
+    const authUrl = buildMercadoPagoAuthorizationUrl({
+      clientId,
+      codeChallenge: pkce.challenge,
+      codeChallengeMethod: pkce.method,
+      redirectUri: oauthRedirectUri,
+      state,
     });
 
     res.status(200).json({
@@ -136,12 +184,91 @@ const mercadoPagoOAuthRedirect = onRequest({ invoker: "public" }, async (req, re
     }
 
     target.searchParams.set("state", state);
+    target.searchParams.set("sessionId", session.id);
 
     if (error) {
       target.searchParams.set("error", error);
     }
 
-    res.redirect(302, target.toString());
+    const deepLink = target.toString();
+    const escapedDeepLink = deepLink
+      .replace(/&/g, "&amp;")
+      .replace(/"/g, "&quot;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+
+    res.status(200).send(`<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Volviendo a PadelNexo</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 0;
+        font-family: Arial, sans-serif;
+        background: #f4f6f8;
+        color: #1f2933;
+      }
+      .wrap {
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+      }
+      .card {
+        width: 100%;
+        max-width: 420px;
+        background: #ffffff;
+        border: 1px solid #d7e3ec;
+        border-radius: 18px;
+        padding: 24px;
+        box-shadow: 0 14px 34px rgba(15, 23, 42, 0.08);
+        text-align: center;
+      }
+      h1 {
+        font-size: 22px;
+        margin: 0 0 12px;
+      }
+      p {
+        font-size: 15px;
+        line-height: 1.5;
+        margin: 0 0 18px;
+        color: #52606d;
+      }
+      a {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 46px;
+        padding: 0 18px;
+        border-radius: 12px;
+        background: #1e9f6e;
+        color: #ffffff;
+        font-weight: 700;
+        text-decoration: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="card">
+        <h1>Ya casi volvemos a PadelNexo</h1>
+        <p>Si la app no se abre sola en unos segundos, toca el boton para continuar.</p>
+        <a href="${escapedDeepLink}">Volver a PadelNexo</a>
+      </div>
+    </div>
+    <script>
+      const deepLink = ${JSON.stringify(deepLink)};
+      window.location.replace(deepLink);
+      setTimeout(() => {
+        window.location.href = deepLink;
+      }, 900);
+    </script>
+  </body>
+</html>`);
   } catch (currentError) {
     logger.error("No pudimos redirigir el callback OAuth de Mercado Pago", currentError);
     res.status(500).send("No pudimos completar la vuelta a la app.");
@@ -205,13 +332,27 @@ const mercadoPagoOAuthComplete = onRequest({ invoker: "public" }, async (req, re
       throw new Error("La sesion OAuth no tiene redirect URL configurada.");
     }
 
+    const useOAuthTestToken = shouldUseOAuthTestToken();
+    const oauthCreateBody = {
+      client_id: getEnv("MERCADO_PAGO_CLIENT_ID"),
+      client_secret: getEnv("MERCADO_PAGO_CLIENT_SECRET"),
+      code,
+      code_verifier: String(sessionData.codeVerifier || "").trim(),
+      redirect_uri: oauthRedirectUri,
+    };
+
+    if (useOAuthTestToken) {
+      oauthCreateBody.test_token = true;
+    }
+
+    logger.info("Completando OAuth de Mercado Pago", {
+      organizerId,
+      platform,
+      testToken: useOAuthTestToken,
+    });
+
     const oauthResult = await getMercadoPagoOAuthClient().create({
-      body: {
-        client_id: getEnv("MERCADO_PAGO_CLIENT_ID"),
-        client_secret: getEnv("MERCADO_PAGO_CLIENT_SECRET"),
-        code,
-        redirect_uri: oauthRedirectUri,
-      },
+      body: oauthCreateBody,
     });
 
     const sellerId = String(
@@ -233,6 +374,7 @@ const mercadoPagoOAuthComplete = onRequest({ invoker: "public" }, async (req, re
     await getDb().collection(MERCADO_PAGO_ACCOUNTS_COLLECTION).doc(organizerId).set(
       {
         accessToken,
+        accountDisplayName,
         linkedAt: admin.firestore.FieldValue.serverTimestamp(),
         organizerId,
         platform,
@@ -241,6 +383,7 @@ const mercadoPagoOAuthComplete = onRequest({ invoker: "public" }, async (req, re
         refreshToken,
         sellerId,
         status: "linked",
+        tokenMode: useOAuthTestToken ? "test" : "production",
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       },
       { merge: true }
@@ -280,6 +423,18 @@ const mercadoPagoOAuthComplete = onRequest({ invoker: "public" }, async (req, re
       autoEnableNewPayments: currentConfig.autoEnableNewPayments === true,
       connectionStatus: "linked",
       enabled: currentConfig.enabled === true,
+      config: {
+        enabled: currentConfig.enabled === true,
+        accountDisplayName,
+        accountLinked: true,
+        autoEnableNewPayments: currentConfig.autoEnableNewPayments === true,
+        categories: currentConfig.categories || {
+          turnos: true,
+          ligas: true,
+          torneos: true,
+        },
+        connectionStatus: "linked",
+      },
       publicKey,
       sellerId,
     });

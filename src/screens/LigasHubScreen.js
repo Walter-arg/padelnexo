@@ -46,6 +46,7 @@ import {
   getCoordinatesFromObject,
   requestCurrentLocation,
 } from "../services/locationService";
+import { getUserId } from "../utils/getUserId";
 import { formatPlayerShortName } from "../utils/playerDisplayName";
 
 const SEX_FILTER_OPTIONS = ["Todos", "Masculino", "Femenino", "Mixto"];
@@ -111,8 +112,8 @@ function hasUserPostulated(replacement = {}, currentUserId = "") {
 
 function buildReplacementCandidate(userData = {}) {
   return {
-    id: userData?.uid || userData?.id || "",
-    linkedUserId: userData?.uid || userData?.id || "",
+    id: getUserId(userData),
+    linkedUserId: getUserId(userData),
     nombre: userData?.nombre || userData?.name || "Jugador",
     apellido: userData?.apellido || userData?.lastName || "",
     categoria: userData?.category || userData?.categoria || "",
@@ -476,7 +477,7 @@ export default function LigasHubScreen({ navigation }) {
     return visibleLeagues;
   }, [activeTab, appliedFilters, leaguesWithDistance, proximityFilter, query]);
   const publishedReplacementRequests = useMemo(() => {
-    const currentUserKey = normalizeText(userData?.uid || userData?.id || "");
+    const currentUserKey = getUserId(userData).toLowerCase();
 
     if (!currentUserKey || canCreateLeague) {
       return [];
@@ -511,7 +512,7 @@ export default function LigasHubScreen({ navigation }) {
   }, [partnerPickerPlayers, partnerPickerQuery]);
 
   const getUserLeagueRegistration = (league) => {
-    const userKey = normalizeText(userData?.uid || userData?.id || "");
+    const userKey = getUserId(userData).toLowerCase();
 
     if (!userKey || !league?.id) {
       return null;
@@ -694,8 +695,8 @@ export default function LigasHubScreen({ navigation }) {
 
   const buildRegistrationRequester = () => ({
     ...userData,
-    id: userData?.uid || userData?.id || "",
-    uid: userData?.uid || userData?.id || "",
+    id: getUserId(userData),
+    uid: getUserId(userData),
   });
 
   const handleRequestLeagueRegistration = async (league) => {
@@ -710,7 +711,7 @@ export default function LigasHubScreen({ navigation }) {
         setLeaguePendingRegistration(league);
         setPartnerPickerQuery("");
         const players = await listPlayers();
-        const currentUserKey = normalizeText(userData?.uid || userData?.id || "");
+        const currentUserKey = getUserId(userData).toLowerCase();
         setPartnerPickerPlayers(
           players.filter((player) => normalizeText(player.id) !== currentUserKey)
         );
@@ -756,7 +757,7 @@ export default function LigasHubScreen({ navigation }) {
       setRegistrationRequests((current) => [request, ...current]);
 
       await createInvitation({
-        senderId: userData?.uid || userData?.id || "",
+        senderId: getUserId(userData),
         senderName: userData?.name || userData?.nombre || "Jugador",
         recipientId: partner.id,
         recipientName: [partner.nombre, partner.apellido].filter(Boolean).join(" ") || "Jugador",
@@ -800,7 +801,7 @@ export default function LigasHubScreen({ navigation }) {
       return;
     }
 
-    if (hasUserPostulated(request.replacement, userData?.uid || userData?.id || "")) {
+    if (hasUserPostulated(request.replacement, getUserId(userData))) {
       showFeedback("Postulacion enviada", "Ya te postulaste para este reemplazo.", "success");
       return;
     }
@@ -1105,7 +1106,7 @@ export default function LigasHubScreen({ navigation }) {
             {publishedReplacementRequests.slice(0, 3).map((request) => {
               const alreadyPostulated = hasUserPostulated(
                 request.replacement,
-                userData?.uid || userData?.id || ""
+                getUserId(userData)
               );
 
               return (
@@ -1154,7 +1155,7 @@ export default function LigasHubScreen({ navigation }) {
             const replacementRequest = getPublishedReplacementRequestForLeague(item);
             const replacementPublicEnabled = replacementPublishState.enabled;
             const alreadyPostulatedReplacement = replacementRequest
-              ? hasUserPostulated(replacementRequest.replacement, userData?.uid || userData?.id || "")
+              ? hasUserPostulated(replacementRequest.replacement, getUserId(userData))
               : false;
             const isRegistrationConfirmed = currentRegistration?.status === "confirmed";
             const isRegistrationRejected = ["rejected", "partner_rejected"].includes(
@@ -1467,7 +1468,7 @@ export default function LigasHubScreen({ navigation }) {
                     isLeagueParticipant(selectedReplacementRequest.league, userData) ||
                     hasUserPostulated(
                       selectedReplacementRequest.replacement,
-                      userData?.uid || userData?.id || ""
+                      getUserId(userData)
                     )
                   }
                   onPress={() => handlePostulateReplacement(selectedReplacementRequest)}
@@ -1475,7 +1476,7 @@ export default function LigasHubScreen({ navigation }) {
                     styles.replacementPostulateButton,
                     hasUserPostulated(
                       selectedReplacementRequest.replacement,
-                      userData?.uid || userData?.id || ""
+                      getUserId(userData)
                     )
                       ? styles.replacementPostulateButtonDone
                       : null,
@@ -1487,7 +1488,7 @@ export default function LigasHubScreen({ navigation }) {
                       ? "NO DISPONIBLE"
                       : hasUserPostulated(
                       selectedReplacementRequest.replacement,
-                      userData?.uid || userData?.id || ""
+                      getUserId(userData)
                     )
                       ? "EN REVISION"
                       : submittingReplacementId === selectedReplacementRequest.id

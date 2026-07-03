@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Alert, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import DateTimePicker from "@react-native-community/datetimepicker";
 
 import AppButton from "../components/AppButton";
 import AppInput from "../components/AppInput";
@@ -16,6 +17,7 @@ import {
 } from "../data/profileOptions";
 import { colors, spacing } from "../config/theme";
 import { useAuth } from "../context/AuthContext";
+import { dateToFechaNacimiento, formatFechaNacimientoDisplay } from "../utils/ageUtils";
 
 const NAME_REGEX = /^[A-Za-z\u00c0-\u00ff\s]+$/;
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -129,6 +131,8 @@ export default function RegisterScreen({ navigation }) {
   const [isSexVisible, setIsSexVisible] = useState(false);
   const [isPreferredSideVisible, setIsPreferredSideVisible] = useState(false);
   const [isDominantHandVisible, setIsDominantHandVisible] = useState(false);
+  const [birthDate, setBirthDate] = useState(null);
+  const [datePickerVisible, setDatePickerVisible] = useState(false);
 
   const showFeedback = (title, message, tone = "default") => {
     setFeedback({
@@ -196,6 +200,11 @@ export default function RegisterScreen({ navigation }) {
       return;
     }
 
+    if (!birthDate) {
+      showFeedback("Falta la fecha de nacimiento", "Ingresa tu fecha de nacimiento para continuar.", "danger");
+      return;
+    }
+
     if (!password.trim()) {
       showFeedback("Falta la contrase\u00f1a", "Ingresa una contrase\u00f1a para continuar.", "danger");
       return;
@@ -245,6 +254,7 @@ export default function RegisterScreen({ navigation }) {
         description: "",
         avatarColor: avatarColors[0],
         avatarUrl: "",
+        fechaNacimiento: dateToFechaNacimiento(birthDate),
       });
 
       showFeedback("Registro listo", "Tu cuenta ya quedo creada en Firebase.", "success");
@@ -406,6 +416,40 @@ export default function RegisterScreen({ navigation }) {
             value={manoHabil}
             visible={isDominantHandVisible}
           />
+          <View style={styles.compactField}>
+            <Text style={[styles.centeredLabel, styles.dateLabel]}>Fecha de nacimiento</Text>
+            <Pressable
+              onPress={() => setDatePickerVisible(true)}
+              style={({ pressed }) => [
+                styles.dateField,
+                pressed ? styles.dateFieldPressed : null,
+              ]}
+            >
+              <Text style={birthDate ? styles.dateValue : styles.datePlaceholder}>
+                {birthDate
+                  ? formatFechaNacimientoDisplay(dateToFechaNacimiento(birthDate))
+                  : "DD/MM/AAAA"}
+              </Text>
+            </Pressable>
+            {datePickerVisible && (
+              <DateTimePicker
+                display="default"
+                maximumDate={new Date()}
+                minimumDate={new Date(1900, 0, 1)}
+                mode="date"
+                onChange={(_, selectedDate) => {
+                  if (Platform.OS !== "ios") {
+                    setDatePickerVisible(false);
+                  }
+                  if (selectedDate) {
+                    setBirthDate(selectedDate);
+                  }
+                }}
+                value={birthDate || new Date(2000, 0, 1)}
+              />
+            )}
+          </View>
+
           <AppInput
             containerStyle={styles.compactField}
             inputStyle={styles.compactInput}
@@ -418,6 +462,23 @@ export default function RegisterScreen({ navigation }) {
           />
 
           <AppButton title="Registrarme" onPress={handleRegister} style={styles.primaryButton} />
+          <Text style={styles.legalText}>
+            Al registrarte aceptas los{" "}
+            <Text
+              onPress={() => Linking.openURL("https://www.padelnexo.com.ar/terminos-condiciones")}
+              style={styles.legalLink}
+            >
+              Terminos y Condiciones
+            </Text>
+            {" "}y la{" "}
+            <Text
+              onPress={() => Linking.openURL("https://www.padelnexo.com.ar/politica-privacidad")}
+              style={styles.legalLink}
+            >
+              Politica de Privacidad
+            </Text>
+            .
+          </Text>
           <AppButton
             title="Ya tengo cuenta"
             onPress={() => navigation.goBack()}
@@ -547,6 +608,45 @@ const styles = StyleSheet.create({
   },
   secondaryButtonText: {
     color: colors.text,
+  },
+  legalText: {
+    color: colors.muted,
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: spacing.xs,
+    textAlign: "center",
+  },
+  legalLink: {
+    color: colors.primaryDark,
+    fontWeight: "700",
+    textDecorationLine: "underline",
+  },
+  dateLabel: {
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: "700",
+    marginBottom: 4,
+    marginTop: spacing.xs,
+    textTransform: "uppercase",
+  },
+  dateField: {
+    borderColor: colors.border,
+    borderRadius: 14,
+    borderWidth: 1,
+    justifyContent: "center",
+    minHeight: 42,
+    paddingHorizontal: spacing.md,
+  },
+  dateFieldPressed: {
+    opacity: 0.7,
+  },
+  dateValue: {
+    color: colors.text,
+    fontSize: 15,
+  },
+  datePlaceholder: {
+    color: colors.placeholder || colors.muted,
+    fontSize: 15,
   },
 });
 

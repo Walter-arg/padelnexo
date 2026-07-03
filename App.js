@@ -16,6 +16,7 @@ import {
 import { StatusBar } from "expo-status-bar";
 
 import AppNavigator from "./src/navigation/AppNavigator";
+import devLog from "./src/utils/devLog";
 import { AuthProvider } from "./src/context/AuthContext";
 import { colors, spacing } from "./src/config/theme";
 import {
@@ -57,7 +58,7 @@ function buildCheckoutNavigationPayload(url = "", depth = 0) {
     queryParams.url || queryParams.redirect_uri || queryParams.redirectUrl || ""
   ).trim();
 
-  console.log("[mercadoPagoCheckout] Deep link recibido:", {
+  devLog("[mercadoPagoCheckout] Deep link recibido:", {
     host,
     path,
     queryParams,
@@ -69,6 +70,10 @@ function buildCheckoutNavigationPayload(url = "", depth = 0) {
   }
 
   if (!isCheckoutHost && !isCheckoutPath) {
+    return null;
+  }
+
+  if (pathSegments[pathSegments.length - 1] === "oauth") {
     return null;
   }
 
@@ -100,13 +105,13 @@ async function navigateFromCheckoutUrl(url = "") {
   const payload = buildCheckoutNavigationPayload(url);
 
   if (!payload) {
-    console.log("[mercadoPagoCheckout] Deep link ignorado:", {
+    devLog("[mercadoPagoCheckout] Deep link ignorado:", {
       rawUrl: String(url || ""),
     });
     return false;
   }
 
-  console.log("[mercadoPagoCheckout] Navegando retorno Checkout Pro:", payload);
+  devLog("[mercadoPagoCheckout] Navegando retorno Checkout Pro:", payload);
   lastCheckoutReturnHandledAt = Date.now();
 
   if (payload?.params?.source === "leagues") {
@@ -148,7 +153,7 @@ async function navigateFromCheckoutUrl(url = "") {
               ? "failure"
               : payload.params.status;
       } catch (error) {
-        console.log(
+        devLog(
           "[mercadoPagoCheckout] No pudimos sincronizar la liga inmediatamente despues del retorno:",
           error?.message || error
         );
@@ -192,7 +197,7 @@ async function navigateFromCheckoutUrl(url = "") {
               ? "failure"
               : payload.params.status;
       } catch (error) {
-        console.log(
+        devLog(
           "[mercadoPagoCheckout] No pudimos sincronizar el torneo inmediatamente despues del retorno:",
           error?.message || error
         );
@@ -258,7 +263,7 @@ async function recoverPendingCheckoutResult({
         !hasExternalReference || pendingAgeMs < LEAGUE_PENDING_RECOVERY_GRACE_MS;
 
       if (!shouldKeepWaiting) {
-        console.log(
+        devLog(
           "[mercadoPagoCheckout] Intentando recuperar la liga por externalReference despues del tiempo de espera.",
           {
             hasExternalReference,
@@ -271,7 +276,7 @@ async function recoverPendingCheckoutResult({
       if (!shouldKeepWaiting) {
         // Continuamos con la sincronizacion normal por externalReference.
       } else {
-        console.log(
+        devLog(
           "[mercadoPagoCheckout] Se omite la recuperacion automatica de liga hasta recibir el paymentId del retorno.",
           {
             hasExternalReference,
@@ -283,7 +288,7 @@ async function recoverPendingCheckoutResult({
       }
     }
 
-    console.log("[mercadoPagoCheckout] Recuperando checkout pendiente:", pendingCheckout);
+    devLog("[mercadoPagoCheckout] Recuperando checkout pendiente:", pendingCheckout);
 
     let syncedStatus = String(pendingCheckout.status || "pending").trim().toLowerCase();
     let shouldCancelReservation = false;
@@ -359,7 +364,7 @@ async function recoverPendingCheckoutResult({
             ).catch(() => {});
           }
           await clearPendingMercadoPagoCheckout().catch(() => {});
-          console.log(
+          devLog(
             "[mercadoPagoCheckout] No encontramos un pago real para la liga despues de varios intentos. Marcamos el checkout como no aprobado.",
             {
               leagueId: pendingCheckout.leagueId || "",
@@ -383,7 +388,7 @@ async function recoverPendingCheckoutResult({
             ).catch(() => {});
           }
           await clearPendingMercadoPagoCheckout().catch(() => {});
-          console.log(
+          devLog(
             "[mercadoPagoCheckout] No encontramos un pago real para la liga despues de varios intentos. Marcamos el checkout como no aprobado.",
             {
               leagueId: pendingCheckout.leagueId || "",
@@ -394,7 +399,7 @@ async function recoverPendingCheckoutResult({
           syncedStatus = "failure";
         } else if (failedSyncAttempts >= 3) {
           await clearPendingMercadoPagoCheckout().catch(() => {});
-          console.log("[mercadoPagoCheckout] Checkout pendiente de liga limpiado tras multiples intentos sin encontrar el pago.", {
+          devLog("[mercadoPagoCheckout] Checkout pendiente de liga limpiado tras multiples intentos sin encontrar el pago.", {
             leagueId: pendingCheckout.leagueId || "",
             participantId: pendingCheckout.participantId || "",
             roundId: pendingCheckout.roundId || "",
@@ -409,7 +414,7 @@ async function recoverPendingCheckoutResult({
         }
       }
 
-      console.log(
+      devLog(
         "[mercadoPagoCheckout] No pudimos sincronizar automaticamente el checkout pendiente:",
         error?.message || error
       );
@@ -430,7 +435,7 @@ async function recoverPendingCheckoutResult({
           ? "failure"
           : "pending";
 
-    console.log("[mercadoPagoCheckout] Resultado recuperado del checkout pendiente:", {
+    devLog("[mercadoPagoCheckout] Resultado recuperado del checkout pendiente:", {
       normalizedStatus,
       trigger,
     });
@@ -457,7 +462,7 @@ async function recoverPendingCheckoutResult({
       },
     };
   } catch (error) {
-    console.log(
+    devLog(
       "[mercadoPagoCheckout] No pudimos recuperar el checkout pendiente:",
       error?.message || error
     );
@@ -480,7 +485,7 @@ class RootErrorBoundary extends React.Component {
 
   componentDidCatch(error, info) {
     this.setState({ info });
-    console.log("[RootErrorBoundary]", error, info);
+    devLog("[RootErrorBoundary]", error, info);
   }
 
   render() {
@@ -579,7 +584,7 @@ export default function App() {
       return;
     }
 
-    console.log("[mercadoPagoCheckout] useLinkingURL detecto:", linkingUrl);
+    devLog("[mercadoPagoCheckout] useLinkingURL detecto:", linkingUrl);
     navigateFromCheckoutUrl(String(linkingUrl || "")).catch(() => {});
   }, [linkingUrl]);
 

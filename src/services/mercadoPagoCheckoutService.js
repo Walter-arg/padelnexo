@@ -10,12 +10,27 @@ import {
   hasTurnosCheckoutConfig,
   hasTurnosSyncConfig,
 } from "../config/mercadoPago";
+import devLog from "../utils/devLog";
 
 const PENDING_TURNO_CHECKOUT_KEY = "@padelnexo:mercado-pago-pending-turno-checkout";
 const PENDING_CHECKOUT_KEY = "@padelnexo:mercado-pago-pending-checkout";
 
 function buildError(message) {
   return new Error(message);
+}
+
+function resolveCheckoutUrl(data = {}) {
+  const checkoutMode = String(data?.checkoutMode || data?.checkout_mode || "")
+    .trim()
+    .toLowerCase();
+  const initPoint = String(data?.initPoint || data?.init_point || "").trim();
+  const sandboxInitPoint = String(data?.sandboxInitPoint || data?.sandbox_init_point || "").trim();
+
+  if (checkoutMode === "sandbox" && sandboxInitPoint) {
+    return sandboxInitPoint;
+  }
+
+  return initPoint || sandboxInitPoint;
 }
 
 export async function createTurnoMercadoPagoPreference(payload = {}) {
@@ -26,7 +41,7 @@ export async function createTurnoMercadoPagoPreference(payload = {}) {
   }
 
   const config = getMercadoPagoConfig();
-  console.log("[mercadoPagoCheckout] Public Key cargada correctamente:", {
+  devLog("[mercadoPagoCheckout] Public Key cargada correctamente:", {
     configured: hasMercadoPagoPublicKey(),
     suffix: config.publicKey ? config.publicKey.slice(-6) : "",
   });
@@ -44,15 +59,17 @@ export async function createTurnoMercadoPagoPreference(payload = {}) {
   }
 
   const data = await response.json();
-  const checkoutUrl = String(data?.initPoint || data?.init_point || "").trim();
+  const checkoutUrl = resolveCheckoutUrl(data);
   const externalReference = String(data?.externalReference || "").trim();
   const preferenceId = String(data?.preferenceId || data?.id || "").trim();
 
-  console.log("[mercadoPagoCheckout] Preferencia creada correctamente:", {
+  devLog("[mercadoPagoCheckout] Preferencia creada correctamente:", {
     preferenceId,
   });
-  console.log("[mercadoPagoCheckout] URL de Checkout Pro generada correctamente:", {
+  devLog("[mercadoPagoCheckout] URL de Checkout Pro generada correctamente:", {
+    checkoutMode: String(data?.checkoutMode || data?.checkout_mode || "").trim(),
     hasCheckoutUrl: Boolean(checkoutUrl),
+    paymentSource: String(data?.paymentSource || data?.payment_source || "").trim(),
   });
 
   return {
@@ -71,7 +88,7 @@ export async function createLeagueMercadoPagoPreference(payload = {}) {
   }
 
   const config = getMercadoPagoConfig();
-  console.log("[mercadoPagoCheckout] Public Key cargada correctamente:", {
+  devLog("[mercadoPagoCheckout] Public Key cargada correctamente:", {
     configured: hasMercadoPagoPublicKey(),
     suffix: config.publicKey ? config.publicKey.slice(-6) : "",
   });
@@ -89,16 +106,18 @@ export async function createLeagueMercadoPagoPreference(payload = {}) {
   }
 
   const data = await response.json();
-  const checkoutUrl = String(data?.initPoint || data?.init_point || "").trim();
+  const checkoutUrl = resolveCheckoutUrl(data);
   const externalReference = String(data?.externalReference || "").trim();
   const preferenceId = String(data?.preferenceId || data?.id || "").trim();
 
-  console.log("[mercadoPagoCheckout] Preferencia creada correctamente:", {
+  devLog("[mercadoPagoCheckout] Preferencia creada correctamente:", {
     externalReference,
     preferenceId,
   });
-  console.log("[mercadoPagoCheckout] URL de Checkout Pro generada correctamente:", {
+  devLog("[mercadoPagoCheckout] URL de Checkout Pro generada correctamente:", {
+    checkoutMode: String(data?.checkoutMode || data?.checkout_mode || "").trim(),
     hasCheckoutUrl: Boolean(checkoutUrl),
+    paymentSource: String(data?.paymentSource || data?.payment_source || "").trim(),
   });
 
   return {
@@ -117,7 +136,7 @@ export async function createTournamentMercadoPagoPreference(payload = {}) {
   }
 
   const config = getMercadoPagoConfig();
-  console.log("[mercadoPagoCheckout] Public Key cargada correctamente:", {
+  devLog("[mercadoPagoCheckout] Public Key cargada correctamente:", {
     configured: hasMercadoPagoPublicKey(),
     suffix: config.publicKey ? config.publicKey.slice(-6) : "",
   });
@@ -135,16 +154,18 @@ export async function createTournamentMercadoPagoPreference(payload = {}) {
   }
 
   const data = await response.json();
-  const checkoutUrl = String(data?.initPoint || data?.init_point || "").trim();
+  const checkoutUrl = resolveCheckoutUrl(data);
   const externalReference = String(data?.externalReference || "").trim();
   const preferenceId = String(data?.preferenceId || data?.id || "").trim();
 
-  console.log("[mercadoPagoCheckout] Preferencia creada correctamente:", {
+  devLog("[mercadoPagoCheckout] Preferencia creada correctamente:", {
     externalReference,
     preferenceId,
   });
-  console.log("[mercadoPagoCheckout] URL de Checkout Pro generada correctamente:", {
+  devLog("[mercadoPagoCheckout] URL de Checkout Pro generada correctamente:", {
+    checkoutMode: String(data?.checkoutMode || data?.checkout_mode || "").trim(),
     hasCheckoutUrl: Boolean(checkoutUrl),
+    paymentSource: String(data?.paymentSource || data?.payment_source || "").trim(),
   });
 
   return {
@@ -297,7 +318,7 @@ export async function syncTurnoMercadoPagoPayment(payload = {}) {
   }
 
   if (!response.ok) {
-    console.log("[mercadoPagoCheckout] Error al sincronizar pago de liga:", {
+    devLog("[mercadoPagoCheckout] Error al sincronizar pago de liga:", {
       body: data,
       httpStatus: Number(response.status || 0),
       payload,
@@ -310,7 +331,7 @@ export async function syncTurnoMercadoPagoPayment(payload = {}) {
     throw error;
   }
 
-  console.log("[mercadoPagoCheckout] Pago sincronizado correctamente:", {
+  devLog("[mercadoPagoCheckout] Pago sincronizado correctamente:", {
     mercadoPagoPaymentId: String(data?.mercadoPagoPaymentId || "").trim(),
     mercadoPagoStatus: String(data?.mercadoPagoStatus || "").trim(),
     paymentStatus: String(data?.paymentStatus || "").trim(),
@@ -346,7 +367,7 @@ export async function syncLeagueMercadoPagoPayment(payload = {}) {
   }
 
   if (!response.ok) {
-    console.log("[mercadoPagoCheckout] Error al sincronizar pago de liga:", {
+    devLog("[mercadoPagoCheckout] Error al sincronizar pago de liga:", {
       body: data,
       httpStatus: Number(response.status || 0),
       payload,
@@ -359,7 +380,7 @@ export async function syncLeagueMercadoPagoPayment(payload = {}) {
     throw error;
   }
 
-  console.log("[mercadoPagoCheckout] Pago sincronizado correctamente:", {
+  devLog("[mercadoPagoCheckout] Pago sincronizado correctamente:", {
     externalReference: String(data?.externalReference || "").trim(),
     leagueId: String(data?.leagueId || "").trim(),
     mercadoPagoPaymentId: String(data?.mercadoPagoPaymentId || "").trim(),
@@ -397,7 +418,7 @@ export async function syncTournamentMercadoPagoPayment(payload = {}) {
   }
 
   if (!response.ok) {
-    console.log("[mercadoPagoCheckout] Error al sincronizar pago de torneo:", {
+    devLog("[mercadoPagoCheckout] Error al sincronizar pago de torneo:", {
       body: data,
       httpStatus: Number(response.status || 0),
       payload,
@@ -410,7 +431,7 @@ export async function syncTournamentMercadoPagoPayment(payload = {}) {
     throw error;
   }
 
-  console.log("[mercadoPagoCheckout] Pago sincronizado correctamente:", {
+  devLog("[mercadoPagoCheckout] Pago sincronizado correctamente:", {
     externalReference: String(data?.externalReference || "").trim(),
     mercadoPagoPaymentId: String(data?.mercadoPagoPaymentId || "").trim(),
     mercadoPagoStatus: String(data?.mercadoPagoStatus || "").trim(),

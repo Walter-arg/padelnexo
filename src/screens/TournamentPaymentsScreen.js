@@ -32,6 +32,8 @@ import {
   reviewTournamentPayment,
   uploadTournamentPaymentReceipt,
 } from "../services/tournamentsService";
+import { getUserId } from "../utils/getUserId";
+import devLog from "../utils/devLog";
 
 const PAYMENT_METHOD_OPTIONS = [
   { key: "efectivo", label: "Efectivo", icon: "cash-outline" },
@@ -317,7 +319,7 @@ export default function TournamentPaymentsScreen({ navigation, route }) {
     }, [loadTournamentPayments])
   );
 
-  const organizerId = userData?.uid || userData?.id || "";
+  const organizerId = getUserId(userData);
   const canManage =
     normalizeText(tournament?.organizerId) === normalizeText(organizerId) && Boolean(organizerId);
   const summary = useMemo(() => buildSummary(registrations), [registrations]);
@@ -479,7 +481,7 @@ export default function TournamentPaymentsScreen({ navigation, route }) {
           tournamentName: tournament?.name || fallbackTournamentName,
         });
       } catch (pushError) {
-        console.log(
+        devLog(
           "[TournamentPaymentsScreen] No se pudo enviar push torneo:",
           pushError?.message || pushError
         );

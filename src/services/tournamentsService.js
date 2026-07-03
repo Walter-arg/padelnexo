@@ -1671,8 +1671,11 @@ export async function getTournamentById(tournamentId) {
   return hydrateTournamentMercadoPagoConfig(mapTournamentDoc(snapshot));
 }
 
-export async function listTournaments() {
-  const snapshot = await getDocs(collection(db, "tournaments"));
+export async function listTournaments(...queryConstraints) {
+  const baseQuery = queryConstraints.length
+    ? query(collection(db, "tournaments"), ...queryConstraints)
+    : collection(db, "tournaments");
+  const snapshot = await getDocs(baseQuery);
   const tournaments = snapshot.docs.map(mapTournamentDoc);
   const organizerCache = new Map();
 
@@ -1701,7 +1704,7 @@ export async function listTournaments() {
 }
 
 export async function listTournamentsWithRegistrationCounts() {
-  const tournaments = await listTournaments();
+  const tournaments = await listTournaments(where("status", "not-in", ["draft", "cancelled"]));
 
   const tournamentsWithCounts = await Promise.all(
     tournaments.map(async (tournament) => {
@@ -1722,6 +1725,19 @@ export async function listTournamentsWithRegistrationCounts() {
   );
 
   return tournamentsWithCounts;
+}
+
+export async function listOrganizerDraftTournaments(organizerId) {
+  if (!organizerId) {
+    return [];
+  }
+
+  const tournaments = await listTournaments(
+    where("status", "==", "draft"),
+    where("organizerId", "==", organizerId)
+  );
+
+  return tournaments;
 }
 
 export async function listTournamentRegistrations(tournamentId) {
@@ -1750,6 +1766,21 @@ export async function listTournamentGroups(tournamentId) {
 
 export async function listTournamentMatches(tournamentId) {
   return listMatchDocs(tournamentId);
+}
+
+export async function updateTournamentCapacity(
+  tournamentId,
+  { minPairs = 0, maxPairs = 0, showOccupancyCard = false } = {}
+) {
+  if (!tournamentId) {
+    throw new Error("No encontramos el torneo.");
+  }
+  await updateDoc(doc(db, "tournaments", tournamentId), {
+    minPairs: Number(minPairs) || 0,
+    maxPairs: Number(maxPairs) || 0,
+    showOccupancyCard: Boolean(showOccupancyCard),
+    updatedAt: serverTimestamp(),
+  });
 }
 
 export async function updateTournament(tournamentId, organizer, payload, currentTournament = null) {

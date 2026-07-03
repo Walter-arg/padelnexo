@@ -13,6 +13,7 @@ import {
 import { db } from "../../services/firebaseConfig";
 import { canAccessAdminPanel } from "../config/admin";
 import { buildPublicationMercadoPagoConfig } from "./mercadoPagoConfigService";
+import { getUserId } from "../utils/getUserId";
 import { formatPlayerShortName, formatTeamShortLabel } from "../utils/playerDisplayName";
 
 export const LEAGUE_BRANCH_OPTIONS = [
@@ -85,7 +86,7 @@ const DEFAULT_FIXTURE_DATES_COUNT = 6;
 const DEFAULT_MIN_PLAYERS_COUNT = 8;
 const SCORING_SETTINGS_VERSION = 2;
 
-const DAY_LABELS = {
+export const DAY_LABELS = {
   monday: "Lunes",
   tuesday: "Martes",
   wednesday: "Miercoles",
@@ -280,6 +281,8 @@ function createEmptyFixture() {
 function createEmptyRoundPayments() {
   return [];
 }
+
+const LEAGUE_REGISTRATION_PAYMENT_ROUND_ID = "__league_registration_fee__";
 
 export function getLeagueCategoryOption(value) {
   return LEAGUE_CATEGORY_OPTIONS.find((item) => item.value === value) || null;
@@ -1051,10 +1054,12 @@ export async function getLeagueById(leagueId) {
 }
 
 export async function listLeagues() {
-  const snapshot = await getDocs(collection(db, "leagues"));
+  const snapshot = await getDocs(
+    query(collection(db, "leagues"), where("status", "not-in", ["deleted", "archived"]))
+  );
 
   return snapshot.docs
-    .filter((docSnapshot) => docSnapshot.exists() && shouldIncludeLeague(docSnapshot.data()))
+    .filter((docSnapshot) => docSnapshot.exists())
     .map(mapLeagueDoc)
     .sort((first, second) => second.createdAtMillis - first.createdAtMillis);
 }
@@ -1085,7 +1090,7 @@ export function getLeagueComplexOptions(leagues = [], selectedLocations = []) {
 }
 
 export function canManageLeague(league = {}, userData = {}) {
-  const currentUserId = userData?.uid || userData?.id || "";
+  const currentUserId = getUserId(userData);
   const currentEmail = userData?.email || "";
 
   return Boolean(
@@ -1097,7 +1102,7 @@ export function canManageLeague(league = {}, userData = {}) {
 }
 
 export function isLeagueParticipant(league = {}, userData = {}) {
-  const currentUserId = String(userData?.uid || userData?.id || "").trim().toLowerCase();
+  const currentUserId = getUserId(userData).toLowerCase();
 
   if (!currentUserId) {
     return false;
@@ -1724,6 +1729,56 @@ function resolveRoundPaymentParticipants(league = {}, round = {}) {
   }));
 }
 
+function resolveLeagueRegistrationPaymentParticipants(league = {}) {
+  const players = Array.isArray(league?.players) ? league.players.map(normalizePlayerEntry) : [];
+
+  if (league?.teamType === "pair") {
+    const groupedPairs = players.reduce((accumulator, player) => {
+      const pairNumber = normalizeCount(player?.pairNumber, 0);
+      const key = pairNumber > 0 ? `pair-${pairNumber}` : `single-${buildPlayerKey(player)}`;
+
+      if (!accumulator[key]) {
+        accumulator[key] = [];
+      }
+
+      accumulator[key].push(player);
+      return accumulator;
+    }, {});
+
+    return Object.values(groupedPairs).flatMap((pairPlayers) => {
+      const pairLabel = formatTeamShortLabel(pairPlayers);
+      const pairId = `registration-${pairPlayers
+        .map((player) => buildPlayerKey(player))
+        .filter(Boolean)
+        .join("-")}`;
+
+      return pairPlayers.map((player) => {
+        const playerId = buildPlayerKey(player);
+
+        return {
+          id: playerId,
+          type: "player",
+          label: getPaymentParticipantLabel("individual", player),
+          pairId,
+          pairLabel,
+          players: [player],
+          playerIds: [playerId].filter(Boolean),
+          completedAtMillis: normalizeCount(league?.createdAtMillis, 0) || 1,
+        };
+      });
+    });
+  }
+
+  return uniqueBy(players, (player) => getPaymentParticipantId("individual", player)).map((player) => ({
+    id: getPaymentParticipantId("individual", player),
+    type: "player",
+    label: getPaymentParticipantLabel("individual", player),
+    players: [player],
+    playerIds: [buildPlayerKey(player)].filter(Boolean),
+    completedAtMillis: normalizeCount(league?.createdAtMillis, 0) || 1,
+  }));
+}
+
 export function validateFixtureGeneration(league = {}) {
   const players = Array.isArray(league?.players) ? league.players : [];
 
@@ -1853,8 +1908,85 @@ export async function updateLeagueFixtureConfig(leagueId, fixtureConfig = {}, fi
 export function resolveLeaguePaymentRounds(league = {}) {
   const fixtureRounds = Array.isArray(league?.fixture?.rounds) ? league.fixture.rounds : [];
   const storedRoundPayments = normalizeRoundPayments(league?.roundPayments);
+  const paymentRounds = [];
+  const registrationFeeEnabled = league?.paymentConfig?.registrationFeeEnabled === true;
+  const registrationFeeAmount = normalizeMoneyValue(league?.paymentConfig?.registrationFeeAmount, 0);
 
-  return fixtureRounds.map((round, index) => {
+  if (registrationFeeEnabled && registrationFeeAmount > 0) {
+    const registrationParticipants = resolveLeagueRegistrationPaymentParticipants(league);
+    const storedRegistrationRound =
+      storedRoundPayments.find((entry) => entry.roundId === LEAGUE_REGISTRATION_PAYMENT_ROUND_ID) || {
+        roundId: LEAGUE_REGISTRATION_PAYMENT_ROUND_ID,
+        entries: [],
+      };
+
+    paymentRounds.push({
+      roundId: LEAGUE_REGISTRATION_PAYMENT_ROUND_ID,
+      roundNumber: 0,
+      title: "Inscripcion",
+      scheduleLabel: "",
+      scheduledDateMillis: 0,
+      suspendedAtMillis: 0,
+      suspensionReason: "",
+      suspensionMode: "",
+      rescheduledDateMillis: 0,
+      completedAtMillis: normalizeCount(league?.createdAtMillis, 0) || 1,
+      pendingReprogrammedMatchesCount: 0,
+      paymentKind: "registration",
+      amountPerEntry: registrationFeeAmount,
+      entries: registrationParticipants.map((participant) => {
+        const storedEntry =
+          storedRegistrationRound.entries.find((entry) => entry.participantId === participant.id) ||
+          storedRegistrationRound.entries.find(
+            (entry) => participant.pairId && entry.participantId === participant.pairId
+          ) ||
+          null;
+
+        return {
+          participantId: participant.id,
+          participantType: participant.type,
+          participantLabel: participant.label,
+          pairId: participant.pairId || "",
+          pairLabel: participant.pairLabel || "",
+          playerIds: participant.playerIds,
+          completedAtMillis: normalizeCount(participant.completedAtMillis, 0) || 1,
+          paymentStatus: storedEntry?.paymentStatus || "pendiente",
+          paymentMethod: storedEntry?.paymentMethod || "",
+          mercadoPagoPreferenceId: storedEntry?.mercadoPagoPreferenceId || "",
+          mercadoPagoCheckoutUrl: storedEntry?.mercadoPagoCheckoutUrl || "",
+          mercadoPagoPaymentId: storedEntry?.mercadoPagoPaymentId || "",
+          mercadoPagoStatus: storedEntry?.mercadoPagoStatus || "",
+          mercadoPagoStatusDetail: storedEntry?.mercadoPagoStatusDetail || "",
+          paymentGateway: storedEntry?.paymentGateway || "",
+          proofUrl: storedEntry?.proofUrl || "",
+          proofFileName: storedEntry?.proofFileName || "",
+          proofUploadedAtMillis: normalizeCount(storedEntry?.proofUploadedAtMillis, 0),
+          proofUploadedBy: storedEntry?.proofUploadedBy || "",
+          proofUploadedByName: storedEntry?.proofUploadedByName || "",
+          confirmedAtMillis: normalizeCount(storedEntry?.confirmedAtMillis, 0),
+          confirmedBy: storedEntry?.confirmedBy || "",
+          confirmedByName: storedEntry?.confirmedByName || "",
+          rejectedAtMillis: normalizeCount(storedEntry?.rejectedAtMillis, 0),
+          rejectedBy: storedEntry?.rejectedBy || "",
+          rejectedByName: storedEntry?.rejectedByName || "",
+          reminder4hSentAtMillis: normalizeCount(storedEntry?.reminder4hSentAtMillis, 0),
+          reminder4hSentBy: storedEntry?.reminder4hSentBy || "",
+          reminder4hSentByName: storedEntry?.reminder4hSentByName || "",
+          reminder24hSentAtMillis: normalizeCount(storedEntry?.reminder24hSentAtMillis, 0),
+          reminder24hSentBy: storedEntry?.reminder24hSentBy || "",
+          reminder24hSentByName: storedEntry?.reminder24hSentByName || "",
+          updatedAtMillis: normalizeCount(storedEntry?.updatedAtMillis, 0),
+          updatedBy: storedEntry?.updatedBy || "",
+          updatedByName: storedEntry?.updatedByName || "",
+          players: participant.players || [],
+        };
+      }),
+    });
+  }
+
+  return [
+    ...paymentRounds,
+    ...fixtureRounds.map((round, index) => {
     const roundMatches = Array.isArray(round?.matches) ? round.matches : [];
     const pendingReprogrammedMatchesCount = roundMatches.filter(
       (match) => match?.suspensionMode && !match?.result?.winner
@@ -1877,6 +2009,8 @@ export function resolveLeaguePaymentRounds(league = {}) {
       rescheduledDateMillis: normalizeCount(round.rescheduledDateMillis, 0),
       completedAtMillis: normalizeCount(round.completedAtMillis, 0),
       pendingReprogrammedMatchesCount,
+      paymentKind: "round",
+      amountPerEntry: normalizeMoneyValue(league?.paymentConfig?.roundPricePerPlayer, 0),
       entries: roundParticipants.map((participant) => {
         const storedEntry =
           storedRound.entries.find((entry) => entry.participantId === participant.id) ||
@@ -1925,7 +2059,8 @@ export function resolveLeaguePaymentRounds(league = {}) {
         };
       }),
     };
-  });
+  }),
+  ];
 }
 
 export function getLeaguePaymentRoundSummary(roundPayments = {}) {

@@ -215,7 +215,6 @@ export default function OrganizerRegistrationsScreen({ navigation }) {
   const [activeFilter, setActiveFilter] = useState("pending");
   const [contactMenu, setContactMenu] = useState(null);
   const [runningTurnoAction, setRunningTurnoAction] = useState("");
-  const [runningReadAction, setRunningReadAction] = useState("");
 
   const loadScreen = useCallback(async () => {
     const summary = await getOrganizerRegistrationsSummary(userData?.uid || "");
@@ -296,10 +295,6 @@ export default function OrganizerRegistrationsScreen({ navigation }) {
     () => turnoReservations.filter(isPendingTurnoNotification),
     [turnoReservations]
   );
-  const unreadTurnosCount = useMemo(
-    () => turnoReservations.filter(hasUnreadTurnoReservationNotification).length,
-    [turnoReservations]
-  );
   const visibleTurnos = activeFilter === "pending" ? pendingTurnos : turnoReservations;
   const registrationTabCount = activeFilter === "pending" ? pendingEntries.length : allEntries.length;
   const turnoTabCount = activeFilter === "pending" ? pendingTurnos.length : turnoReservations.length;
@@ -316,6 +311,10 @@ export default function OrganizerRegistrationsScreen({ navigation }) {
 
     if (nextSection === "turnos") {
       setActiveFilter(turnoReservations.some(isActionableTurnoReservation) ? "pending" : "all");
+      const unread = turnoReservations.filter(hasUnreadTurnoReservationNotification);
+      if (unread.length) {
+        Promise.all(unread.map((r) => markTurnoReservationNotificationRead(r.id))).then(loadScreen).catch(() => null);
+      }
       return;
     }
 
@@ -357,16 +356,6 @@ export default function OrganizerRegistrationsScreen({ navigation }) {
       await loadScreen();
     } finally {
       setRunningTurnoAction("");
-    }
-  };
-
-  const handleMarkTurnoAsRead = async (reservation) => {
-    try {
-      setRunningReadAction(reservation.id);
-      await markTurnoReservationNotificationRead(reservation.id);
-      await loadScreen();
-    } finally {
-      setRunningReadAction("");
     }
   };
 
@@ -583,21 +572,6 @@ export default function OrganizerRegistrationsScreen({ navigation }) {
           </Text>
         </View>
 
-        {isUnread ? (
-          <Pressable
-            disabled={runningReadAction === item.id}
-            onPress={() => handleMarkTurnoAsRead(item)}
-            style={[
-              styles.markReadButton,
-              runningReadAction === item.id ? styles.markReadButtonDisabled : null,
-            ]}
-          >
-            <Ionicons color="#1E5F86" name="checkmark-done-outline" size={15} />
-            <Text style={styles.markReadButtonText}>
-              {runningReadAction === item.id ? "Marcando..." : "Marcar como leida"}
-            </Text>
-          </Pressable>
-        ) : null}
 
         {actionable ? (
           <View style={styles.turnoActionsRow}>
@@ -701,7 +675,9 @@ export default function OrganizerRegistrationsScreen({ navigation }) {
               activeSection === "turnos" ? styles.sectionTabActive : null,
             ]}
           >
-            {unreadTurnosCount > 0 ? <View style={styles.sectionTabDot} /> : null}
+            {turnoReservations.some(hasUnreadTurnoReservationNotification) ? (
+              <View style={styles.sectionTabDot} />
+            ) : null}
             <Text
               style={[
                 styles.sectionTabText,

@@ -1,10 +1,37 @@
 import { useEffect, useState } from "react";
-import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 
 import { colors, spacing } from "../config/theme";
 import { hasGoogleAuthConfig } from "../config/googleAuth";
 import { configureGoogleSignIn, requestGoogleIdToken } from "../services/googleSignInService";
+
+const GOOGLE_QUADRANTS = [
+  { color: "#FBBC05", top: 0,  left: 0,  mt: 0,   ml: 0   },
+  { color: "#EA4335", top: 0,  left: 11, mt: 0,   ml: -11 },
+  { color: "#34A853", top: 11, left: 0,  mt: -11, ml: 0   },
+  { color: "#4285F4", top: 11, left: 11, mt: -11, ml: -11 },
+];
+
+function GoogleGIcon() {
+  return (
+    <View style={{ width: 22, height: 22 }}>
+      {GOOGLE_QUADRANTS.map(({ color, top, left, mt, ml }) => (
+        <View
+          key={color}
+          style={{ position: "absolute", top, left, width: 11, height: 11, overflow: "hidden" }}
+        >
+          <Ionicons
+            color={color}
+            name="logo-google"
+            size={22}
+            style={{ marginTop: mt, marginLeft: ml }}
+          />
+        </View>
+      ))}
+    </View>
+  );
+}
 
 export default function GoogleSignInButton({
   disabled = false,
@@ -62,7 +89,7 @@ export default function GoogleSignInButton({
         ]}
       >
         <View style={styles.iconWrap}>
-          <Ionicons color="#DB4437" name="logo-google" size={18} />
+          <GoogleGIcon />
         </View>
         <Text style={styles.text}>
           {waitingForGoogle ? "Conectando con Google..." : "Ingresar con Google"}
