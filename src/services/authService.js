@@ -4,7 +4,6 @@ import {
   GoogleAuthProvider,
   reauthenticateWithCredential,
   sendEmailVerification,
-  sendPasswordResetEmail,
   signInWithEmailAndPassword,
   signInWithCredential,
   signOut,
@@ -75,16 +74,29 @@ export async function logoutUser() {
   }
 }
 
+const RESET_PASSWORD_FUNCTION_URL =
+  "https://southamerica-east1-padelnexo-7e4d5.cloudfunctions.net/sendPasswordReset";
+
 export async function resetPassword(email) {
   try {
-    await sendPasswordResetEmail(auth, email);
+    const response = await fetch(RESET_PASSWORD_FUNCTION_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email }),
+    });
+
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      if (data?.error === "email_service_not_configured") {
+        throw new Error("El servicio de email no está configurado. Contactá al administrador.");
+      }
+      throw new Error("No pudimos enviar el correo de recuperacion en este momento.");
+    }
   } catch (error) {
-    throw new Error(
-      getFirebaseErrorMessage(
-        error,
-        "No pudimos enviar el correo de recuperacion en este momento."
-      )
-    );
+    if (error?.message?.includes("configurado") || error?.message?.includes("recuperacion")) {
+      throw error;
+    }
+    throw new Error("No pudimos enviar el correo de recuperacion. Verificá tu conexión e intentá de nuevo.");
   }
 }
 

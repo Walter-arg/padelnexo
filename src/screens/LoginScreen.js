@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
-import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import AppButton from "../components/AppButton";
 import AppInput from "../components/AppInput";
+import FeedbackModal from "../components/FeedbackModal";
 import GoogleSignInButton from "../components/GoogleSignInButton";
 import ScreenWrapper from "../components/ScreenWrapper";
 import { colors, spacing } from "../config/theme";
@@ -29,6 +30,8 @@ export default function LoginScreen({ navigation }) {
   const [identifier, setIdentifier] = useState(lastLoginEmail || "");
   const [password, setPassword] = useState("");
   const [isPasswordVisible, setIsPasswordVisible] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [feedback, setFeedback] = useState({ visible: false, title: "", message: "", tone: "default" });
 
   useEffect(() => {
     if (lastLoginEmail && !identifier) {
@@ -36,64 +39,71 @@ export default function LoginScreen({ navigation }) {
     }
   }, [identifier, lastLoginEmail]);
 
+  const showFeedback = (title, message, tone = "default") => {
+    setFeedback({ visible: true, title, message, tone });
+  };
+
   const validateEmail = () => {
-    const trimmedIdentifier = identifier.trim().toLowerCase();
-
-    if (!trimmedIdentifier) {
-      Alert.alert("Falta contacto", "Ingresa tu email para continuar.");
+    const trimmed = identifier.trim().toLowerCase();
+    if (!trimmed) {
+      showFeedback("Falta el email", "Ingresa tu email para continuar.", "danger");
       return null;
     }
-
-    if (!emailRegex.test(trimmedIdentifier)) {
-      Alert.alert("Email invalido", "Para usar Firebase debes ingresar un email valido.");
+    if (!emailRegex.test(trimmed)) {
+      showFeedback("Email invalido", "Ingresa un email valido.", "danger");
       return null;
     }
-
-    return trimmedIdentifier;
+    return trimmed;
   };
 
   const handleLogin = async () => {
     const email = validateEmail();
-    if (!email) {
-      return;
-    }
+    if (!email) return;
 
     if (!password.trim()) {
-      Alert.alert("Datos incompletos", "Ingresa tu contrase\u00f1a para continuar.");
+      showFeedback("Falta la contraseña", "Ingresa tu contraseña para continuar.", "danger");
       return;
     }
 
     try {
+      setSubmitting(true);
       await login({ email, password });
-      Alert.alert("Sesion iniciada", "Accediste correctamente a PadelNexo.");
       navigation.goBack();
     } catch (error) {
-      Alert.alert(getLoginErrorTitle(error.message), error.message);
+      showFeedback(getLoginErrorTitle(error.message), error.message, "danger");
+    } finally {
+      setSubmitting(false);
     }
   };
 
   const handleRequestRecovery = async () => {
     const email = validateEmail();
-    if (!email) {
-      return;
-    }
+    if (!email) return;
 
     try {
+      setSubmitting(true);
       await sendResetPassword(email);
-      Alert.alert("Link enviado", "Revisa tu email para recuperar el acceso.");
-      setMode("login");
+      showFeedback(
+        "Link enviado",
+        "Revisa tu email para restablecer tu contraseña. Si no aparece, fijate en la carpeta de spam.",
+        "success"
+      );
     } catch (error) {
-      Alert.alert("No pudimos enviar el link", error.message);
+      showFeedback("No pudimos enviar el link", error.message, "danger");
+    } finally {
+      setSubmitting(false);
     }
   };
 
   const handleGoogleToken = async (idToken) => {
     try {
+      setSubmitting(true);
       await loginWithGoogle(idToken);
-      Alert.alert("Sesion iniciada", "Accediste correctamente a PadelNexo.");
       navigation.goBack();
     } catch (error) {
-      Alert.alert(getLoginErrorTitle(error.message), error.message);
+      showFeedback(getLoginErrorTitle(error.message), error.message, "danger");
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -106,7 +116,7 @@ export default function LoginScreen({ navigation }) {
         <Text style={styles.subtitle}>
           {mode === "login"
             ? "Ingresa con tu email para entrar rapido a PadelNexo."
-            : "Te enviaremos un link para restablecer tu contrase\u00f1a."}
+            : "Te enviaremos un link para restablecer tu contraseña."}
         </Text>
 
         {mode === "login" ? (
@@ -114,15 +124,17 @@ export default function LoginScreen({ navigation }) {
             <Text style={styles.googleBlockTitle}>Ingreso rapido</Text>
             <GoogleSignInButton
               onError={(error) =>
-                Alert.alert(
+                showFeedback(
                   "No pudimos ingresar con Google",
-                  error?.message || "Intenta nuevamente en unos instantes."
+                  error?.message || "Intenta nuevamente en unos instantes.",
+                  "danger"
                 )
               }
               onMissingConfig={() =>
-                Alert.alert(
+                showFeedback(
                   "Google no configurado",
-                  "Falta cargar el Client ID de Google para habilitar este ingreso."
+                  "Falta cargar el Client ID de Google para habilitar este ingreso.",
+                  "danger"
                 )
               }
               onSuccess={handleGoogleToken}
@@ -140,20 +152,19 @@ export default function LoginScreen({ navigation }) {
           placeholder="tuemail@mail.com"
           value={identifier}
         />
+
         {mode === "login" ? (
           <AppInput
             autoComplete="password"
             containerStyle={styles.compactField}
-            label={"Contrase\u00f1a"}
+            label={"Contraseña"}
             onChangeText={setPassword}
-            placeholder={"Ingrese contrase\u00f1a"}
+            placeholder={"Ingrese contraseña"}
             rightElement={
               <Pressable
-                accessibilityLabel={
-                  isPasswordVisible ? "Ocultar contrase\u00f1a" : "Mostrar contrase\u00f1a"
-                }
+                accessibilityLabel={isPasswordVisible ? "Ocultar contraseña" : "Mostrar contraseña"}
                 hitSlop={8}
-                onPress={() => setIsPasswordVisible((current) => !current)}
+                onPress={() => setIsPasswordVisible((c) => !c)}
                 style={styles.passwordToggle}
               >
                 <Ionicons
@@ -170,23 +181,42 @@ export default function LoginScreen({ navigation }) {
 
         {mode === "login" ? (
           <>
-            <AppButton title="Ingresar" onPress={handleLogin} />
-            <Pressable onPress={handleRequestRecovery} style={styles.recoverLink}>
-              <Text style={styles.recoverText}>{"Olvid\u00e9 mi contrase\u00f1a"}</Text>
+            <AppButton
+              disabled={submitting}
+              title={submitting ? "Ingresando..." : "Ingresar"}
+              onPress={handleLogin}
+            />
+            <Pressable onPress={() => setMode("recover")} style={styles.recoverLink}>
+              <Text style={styles.recoverText}>Olvide mi contraseña</Text>
             </Pressable>
           </>
         ) : (
-          <AppButton title="Enviar link de recuperacion" onPress={handleRequestRecovery} />
+          <>
+            <AppButton
+              disabled={submitting}
+              title={submitting ? "Enviando..." : "Enviar link de recuperacion"}
+              onPress={handleRequestRecovery}
+            />
+            <Pressable onPress={() => setMode("login")} style={styles.recoverLink}>
+              <Text style={styles.recoverText}>Volver al login</Text>
+            </Pressable>
+          </>
         )}
-
-        <AppButton
-          title={mode === "login" ? "Ir a recuperacion" : "Volver a login"}
-          onPress={() => setMode(mode === "login" ? "recover" : "login")}
-          style={styles.secondaryButton}
-          textStyle={styles.secondaryButtonText}
-          variant="secondary"
-        />
       </View>
+
+      <FeedbackModal
+        message={feedback.message}
+        onClose={() => {
+          const wasSuccess = feedback.tone === "success";
+          setFeedback((c) => ({ ...c, visible: false }));
+          if (wasSuccess && mode === "recover") {
+            setMode("login");
+          }
+        }}
+        title={feedback.title}
+        tone={feedback.tone}
+        visible={feedback.visible}
+      />
     </ScreenWrapper>
   );
 }
@@ -233,21 +263,11 @@ const styles = StyleSheet.create({
   },
   recoverLink: {
     alignItems: "center",
-    marginBottom: spacing.sm,
-    marginTop: spacing.xs,
+    marginTop: spacing.sm,
   },
   recoverText: {
     color: colors.primary,
     fontSize: 14,
     fontWeight: "700",
   },
-  secondaryButton: {
-    marginBottom: 0,
-    marginTop: spacing.xs,
-  },
-  secondaryButtonText: {
-    color: colors.text,
-  },
 });
-
-

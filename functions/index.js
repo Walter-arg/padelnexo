@@ -52,3 +52,8 @@ exports.mercadoPagoWebhook = lazyOnRequest("./mercadoPagoCheckoutPro", "mercadoP
 exports.mercadoPagoOAuthStart = lazyOnRequest("./mercadoPagoOAuth", "mercadoPagoOAuthStart");
 exports.mercadoPagoOAuthRedirect = lazyOnRequest("./mercadoPagoOAuth", "mercadoPagoOAuthRedirect");
 exports.mercadoPagoOAuthComplete = lazyOnRequest("./mercadoPagoOAuth", "mercadoPagoOAuthComplete");
+
+exports.sendPasswordReset = lazyOnRequest("./sendPasswordReset", "sendPasswordReset", {
+  invoker: "public",
+  secrets: ["RESEND_API_KEY"],
+});

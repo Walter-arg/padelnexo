@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -44,9 +44,20 @@ import {
 import { isApprovedOrganizer } from "../services/roleService";
 
 const CATEGORY_FORMAT_OPTIONS = [
-  { label: "Categoria unica", value: "single" },
-  { label: "Suma fija", value: "sum_fixed" },
-  { label: "Suma libre", value: "sum_open" },
+  { label: "Categoria unica", value: "single", description: "Se juega 1 Categoria" },
+  { label: "Suma fija", value: "sum_fixed", description: "Se fijan 2 categorias a jugar" },
+  { label: "Suma libre", value: "sum_open", description: "La suma de cualquier categoria" },
+];
+
+const TEAM_TYPE_OPTIONS_DISPLAY = [
+  { label: "Pareja fija", value: "pair" },
+  { label: "Individual", value: "individual" },
+];
+
+const BRANCH_OPTIONS_DISPLAY = [
+  { label: "Caballeros", value: "Masculino" },
+  { label: "Damas", value: "Femenino" },
+  { label: "Mixta", value: "Mixto" },
 ];
 
 const MATCH_DAY_MODE_OPTIONS = [
@@ -239,6 +250,14 @@ function ChipGroup({ onChange, options, value, wrapStyle }) {
             onPress={() => onChange(option.value)}
             style={[styles.chip, isActive && styles.chipActive]}
           >
+            {option.icon ? (
+              <Ionicons
+                name={option.icon}
+                size={16}
+                color={isActive ? "#FFFFFF" : colors.muted}
+                style={styles.chipIcon}
+              />
+            ) : null}
             <Text style={[styles.chipText, isActive && styles.chipTextActive]}>
               {option.label}
             </Text>
@@ -249,6 +268,58 @@ function ChipGroup({ onChange, options, value, wrapStyle }) {
                 {option.description}
               </Text>
             ) : null}
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+function SegmentedControl({ onChange, options, value }) {
+  return (
+    <View style={styles.segmentedTrack}>
+      {options.map((option) => {
+        const isActive = option.value === value;
+        return (
+          <Pressable
+            key={option.value}
+            onPress={() => onChange(option.value)}
+            style={[styles.segmentedOption, isActive && styles.segmentedOptionActive]}
+          >
+            <Text style={[styles.segmentedText, isActive && styles.segmentedTextActive]}>
+              {option.label}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+function RadioCardGroup({ onChange, options, value }) {
+  return (
+    <View style={styles.radioGroup}>
+      {options.map((option) => {
+        const isActive = option.value === value;
+        return (
+          <Pressable
+            key={option.value}
+            onPress={() => onChange(option.value)}
+            style={[styles.radioCard, isActive && styles.radioCardActive]}
+          >
+            <View style={styles.radioCardContent}>
+              <Text style={[styles.radioCardLabel, isActive && styles.radioCardLabelActive]}>
+                {option.label}
+              </Text>
+              {option.description ? (
+                <Text style={[styles.radioCardDesc, isActive && styles.radioCardDescActive]}>
+                  {option.description}
+                </Text>
+              ) : null}
+            </View>
+            <View style={[styles.radioCardDot, isActive && styles.radioCardDotActive]}>
+              {isActive ? <View style={styles.radioCardDotInner} /> : null}
+            </View>
           </Pressable>
         );
       })}
@@ -743,17 +814,6 @@ export default function CreateLeagueScreen({ navigation, route }) {
       return false;
     }
 
-    if (!form.fixtureMinPlayersCount || Number.parseInt(form.fixtureMinPlayersCount, 10) < 2) {
-      showFeedback(
-        form.teamType === "pair" ? "Faltan parejas" : "Faltan jugadores minimos",
-        form.teamType === "pair"
-          ? "Indica la cantidad de parejas fijas para esta liga."
-          : "Indica la cantidad minima de jugadores para esta liga.",
-        "danger"
-      );
-      return false;
-    }
-
     const hasInvalidTimeSlot = normalizedTimeSlots.some((slot) => !isValidTimeValue(slot));
 
     if (hasInvalidTimeSlot) {
@@ -1152,7 +1212,7 @@ export default function CreateLeagueScreen({ navigation, route }) {
 
         <View style={styles.card}>
           <Text style={styles.sectionTitleCentered}>Tipo de liga</Text>
-          <ChipGroup
+          <SegmentedControl
             onChange={(value) =>
               setForm((current) => ({
                 ...current,
@@ -1165,18 +1225,19 @@ export default function CreateLeagueScreen({ navigation, route }) {
                   ) || current.fixtureDatesCount,
               }))
             }
-            options={LEAGUE_TEAM_TYPE_OPTIONS}
+            options={TEAM_TYPE_OPTIONS_DISPLAY}
             value={form.teamType}
           />
 
-          <ChipGroup
+          <Text style={styles.chipGroupLabel}>Generos</Text>
+          <SegmentedControl
             onChange={(value) => updateField("branch", value)}
-            options={LEAGUE_BRANCH_OPTIONS}
+            options={BRANCH_OPTIONS_DISPLAY}
             value={form.branch}
-            wrapStyle={styles.secondaryChipGroup}
           />
 
-          <ChipGroup
+          <Text style={styles.chipGroupLabel}>Modalidad de categoria</Text>
+          <RadioCardGroup
             onChange={(value) =>
               setForm((current) => ({
                 ...current,
@@ -1189,7 +1250,6 @@ export default function CreateLeagueScreen({ navigation, route }) {
             }
             options={CATEGORY_FORMAT_OPTIONS}
             value={selectedGameMode}
-            wrapStyle={styles.secondaryChipGroup}
           />
 
           {selectedGameMode === "single" ? (
@@ -1261,10 +1321,7 @@ export default function CreateLeagueScreen({ navigation, route }) {
             </View>
           ) : null}
 
-          <View style={styles.sumPreview}>
-            <Text style={styles.sumPreviewLabel}>Como se publica</Text>
-            <Text style={styles.sumPreviewValue}>{sumPreview}</Text>
-          </View>
+
         </View>
 
         <View style={styles.card}>
@@ -1363,8 +1420,8 @@ export default function CreateLeagueScreen({ navigation, route }) {
           <View style={styles.compactInlineFieldRow}>
             <Text style={styles.compactInlineFieldLabel}>
               {form.teamType === "pair"
-                ? "Cantidad de Parejas fijas"
-                : "Cantidad de jugadores minimos"}
+                ? "Parejas estimadas (opcional)"
+                : "Jugadores estimados (opcional)"}
             </Text>
             <TextInput
               keyboardType="number-pad"
@@ -1389,8 +1446,7 @@ export default function CreateLeagueScreen({ navigation, route }) {
             />
           </View>
           <Text style={styles.helperInlineText}>
-            Al indicar la cantidad de parejas o jugadores, sugerimos las fechas para ida o ida y
-            vuelta. Puedes ajustar ese numero antes de guardar.
+            El numero de parejas es estimado y opcional. Las fechas se calculan automaticamente, podas ajustarlas antes de guardar.
           </Text>
         </View>
 
@@ -1442,23 +1498,7 @@ export default function CreateLeagueScreen({ navigation, route }) {
                 : "Estos importes se aplican solo a esta liga y no modifican tus valores predeterminados."
               : "Estos importes se guardan como predeterminados para tus proximas ligas."}
           </Text>
-          <View style={styles.mercadoPagoStatusCard}>
-            <View style={styles.mercadoPagoStatusHeader}>
-              <Ionicons
-                color={leagueMercadoPagoConfig.enabled ? "#1A7F5A" : "#7B8794"}
-                name="wallet-outline"
-                size={18}
-              />
-              <Text style={styles.mercadoPagoStatusTitle}>Mercado Pago</Text>
-            </View>
-            <Text style={styles.mercadoPagoStatusText}>
-              {leagueMercadoPagoConfig.enabled
-                ? isEditing
-                  ? "Esta liga queda preparada para cobrar tambien con Mercado Pago."
-                  : "Tus proximas ligas pueden quedar preparadas para cobrar tambien con Mercado Pago."
-                : "Activalo desde el perfil del organizador para cobrar tambien con Mercado Pago en ligas nuevas."}
-            </Text>
-          </View>
+
         </View>
 
         <Pressable
@@ -1591,25 +1631,22 @@ export default function CreateLeagueScreen({ navigation, route }) {
                   <View style={styles.inlineFieldRowCompact}>
                     <Text style={styles.inlineFieldLabel}>Diferencia de 2</Text>
                     <View style={styles.inlinePenaltyOptions}>
-                      {form.singleSetWinByTwo ? (
-                        <Pressable
-                          onPress={() => updateField("singleSetWinByTwo", false)}
-                          style={[styles.penaltyModeChip, styles.penaltyModeChipActive]}
-                        >
-                          <Text style={[styles.penaltyModeChipText, styles.penaltyModeChipTextActive]}>
-                            Si
-                          </Text>
-                        </Pressable>
-                      ) : (
-                        <Pressable
-                          onPress={() => updateField("singleSetWinByTwo", true)}
-                          style={[styles.penaltyModeChip, styles.penaltyModeChipActive]}
-                        >
-                          <Text style={[styles.penaltyModeChipText, styles.penaltyModeChipTextActive]}>
-                            No
-                          </Text>
-                        </Pressable>
-                      )}
+                      <Pressable
+                        onPress={() => updateField("singleSetWinByTwo", true)}
+                        style={[styles.penaltyModeChip, styles.boolChip, form.singleSetWinByTwo && styles.penaltyModeChipActive]}
+                      >
+                        <Text style={[styles.penaltyModeChipText, form.singleSetWinByTwo && styles.penaltyModeChipTextActive]}>
+                          Si
+                        </Text>
+                      </Pressable>
+                      <Pressable
+                        onPress={() => updateField("singleSetWinByTwo", false)}
+                        style={[styles.penaltyModeChip, styles.boolChip, !form.singleSetWinByTwo && styles.penaltyModeChipActive]}
+                      >
+                        <Text style={[styles.penaltyModeChipText, !form.singleSetWinByTwo && styles.penaltyModeChipTextActive]}>
+                          No
+                        </Text>
+                      </Pressable>
                     </View>
                   </View>
                 </View>
@@ -1632,25 +1669,22 @@ export default function CreateLeagueScreen({ navigation, route }) {
                   <View style={styles.inlineFieldRowCompact}>
                     <Text style={styles.inlineFieldLabel}>Diferencia de 2</Text>
                     <View style={styles.inlinePenaltyOptions}>
-                      {form.superTieBreakWinByTwo ? (
-                        <Pressable
-                          onPress={() => updateField("superTieBreakWinByTwo", false)}
-                          style={[styles.penaltyModeChip, styles.penaltyModeChipActive]}
-                        >
-                          <Text style={[styles.penaltyModeChipText, styles.penaltyModeChipTextActive]}>
-                            Si
-                          </Text>
-                        </Pressable>
-                      ) : (
-                        <Pressable
-                          onPress={() => updateField("superTieBreakWinByTwo", true)}
-                          style={[styles.penaltyModeChip, styles.penaltyModeChipActive]}
-                        >
-                          <Text style={[styles.penaltyModeChipText, styles.penaltyModeChipTextActive]}>
-                            No
-                          </Text>
-                        </Pressable>
-                      )}
+                      <Pressable
+                        onPress={() => updateField("superTieBreakWinByTwo", true)}
+                        style={[styles.penaltyModeChip, styles.boolChip, form.superTieBreakWinByTwo && styles.penaltyModeChipActive]}
+                      >
+                        <Text style={[styles.penaltyModeChipText, form.superTieBreakWinByTwo && styles.penaltyModeChipTextActive]}>
+                          Si
+                        </Text>
+                      </Pressable>
+                      <Pressable
+                        onPress={() => updateField("superTieBreakWinByTwo", false)}
+                        style={[styles.penaltyModeChip, styles.boolChip, !form.superTieBreakWinByTwo && styles.penaltyModeChipActive]}
+                      >
+                        <Text style={[styles.penaltyModeChipText, !form.superTieBreakWinByTwo && styles.penaltyModeChipTextActive]}>
+                          No
+                        </Text>
+                      </Pressable>
                     </View>
                   </View>
                 </View>
@@ -1688,30 +1722,27 @@ export default function CreateLeagueScreen({ navigation, route }) {
                   }
                   value={form.replacementPenalty}
                 />
-                <View style={styles.replacementModeRow}>
-                  <Text style={[styles.inlineFieldLabel, styles.inlineFieldLabelLeft, styles.inlineFieldLabelScore]}>
+                <View style={styles.replacementModeBlock}>
+                  <Text style={styles.replacementModeLabel}>
                     Aplicar descuento por reemplazo
                   </Text>
-                  <View style={styles.inlinePenaltyOptions}>
-                    {form.replacementPenaltyMode === "individual" ? (
-                      <Pressable
-                        onPress={() => updateField("replacementPenaltyMode", "pair")}
-                        style={[styles.penaltyModeChip, styles.penaltyModeChipActive]}
-                      >
-                        <Text style={[styles.penaltyModeChipText, styles.penaltyModeChipTextActive]}>
-                          Individual
-                        </Text>
-                      </Pressable>
-                    ) : (
-                      <Pressable
-                        onPress={() => updateField("replacementPenaltyMode", "individual")}
-                        style={[styles.penaltyModeChip, styles.penaltyModeChipActive]}
-                      >
-                        <Text style={[styles.penaltyModeChipText, styles.penaltyModeChipTextActive]}>
-                          Pareja
-                        </Text>
-                      </Pressable>
-                    )}
+                  <View style={styles.replacementModeChips}>
+                    <Pressable
+                      onPress={() => updateField("replacementPenaltyMode", "individual")}
+                      style={[styles.replacementModeChip, form.replacementPenaltyMode === "individual" && styles.penaltyModeChipActive]}
+                    >
+                      <Text style={[styles.penaltyModeChipText, form.replacementPenaltyMode === "individual" && styles.penaltyModeChipTextActive]}>
+                        Individual
+                      </Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => updateField("replacementPenaltyMode", "pair")}
+                      style={[styles.replacementModeChip, form.replacementPenaltyMode === "pair" && styles.penaltyModeChipActive]}
+                    >
+                      <Text style={[styles.penaltyModeChipText, form.replacementPenaltyMode === "pair" && styles.penaltyModeChipTextActive]}>
+                        Pareja
+                      </Text>
+                    </Pressable>
                   </View>
                 </View>
                 <Text style={styles.replacementModeHint}>
@@ -1963,9 +1994,98 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 6,
   },
+  segmentedTrack: {
+    backgroundColor: colors.surfaceAlt,
+    borderColor: colors.border,
+    borderRadius: 14,
+    borderWidth: 1,
+    flexDirection: "row",
+    marginTop: spacing.sm,
+    padding: 4,
+  },
+  segmentedOption: {
+    alignItems: "center",
+    borderRadius: 10,
+    flex: 1,
+    justifyContent: "center",
+    paddingVertical: 11,
+  },
+  segmentedOptionActive: {
+    backgroundColor: colors.primaryDark,
+    elevation: 2,
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+  },
+  segmentedText: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "700",
+    textAlign: "center",
+  },
+  segmentedTextActive: {
+    color: "#FFFFFF",
+  },
+  radioGroup: {
+    gap: spacing.xs,
+    marginTop: spacing.xs,
+  },
+  radioCard: {
+    alignItems: "center",
+    backgroundColor: colors.surfaceAlt,
+    borderColor: colors.border,
+    borderRadius: 14,
+    borderWidth: 1,
+    flexDirection: "row",
+    paddingHorizontal: spacing.md,
+    paddingVertical: 14,
+  },
+  radioCardActive: {
+    backgroundColor: "#EAF6F1",
+    borderColor: colors.primary,
+  },
+  radioCardContent: {
+    flex: 1,
+  },
+  radioCardLabel: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: "800",
+  },
+  radioCardLabelActive: {
+    color: colors.primaryDark,
+  },
+  radioCardDesc: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "600",
+    marginTop: 2,
+  },
+  radioCardDescActive: {
+    color: colors.primary,
+  },
+  radioCardDot: {
+    alignItems: "center",
+    borderColor: colors.border,
+    borderRadius: 999,
+    borderWidth: 2,
+    height: 20,
+    justifyContent: "center",
+    width: 20,
+  },
+  radioCardDotActive: {
+    borderColor: colors.primaryDark,
+  },
+  radioCardDotInner: {
+    backgroundColor: colors.primaryDark,
+    borderRadius: 999,
+    height: 10,
+    width: 10,
+  },
   chipActive: {
-    backgroundColor: "#EEF3D6",
-    borderColor: "#C9D39A",
+    backgroundColor: colors.primaryDark,
+    borderColor: colors.primaryDark,
   },
   chipText: {
     color: colors.text,
@@ -1975,7 +2095,20 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   chipTextActive: {
-    color: colors.text,
+    color: "#FFFFFF",
+  },
+  chipIcon: {
+    alignSelf: "center",
+    marginBottom: 3,
+  },
+  chipGroupLabel: {
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 0.5,
+    marginTop: spacing.md,
+    marginBottom: 4,
+    textTransform: "uppercase",
   },
   chipDescription: {
     color: colors.muted,
@@ -1984,7 +2117,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   chipDescriptionActive: {
-    color: colors.muted,
+    color: "rgba(255,255,255,0.75)",
   },
   sumCard: {
     marginTop: spacing.sm,
@@ -2237,8 +2370,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
   },
   penaltyModeChipActive: {
-    backgroundColor: "#EEF3D6",
-    borderColor: "#C9D39A",
+    backgroundColor: colors.primaryDark,
+    borderColor: colors.primaryDark,
   },
   penaltyModeChipText: {
     color: colors.text,
@@ -2247,7 +2380,35 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   penaltyModeChipTextActive: {
+    color: "#FFFFFF",
+  },
+  boolChip: {
+    width: 50,
+  },
+  replacementModeBlock: {
+    marginTop: spacing.sm,
+  },
+  replacementModeLabel: {
     color: colors.text,
+    fontSize: 14,
+    fontWeight: "700",
+    marginBottom: spacing.xs,
+  },
+  replacementModeChips: {
+    flexDirection: "row",
+    gap: spacing.xs,
+  },
+  replacementModeChip: {
+    alignItems: "center",
+    alignSelf: "center",
+    backgroundColor: colors.surfaceAlt,
+    borderColor: colors.border,
+    borderRadius: 14,
+    borderWidth: 1,
+    justifyContent: "center",
+    height: 34,
+    flex: 1,
+    paddingHorizontal: 6,
   },
   walkoverRow: {
     alignItems: "center",
@@ -2486,7 +2647,7 @@ const styles = StyleSheet.create({
     maxHeight: "90%",
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.md,
-    paddingBottom: spacing.lg,
+    paddingBottom: 64,
   },
   modalHandle: {
     alignSelf: "center",
