@@ -1,0 +1,140 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAuth() {
+      return request.auth != null;
+    }
+
+    function isUser(uid) {
+      return isAuth() && request.auth.uid == uid;
+    }
+
+    function isOrganizer(resource) {
+      return isAuth() && (
+        resource.data.organizerId == request.auth.uid ||
+        resource.data.createdBy == request.auth.uid
+      );
+    }
+
+    // Perfiles de usuario
+    match /users/{userId} {
+      allow read: if isAuth();
+      allow write: if isUser(userId);
+    }
+
+    // Ligas
+    match /leagues/{leagueId} {
+      allow read: if isAuth();
+      allow create: if isAuth();
+      allow update, delete: if isOrganizer(resource);
+    }
+
+    // Torneos y subcolecciones
+    match /tournaments/{tournamentId} {
+      allow read: if isAuth();
+      allow create: if isAuth();
+      allow update, delete: if isOrganizer(resource);
+
+      match /registrations/{regId} {
+        allow read: if isAuth();
+        allow create: if isAuth();
+        allow update, delete: if isAuth() && (
+          resource.data.userId == request.auth.uid ||
+          get(/databases/$(database)/documents/tournaments/$(tournamentId)).data.organizerId == request.auth.uid ||
+          get(/databases/$(database)/documents/tournaments/$(tournamentId)).data.createdBy == request.auth.uid
+        );
+      }
+
+      match /groups/{groupId} {
+        allow read: if isAuth();
+        allow write: if isAuth() && (
+          get(/databases/$(database)/documents/tournaments/$(tournamentId)).data.organizerId == request.auth.uid ||
+          get(/databases/$(database)/documents/tournaments/$(tournamentId)).data.createdBy == request.auth.uid
+        );
+      }
+
+      match /matches/{matchId} {
+        allow read: if isAuth();
+        allow write: if isAuth() && (
+          get(/databases/$(database)/documents/tournaments/$(tournamentId)).data.organizerId == request.auth.uid ||
+          get(/databases/$(database)/documents/tournaments/$(tournamentId)).data.createdBy == request.auth.uid
+        );
+      }
+    }
+
+    // Reservas y configuraciones de turnos
+    match /turnoReservations/{reservationId} {
+      allow read, write: if isAuth();
+    }
+
+    match /turnosConfigs/{configId} {
+      allow read: if isAuth();
+      allow write: if isAuth();
+    }
+
+    // Solicitudes de inscripción a ligas
+    match /leagueRegistrationRequests/{requestId} {
+      allow read: if isAuth();
+      allow create: if isAuth();
+      allow update, delete: if isAuth() && (
+        resource.data.userId == request.auth.uid ||
+        resource.data.organizerId == request.auth.uid
+      );
+    }
+
+    // Conversaciones — solo participantes
+    match /conversations/{conversationId} {
+      allow read, write: if isAuth() && (
+        request.auth.uid in resource.data.participantIds
+      );
+      allow create: if isAuth();
+    }
+
+    // Invitaciones
+    match /invitations/{invitationId} {
+      allow read: if isAuth() && (
+        resource.data.fromUserId == request.auth.uid ||
+        resource.data.toUserId == request.auth.uid
+      );
+      allow create: if isAuth();
+      allow update, delete: if isAuth() && (
+        resource.data.fromUserId == request.auth.uid ||
+        resource.data.toUserId == request.auth.uid
+      );
+    }
+
+    // Favoritos de ligas
+    match /leagueFavorites/{favoriteId} {
+      allow read, write: if isAuth() && resource.data.userId == request.auth.uid;
+      allow create: if isAuth();
+    }
+
+    // Solicitudes de complejo
+    match /complexRequests/{requestId} {
+      allow read: if isAuth() && resource.data.userId == request.auth.uid;
+      allow create: if isAuth();
+      allow update, delete: if isAuth() && resource.data.userId == request.auth.uid;
+    }
+
+    // Solicitudes de organizador
+    match /organizerRequests/{requestId} {
+      allow read: if isAuth() && resource.data.userId == request.auth.uid;
+      allow create: if isAuth();
+      allow update, delete: if isAuth() && resource.data.userId == request.auth.uid;
+    }
+
+    // Reportes
+    match /reports/{reportId} {
+      allow create: if isAuth();
+      allow read, update, delete: if isAuth() && resource.data.reporterId == request.auth.uid;
+    }
+
+    // Bloqueos entre usuarios
+    match /userBlocks/{blockId} {
+      allow read, write: if isAuth() && resource.data.userId == request.auth.uid;
+      allow create: if isAuth();
+    }
+  }
+}
