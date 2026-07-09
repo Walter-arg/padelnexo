@@ -45,45 +45,22 @@ const dominantHandOptions = [
 
 const sanitizeName = (value) => value.replace(/[^A-Za-z\u00c0-\u00ff\s]/g, "");
 const sanitizePhoneValue = (value) => value.replace(/\D/g, "").slice(0, 16);
+
+function sanitizeNamePart(value, maxWords = 2) {
+  const cleaned = sanitizeName(value).replace(/^\s+/, "").replace(/\s{2,}/g, " ").slice(0, 20);
+  const hasTrailingSpace = cleaned.endsWith(" ");
+  const parts = cleaned.split(" ").filter(Boolean);
+  const formatted = parts.slice(0, maxWords).map((p) => {
+    const w = p.slice(0, 12);
+    return `${w.charAt(0).toUpperCase()}${w.slice(1)}`;
+  });
+  return formatted.join(" ") + (hasTrailingSpace && formatted.length < maxWords ? " " : "");
+}
 const hasValidPhoneDigits = (value) => value.replace(/\D/g, "").length >= 8;
 const sanitizeLocalidadValue = (value) =>
   value.replace(/[^0-9A-Za-z\u00c0-\u00ff\s.'-]/g, "");
 
 
-function sanitizeFullName(value) {
-  const normalizedValue = sanitizeName(value)
-    .toLowerCase()
-    .replace(/^\s+/, "")
-    .replace(/\s{2,}/g, " ")
-    .slice(0, 30);
-
-  const hasTrailingSpace = normalizedValue.endsWith(" ");
-  const parts = normalizedValue.split(" ");
-  const formattedParts = [];
-
-  for (const part of parts) {
-    if (!part) {
-      continue;
-    }
-
-    if (formattedParts.length >= 3) {
-      break;
-    }
-
-    const trimmedWord = part.slice(0, 12);
-    formattedParts.push(
-      `${trimmedWord.charAt(0).toUpperCase()}${trimmedWord.slice(1)}`
-    );
-  }
-
-  const joinedValue = formattedParts.join(" ");
-
-  if (hasTrailingSpace && formattedParts.length > 0 && formattedParts.length < 3) {
-    return `${joinedValue} `;
-  }
-
-  return joinedValue;
-}
 
 function hasValidFullName(value) {
   const words = value.trim().split(/\s+/).filter(Boolean);
@@ -112,7 +89,8 @@ export default function RegisterScreen({ navigation }) {
     message: "",
     tone: "default",
   });
-  const [name, setName] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [identifier, setIdentifier] = useState("");
   const [phone, setPhone] = useState("");
   const [isPhonePublic, setIsPhonePublic] = useState(false);
@@ -146,20 +124,22 @@ export default function RegisterScreen({ navigation }) {
   const handleRegister = async () => {
     const trimmedIdentifier = identifier.trim();
 
-    if (!name.trim()) {
+    if (!firstName.trim() || !lastName.trim()) {
       showFeedback("Falta tu nombre", "Ingresa tu nombre y apellido para continuar.", "danger");
       return;
     }
 
-    if (!NAME_REGEX.test(name.trim())) {
+    const fullName = [firstName.trim(), lastName.trim()].join(" ");
+
+    if (!NAME_REGEX.test(fullName)) {
       showFeedback("Nombre invalido", "Usa solo letras y espacios.", "danger");
       return;
     }
 
-    if (!hasValidFullName(name)) {
+    if (!hasValidFullName(fullName)) {
       showFeedback(
         "Nombre invalido",
-        "Ingresa nombre y apellido con maximo 3 palabras y hasta 10 caracteres por palabra.",
+        "Ingresa nombre y apellido con maximo 2 palabras por campo y hasta 12 caracteres por palabra.",
         "danger"
       );
       return;
@@ -239,7 +219,9 @@ export default function RegisterScreen({ navigation }) {
 
     try {
       await register({
-        name: name.trim(),
+        name: fullName,
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
         email,
         phone: phone.trim(),
         countryCode,
@@ -269,16 +251,28 @@ export default function RegisterScreen({ navigation }) {
         <View style={styles.card}>
           <Text style={styles.title}>Crear cuenta</Text>
 
-          <AppInput
-            autoCapitalize="words"
-            containerStyle={styles.compactField}
-            inputStyle={styles.compactInput}
-            label="Nombre y Apellido"
-            labelStyle={styles.centeredLabel}
-            onChangeText={(value) => setName(sanitizeFullName(value))}
-            placeholder="Tu nombre completo"
-            value={name}
-          />
+          <View style={styles.nameRow}>
+            <AppInput
+              autoCapitalize="words"
+              containerStyle={styles.nameField}
+              inputStyle={styles.compactInput}
+              label="Nombre"
+              labelStyle={styles.centeredLabel}
+              onChangeText={(value) => setFirstName(sanitizeNamePart(value, 2))}
+              placeholder="Nombre"
+              value={firstName}
+            />
+            <AppInput
+              autoCapitalize="words"
+              containerStyle={styles.nameField}
+              inputStyle={styles.compactInput}
+              label="Apellido"
+              labelStyle={styles.centeredLabel}
+              onChangeText={(value) => setLastName(sanitizeNamePart(value, 2))}
+              placeholder="Apellido"
+              value={lastName}
+            />
+          </View>
           <AppInput
             autoCapitalize="none"
             containerStyle={styles.compactField}
@@ -620,6 +614,15 @@ const styles = StyleSheet.create({
     color: colors.primaryDark,
     fontWeight: "700",
     textDecorationLine: "underline",
+  },
+  nameRow: {
+    flexDirection: "row",
+    gap: spacing.xs,
+    marginBottom: spacing.xs,
+  },
+  nameField: {
+    flex: 1,
+    marginBottom: 0,
   },
   dateLabel: {
     color: colors.muted,

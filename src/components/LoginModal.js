@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
+import DateTimePicker from "@react-native-community/datetimepicker";
 import {
   Alert,
   KeyboardAvoidingView,
@@ -7,7 +8,6 @@ import {
   Platform,
   Pressable,
   ScrollView,
-  Switch,
   StyleSheet,
   Text,
   View,
@@ -29,6 +29,7 @@ import GoogleSignInButton from "./GoogleSignInButton";
 import LocationPicker from "./LocationPicker";
 import SelectField from "./SelectField";
 import { defaultPhoneCountry, phoneCountryOptions } from "../data/phoneCountryOptions";
+import { dateToFechaNacimiento, formatFechaNacimientoDisplay } from "../utils/ageUtils";
 
 const NAME_REGEX = /^[A-Za-z\u00c0-\u00ff\s]+$/;
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -182,6 +183,8 @@ export default function LoginModal({ onClose, onLogin, visible }) {
   const [isSexVisible, setIsSexVisible] = useState(false);
   const [isPreferredSideVisible, setIsPreferredSideVisible] = useState(false);
   const [isDominantHandVisible, setIsDominantHandVisible] = useState(false);
+  const [birthDate, setBirthDate] = useState(null);
+  const [datePickerVisible, setDatePickerVisible] = useState(false);
 
   useEffect(() => {
     if (!visible) {
@@ -211,6 +214,8 @@ export default function LoginModal({ onClose, onLogin, visible }) {
       setIsSexVisible(false);
       setIsPreferredSideVisible(false);
       setIsDominantHandVisible(false);
+      setBirthDate(null);
+      setDatePickerVisible(false);
     }
   }, [lastLoginEmail, visible]);
 
@@ -389,6 +394,16 @@ export default function LoginModal({ onClose, onLogin, visible }) {
         return;
       }
 
+      if (!birthDate) {
+        setFeedback({
+          visible: true,
+          title: "Falta la fecha de nacimiento",
+          message: "Ingresa tu fecha de nacimiento para continuar.",
+          tone: "danger",
+        });
+        return;
+      }
+
       if (!password.trim()) {
         setFeedback({
           visible: true,
@@ -434,6 +449,7 @@ export default function LoginModal({ onClose, onLogin, visible }) {
           description: "",
           avatarColor: avatarColors[0],
           avatarUrl: "",
+          fechaNacimiento: dateToFechaNacimiento(birthDate),
         });
         onLogin?.();
         onClose();
@@ -617,12 +633,27 @@ export default function LoginModal({ onClose, onLogin, visible }) {
                   />
                   <View style={styles.phoneVisibilityBox}>
                     <Text style={styles.phoneVisibilityLabel}>Mostrar celular</Text>
-                    <Switch
-                      onValueChange={setIsPhonePublic}
-                      thumbColor={isPhonePublic ? "#FFFFFF" : "#F4F4F5"}
-                      trackColor={{ false: "#D6DDD9", true: colors.primary }}
-                      value={Boolean(isPhonePublic)}
-                    />
+                    <Pressable
+                      onPress={() => setIsPhonePublic((c) => !c)}
+                      style={({ pressed }) => [
+                        styles.phoneVisibilityButton,
+                        isPhonePublic
+                          ? styles.phoneVisibilityButtonActive
+                          : styles.phoneVisibilityButtonInactive,
+                        pressed ? styles.phoneVisibilityButtonPressed : null,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.phoneVisibilityButtonText,
+                          isPhonePublic
+                            ? styles.phoneVisibilityButtonTextActive
+                            : styles.phoneVisibilityButtonTextInactive,
+                        ]}
+                      >
+                        {isPhonePublic ? "ON" : "OFF"}
+                      </Text>
+                    </Pressable>
                   </View>
                 </View>
                 <LocationPicker
@@ -693,6 +724,35 @@ export default function LoginModal({ onClose, onLogin, visible }) {
                   value={manoHabil}
                   visible={isDominantHandVisible}
                 />
+                <View style={styles.compactField}>
+                  <Text style={[styles.centeredLabel, styles.dateLabel]}>Fecha de nacimiento</Text>
+                  <Pressable
+                    onPress={() => setDatePickerVisible(true)}
+                    style={({ pressed }) => [
+                      styles.dateField,
+                      pressed ? styles.dateFieldPressed : null,
+                    ]}
+                  >
+                    <Text style={birthDate ? styles.dateValue : styles.datePlaceholder}>
+                      {birthDate
+                        ? formatFechaNacimientoDisplay(dateToFechaNacimiento(birthDate))
+                        : "DD/MM/AAAA"}
+                    </Text>
+                  </Pressable>
+                  {datePickerVisible && (
+                    <DateTimePicker
+                      display="default"
+                      maximumDate={new Date()}
+                      minimumDate={new Date(1900, 0, 1)}
+                      mode="date"
+                      onChange={(_, selectedDate) => {
+                        if (Platform.OS !== "ios") setDatePickerVisible(false);
+                        if (selectedDate) setBirthDate(selectedDate);
+                      }}
+                      value={birthDate || new Date(2000, 0, 1)}
+                    />
+                  )}
+                </View>
               </>
             ) : (
               <AppInput
@@ -904,6 +964,68 @@ const styles = StyleSheet.create({
     marginBottom: 6,
     textAlign: "center",
     textTransform: "uppercase",
+  },
+  phoneVisibilityButton: {
+    alignItems: "center",
+    borderRadius: 14,
+    borderWidth: 1,
+    justifyContent: "center",
+    minHeight: 42,
+    paddingHorizontal: spacing.md,
+    width: "100%",
+  },
+  phoneVisibilityButtonActive: {
+    backgroundColor: "#E8F5EE",
+    borderColor: "#B8DCC7",
+  },
+  phoneVisibilityButtonInactive: {
+    backgroundColor: "#F3F5F7",
+    borderColor: "#D4DBE2",
+  },
+  phoneVisibilityButtonPressed: {
+    opacity: 0.86,
+  },
+  phoneVisibilityButtonText: {
+    fontSize: 12,
+    fontWeight: "900",
+    textAlign: "center",
+    textTransform: "uppercase",
+  },
+  phoneVisibilityButtonTextActive: {
+    color: colors.primaryDark,
+  },
+  phoneVisibilityButtonTextInactive: {
+    color: "#667482",
+  },
+  compactField: {
+    marginBottom: spacing.xs,
+  },
+  dateLabel: {
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: "700",
+    marginBottom: 4,
+    marginTop: spacing.xs,
+    textTransform: "uppercase",
+  },
+  dateField: {
+    borderColor: colors.border,
+    borderRadius: 14,
+    borderWidth: 1,
+    justifyContent: "center",
+    minHeight: 42,
+    paddingHorizontal: spacing.md,
+  },
+  dateFieldPressed: {
+    opacity: 0.7,
+  },
+  dateValue: {
+    color: colors.text,
+    fontSize: 15,
+  },
+  datePlaceholder: {
+    color: colors.muted,
+    fontSize: 15,
   },
   centeredLabel: {
     textAlign: "center",

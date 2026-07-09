@@ -429,7 +429,7 @@ export default function TournamentRegistrationsScreen({ navigation, route }) {
                       ]}
                     >
                       <Ionicons
-                        color={availabilityMeta.tone === "ready" ? "#1D7A34" : "#9B6A18"}
+                        color={availabilityMeta.tone === "ready" ? "#1D7A34" : "#4A78C0"}
                         name={availabilityMeta.icon}
                         size={14}
                       />
@@ -770,8 +770,8 @@ const styles = StyleSheet.create({
     borderColor: "#B7DFBF",
   },
   summaryChipPending: {
-    backgroundColor: "#FFF6EA",
-    borderColor: "#E8CF9B",
+    backgroundColor: "#EBF2FF",
+    borderColor: "#A8C6F0",
   },
   summaryChipText: {
     fontSize: 11,
@@ -781,7 +781,7 @@ const styles = StyleSheet.create({
     color: "#1D7A34",
   },
   summaryChipTextPending: {
-    color: "#9B6A18",
+    color: "#4A78C0",
   },
   actionsRow: {
     alignItems: "center",
