@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Alert,
   KeyboardAvoidingView,
@@ -11,6 +11,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import DateTimePicker, { DateTimePickerAndroid } from "@react-native-community/datetimepicker";
 import * as ImagePicker from "expo-image-picker";
 import {
   avatarColors,
@@ -57,143 +58,7 @@ import SelectField from "./SelectField";
 
 const DESCRIPTION_MAX_LENGTH = 100;
 
-const CUR_YEAR = new Date().getFullYear();
 
-function BirthDateField({ value, onChange }) {
-  const monthRef = useRef(null);
-  const yearRef  = useRef(null);
-  const prevValue = useRef(value);
-
-  const parse = (v) => {
-    const p = v ? v.split("-") : [];
-    return { day: p[2] || "", month: p[1] || "", year: p[0] || "" };
-  };
-
-  const [day,   setDay]   = useState(() => parse(value).day);
-  const [month, setMonth] = useState(() => parse(value).month);
-  const [year,  setYear]  = useState(() => parse(value).year);
-
-  useEffect(() => {
-    if (value !== prevValue.current) {
-      prevValue.current = value;
-      const p = parse(value);
-      setDay(p.day); setMonth(p.month); setYear(p.year);
-    }
-  }, [value]);
-
-  const tryCommit = (d, m, y) => {
-    if (d.length !== 2 || m.length !== 2 || y.length !== 4) return;
-    const di = parseInt(d, 10), mi = parseInt(m, 10), yi = parseInt(y, 10);
-    if (di >= 1 && di <= 31 && mi >= 1 && mi <= 12 && yi >= 1900 && yi <= CUR_YEAR) {
-      const next = `${y}-${m}-${d}`;
-      prevValue.current = next;
-      onChange(next);
-    }
-  };
-
-  const handleDay = (text) => {
-    const v = text.replace(/\D/g, "").slice(0, 2);
-    setDay(v);
-    if (v.length === 2) monthRef.current?.focus();
-    tryCommit(v, month, year);
-  };
-
-  const handleMonth = (text) => {
-    const v = text.replace(/\D/g, "").slice(0, 2);
-    setMonth(v);
-    if (v.length === 2) yearRef.current?.focus();
-    tryCommit(day, v, year);
-  };
-
-  const handleYear = (text) => {
-    const v = text.replace(/\D/g, "").slice(0, 4);
-    setYear(v);
-    tryCommit(day, month, v);
-  };
-
-  return (
-    <View style={styles.dateBlock}>
-      <Text style={styles.dateBlockLabel}>Fecha de nacimiento</Text>
-      <View style={bdfStyles.row}>
-        <TextInput
-          style={[bdfStyles.input, bdfStyles.inputDay]}
-          keyboardType="number-pad"
-          maxLength={2}
-          placeholder="DD"
-          placeholderTextColor="#C0C8D0"
-          value={day}
-          onChangeText={handleDay}
-          returnKeyType="next"
-          onSubmitEditing={() => monthRef.current?.focus()}
-        />
-        <Text style={bdfStyles.sep}>/</Text>
-        <TextInput
-          ref={monthRef}
-          style={[bdfStyles.input, bdfStyles.inputDay]}
-          keyboardType="number-pad"
-          maxLength={2}
-          placeholder="MM"
-          placeholderTextColor="#C0C8D0"
-          value={month}
-          onChangeText={handleMonth}
-          returnKeyType="next"
-          onSubmitEditing={() => yearRef.current?.focus()}
-        />
-        <Text style={bdfStyles.sep}>/</Text>
-        <TextInput
-          ref={yearRef}
-          style={[bdfStyles.input, bdfStyles.inputYear]}
-          keyboardType="number-pad"
-          maxLength={4}
-          placeholder="AAAA"
-          placeholderTextColor="#C0C8D0"
-          value={year}
-          onChangeText={handleYear}
-          returnKeyType="done"
-        />
-      </View>
-    </View>
-  );
-}
-
-const bdfStyles = StyleSheet.create({
-  row: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "#D4DBE2",
-    borderRadius: 12,
-    backgroundColor: "#F7FAFD",
-    paddingVertical: 6,
-  },
-  input: {
-    borderWidth: 0,
-    backgroundColor: "transparent",
-    textAlign: "center",
-    textAlignVertical: "center",
-    fontSize: 15,
-    fontWeight: "700",
-    color: "#0d5c3a",
-    height: 22,
-    lineHeight: 18,
-    paddingVertical: 0,
-    paddingHorizontal: 0,
-  },
-  inputDay: {
-    width: 34,
-  },
-  inputYear: {
-    width: 56,
-  },
-  sep: {
-    fontSize: 15,
-    fontWeight: "600",
-    color: "#C0C8D0",
-    lineHeight: 22,
-    marginHorizontal: 2,
-  },
-});
 
 function MpToggleRow({ label, value, onPress }) {
   return (
@@ -253,13 +118,15 @@ const defaultMercadoPagoConfig = DEFAULT_MERCADO_PAGO_CONFIG;
 
 const defaultProfile = {
   name: "",
+  firstName: "",
+  lastName: "",
   email: "",
   phone: "",
   countryCode: "+54",
   phoneCountry: "Argentina",
   isPhonePublic: false,
   city: "",
-  category: "Iniciante",
+  category: "9na (Iniciantes)",
   sex: "Masculino",
   ladoJuego: "ambos",
   manoHabil: "",
@@ -382,6 +249,8 @@ export default function ProfileModal({
     tone: "default",
   });
   const [loading, setLoading] = useState(false);
+  const [datePickerVisible, setDatePickerVisible] = useState(false);
+  const [tempDate, setTempDate] = useState(null);
   const isApprovedAccount = isApprovedOrganizer(profile);
   const showOrganizerHint = isPendingOrganizer(profile) || isRejectedOrganizer(profile);
   const mercadoPagoRuntimeReady = hasMercadoPagoCheckoutRuntimeConfig();
@@ -406,6 +275,8 @@ export default function ProfileModal({
 
   useEffect(() => {
     if (!visible) {
+      setDatePickerVisible(false);
+      setTempDate(null);
       return;
     }
 
@@ -415,9 +286,14 @@ export default function ProfileModal({
         pais: user.location?.pais || "Argentina",
       });
 
+      const firstName = user.firstName || (user.name ? user.name.split(" ")[0] : "");
+      const lastName = user.lastName || (user.name ? user.name.split(" ").slice(1).join(" ") : "");
+
       setProfile({
         ...defaultProfile,
         ...user,
+        firstName,
+        lastName,
         mercadoPagoConfig: normalizeMercadoPagoConfig(user.mercadoPagoConfig),
         city: parsedLocalidad?.nombre || user.city || "",
         province: parsedLocalidad?.provincia || user.province || "",
@@ -481,6 +357,14 @@ export default function ProfileModal({
 
   const updateField = (field, value) => {
     setProfile((current) => ({ ...current, [field]: value }));
+  };
+
+  const updateNameField = (field, value) => {
+    setProfile((current) => {
+      const next = { ...current, [field]: value };
+      next.name = [next.firstName || "", next.lastName || ""].filter(Boolean).join(" ").trim();
+      return next;
+    });
   };
 
   const updateMercadoPagoField = (field, value) => {
@@ -659,6 +543,12 @@ export default function ProfileModal({
         return;
       }
 
+      const fullName = [profile.firstName?.trim(), profile.lastName?.trim()].filter(Boolean).join(" ");
+      if (!fullName) {
+        showFeedback("Nombre no valido", "Ingresa tu nombre y apellido.");
+        return;
+      }
+
       if (!profile.phone.trim() || !hasValidPhoneDigits(profile.phone)) {
         showFeedback("Celular no valido", "Ingresa un numero de celular valido.");
         return;
@@ -666,6 +556,9 @@ export default function ProfileModal({
 
       const updatedProfile = await updateProfile({
         ...profile,
+        name: fullName,
+        firstName: profile.firstName?.trim(),
+        lastName: profile.lastName?.trim(),
         city: normalizedLocalidad.nombre,
         province: normalizedLocalidad.provincia,
         country: normalizedLocalidad.pais,
@@ -1051,20 +944,90 @@ export default function ProfileModal({
                 </View>
               ) : null}
 
-              <AppInput
-                autoCapitalize="words"
-                containerStyle={styles.compactField}
-                inputStyle={styles.compactInput}
-                label="Nombre y Apellido"
-                labelStyle={styles.centeredLabel}
-                onChangeText={(value) => updateField("name", value)}
-                placeholder="Tu nombre en la comunidad"
-                value={profile.name}
-              />
-              <BirthDateField
-                value={profile.fechaNacimiento}
-                onChange={(fecha) => updateField("fechaNacimiento", fecha)}
-              />
+              <View style={styles.nameRow}>
+                <AppInput
+                  autoCapitalize="words"
+                  containerStyle={styles.nameField}
+                  inputStyle={styles.compactInput}
+                  label="Nombre"
+                  labelStyle={styles.centeredLabel}
+                  onChangeText={(value) => updateNameField("firstName", value)}
+                  placeholder="Nombre"
+                  value={profile.firstName || ""}
+                />
+                <AppInput
+                  autoCapitalize="words"
+                  containerStyle={styles.nameField}
+                  inputStyle={styles.compactInput}
+                  label="Apellido"
+                  labelStyle={styles.centeredLabel}
+                  onChangeText={(value) => updateNameField("lastName", value)}
+                  placeholder="Apellido"
+                  value={profile.lastName || ""}
+                />
+              </View>
+              <View style={styles.compactField}>
+                <Text style={[styles.centeredLabel, styles.dateLabel]}>Fecha de nacimiento</Text>
+                <Pressable
+                  onPress={() => {
+                    const initialDate = profile.fechaNacimiento
+                      ? fechaNacimientoToDate(profile.fechaNacimiento)
+                      : new Date(2000, 0, 1);
+                    if (Platform.OS === "android") {
+                      DateTimePickerAndroid.open({
+                        value: initialDate,
+                        mode: "date",
+                        display: "spinner",
+                        maximumDate: new Date(),
+                        minimumDate: new Date(1900, 0, 1),
+                        onChange: (event, selectedDate) => {
+                          if (event.type === "set" && selectedDate) {
+                            updateField("fechaNacimiento", dateToFechaNacimiento(selectedDate));
+                          }
+                        },
+                      });
+                    } else {
+                      setTempDate(initialDate);
+                      setDatePickerVisible(true);
+                    }
+                  }}
+                  style={({ pressed }) => [
+                    styles.dateField,
+                    pressed && styles.dateFieldPressed,
+                  ]}
+                >
+                  <Text style={profile.fechaNacimiento ? styles.dateValue : styles.datePlaceholder}>
+                    {profile.fechaNacimiento
+                      ? formatFechaNacimientoDisplay(profile.fechaNacimiento)
+                      : "DD/MM/AAAA"}
+                  </Text>
+                </Pressable>
+                {datePickerVisible && (
+                  <>
+                    <DateTimePicker
+                      value={tempDate || new Date(2000, 0, 1)}
+                      mode="date"
+                      display="spinner"
+                      maximumDate={new Date()}
+                      minimumDate={new Date(1900, 0, 1)}
+                      onChange={(_, selectedDate) => {
+                        if (selectedDate) setTempDate(selectedDate);
+                      }}
+                    />
+                    <Pressable
+                      onPress={() => {
+                        if (tempDate) {
+                          updateField("fechaNacimiento", dateToFechaNacimiento(tempDate));
+                        }
+                        setDatePickerVisible(false);
+                      }}
+                      style={styles.dateConfirmButton}
+                    >
+                      <Text style={styles.dateConfirmButtonText}>Listo</Text>
+                    </Pressable>
+                  </>
+                )}
+              </View>
               <AppInput
                 autoCapitalize="none"
                 containerStyle={styles.compactField}
@@ -1972,6 +1935,55 @@ const styles = StyleSheet.create({
   },
   confirmButtonPressed: {
     opacity: 0.9,
+  },
+  nameRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginBottom: 0,
+  },
+  nameField: {
+    flex: 1,
+    marginBottom: 0,
+  },
+  dateLabel: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: "700",
+    marginBottom: 2,
+    marginTop: 6,
+  },
+  dateField: {
+    borderColor: colors.border,
+    borderRadius: 14,
+    borderWidth: 1,
+    justifyContent: "center",
+    minHeight: 42,
+    paddingHorizontal: spacing.md,
+    marginBottom: spacing.xs,
+  },
+  dateFieldPressed: {
+    opacity: 0.7,
+  },
+  dateValue: {
+    color: colors.text,
+    fontSize: 15,
+  },
+  datePlaceholder: {
+    color: colors.muted,
+    fontSize: 15,
+  },
+  dateConfirmButton: {
+    alignItems: "center",
+    backgroundColor: colors.primary,
+    borderRadius: 14,
+    justifyContent: "center",
+    marginBottom: spacing.xs,
+    minHeight: 42,
+  },
+  dateConfirmButtonText: {
+    color: "#fff",
+    fontSize: 15,
+    fontWeight: "700",
   },
   dateBlock: {
     marginBottom: spacing.md,

@@ -81,7 +81,7 @@ export function mapUserDocToPlayer(docSnapshot) {
     id: docSnapshot.id,
     nombre: data.nombre || "Jugador",
     apellido: data.apellido || data.lastName || "",
-    categoria: data.categoria || "Iniciante",
+    categoria: data.categoria || "9na (Iniciantes)",
     sexo: formatSex(data.sexo),
     ciudad: localidad.nombre || location.ciudad || "",
     provincia: localidad.provincia || location.provincia || "",

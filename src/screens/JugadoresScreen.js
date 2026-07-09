@@ -72,7 +72,7 @@ function buildOwnPlayerFromUser(userData) {
   return {
     id: userData.uid,
     nombre: userData.name || "Jugador",
-    categoria: userData.category || "Iniciante",
+    categoria: userData.category || "9na (Iniciantes)",
     sexo: userData.sex || "Masculino",
     ciudad: userData.localidad?.nombre || userData.city || "",
     provincia:

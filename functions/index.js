@@ -1,5 +1,6 @@
 const { setGlobalOptions } = require("firebase-functions/v2");
 const { onRequest } = require("firebase-functions/v2/https");
+const v1 = require("firebase-functions/v1");
 
 setGlobalOptions({
   maxInstances: 10,
@@ -57,3 +58,15 @@ exports.sendPasswordReset = lazyOnRequest("./sendPasswordReset", "sendPasswordRe
   invoker: "public",
   secrets: ["RESEND_API_KEY"],
 });
+
+exports.sendWelcomeEmail = v1
+  .runWith({ secrets: ["RESEND_API_KEY"] })
+  .auth.user()
+  .onCreate(async (user) => {
+    const { sendWelcomeEmail } = require("./sendWelcomeEmail");
+    return sendWelcomeEmail({
+      email: user.email,
+      displayName: user.displayName || "",
+      uid: user.uid,
+    });
+  });

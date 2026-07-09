@@ -50,7 +50,7 @@ const FALLBACK_PROFILE = {
   countryCode: "+54",
   phoneCountry: "Argentina",
   isPhonePublic: false,
-  category: "Iniciante",
+  category: "9na (Iniciantes)",
   sex: "Masculino",
   manoHabil: "",
   description: "",

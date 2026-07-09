@@ -94,7 +94,7 @@ export const argentinaCities = [
 ];
 
 export const playerCategories = [
-  "Iniciante",
+  "9na (Iniciantes)",
   "8va",
   "7ma",
   "6ta",
@@ -103,8 +103,6 @@ export const playerCategories = [
   "3ra",
   "2da",
   "1era",
-  "Menores Sub 12",
-  "Menores Sub 15",
 ];
 
 export const sexOptions = ["Masculino", "Femenino", "Prefiero no decirlo"];

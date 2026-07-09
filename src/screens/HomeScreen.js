@@ -60,7 +60,7 @@ const DEFAULT_USER = {
   phone: "",
   countryCode: "+54",
   city: "",
-  category: "Iniciante",
+  category: "9na (Iniciantes)",
   sex: "Masculino",
   description: "",
   avatarColor: colors.primary,
@@ -301,15 +301,20 @@ function addReplacementCandidateToFixture(fixture = {}, request = {}, candidate 
 }
 
 function calculateProfileCompletion(user = {}) {
+  const firstName = user.firstName || String(user.name || "").trim().split(" ")[0];
+  const lastName = user.lastName || String(user.name || "").trim().split(" ").slice(1).join(" ");
   const checks = [
-    user.name,
+    firstName,
+    lastName,
     user.email,
     user.phone,
     user.city || user.localidad?.nombre,
     user.category || user.categoria,
     user.sex || user.sexo,
-    user.description,
     user.avatarUrl || user.foto,
+    user.fechaNacimiento,
+    user.ladoJuego,
+    user.manoHabil,
   ];
   const completed = checks.filter((value) => String(value || "").trim().length > 0).length;
 
