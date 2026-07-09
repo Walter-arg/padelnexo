@@ -22,6 +22,7 @@ import {
   normalizeComplex,
 } from "./organizerService";
 import { getDefaultRoleData } from "./roleService";
+import { calcularEdad } from "../utils/ageUtils";
 import devLog from "../utils/devLog";
 
 const DEFAULT_LOCATION = {
@@ -495,6 +496,7 @@ export async function createUserProfile(uid, payload) {
     availability,
     tournamentComplexes: [],
     fechaNacimiento: payload.fechaNacimiento || "",
+    chatHabilitado: (calcularEdad(payload.fechaNacimiento) ?? 0) >= 14,
     createdAt: serverTimestamp(),
   });
 
@@ -651,6 +653,7 @@ export async function updateUserProfile(uid, updates) {
 
   if (typeof updates.fechaNacimiento === "string" && updates.fechaNacimiento) {
     payload.fechaNacimiento = updates.fechaNacimiento;
+    payload.chatHabilitado = (calcularEdad(updates.fechaNacimiento) ?? 0) >= 14;
   }
 
   if (Array.isArray(updates.tournamentComplexes)) {

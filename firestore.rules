@@ -84,12 +84,16 @@ service cloud.firestore {
       );
     }
 
-    // Conversaciones — solo participantes
+    // Conversaciones — solo participantes mayores de 14
+    function chatHabilitadoParaUsuario() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.chatHabilitado == true;
+    }
+
     match /conversations/{conversationId} {
-      allow read, write: if isAuth() && (
-        request.auth.uid in resource.data.participantIds
-      );
-      allow create: if isAuth();
+      allow read, write: if isAuth() &&
+        chatHabilitadoParaUsuario() &&
+        request.auth.uid in resource.data.participantIds;
+      allow create: if isAuth() && chatHabilitadoParaUsuario();
     }
 
     // Invitaciones
