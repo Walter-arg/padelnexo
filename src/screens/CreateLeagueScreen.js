@@ -433,14 +433,17 @@ export default function CreateLeagueScreen({ navigation, route }) {
   const leagueId = route?.params?.leagueId || "";
   const isEditing = Boolean(leagueId);
   const [form, setForm] = useState(() => buildInitialForm(userData));
-  const [baseLocationInput, setBaseLocationInput] = useState("");
   const [selectedBaseLocation, setSelectedBaseLocation] = useState(() => {
-    const name = userData?.localidad?.nombre || userData?.city || "";
-
-    if (!name) {
-      return null;
+    const firstComplex = Array.isArray(userData?.complejos) ? userData.complejos[0] : null;
+    if (firstComplex?.localidad?.nombre) {
+      return {
+        nombre: firstComplex.localidad.nombre,
+        provincia: firstComplex.localidad.provincia || "",
+        pais: "Argentina",
+      };
     }
-
+    const name = userData?.localidad?.nombre || userData?.city || "";
+    if (!name) return null;
     return {
       nombre: name,
       provincia:
@@ -498,6 +501,18 @@ export default function CreateLeagueScreen({ navigation, route }) {
       (userData?.complejos || []).find((complex) => complex.nombre === form.complexName) || null,
     [form.complexName, userData?.complejos]
   );
+
+  // Auto-set localidad from the selected complex
+  useEffect(() => {
+    if (selectedComplex?.localidad?.nombre) {
+      setSelectedBaseLocation({
+        nombre: selectedComplex.localidad.nombre,
+        provincia: selectedComplex.localidad.provincia || "",
+        pais: "Argentina",
+      });
+    }
+  }, [selectedComplex]);
+
   const canCreateLeague = isApprovedOrganizer(userData) || canAccessAdminPanel(userData);
   const selectedGameMode = getGameModeValue(form);
   const filteredFirstCategoryOptions = useMemo(() => {
@@ -1196,17 +1211,6 @@ export default function CreateLeagueScreen({ navigation, route }) {
             )}
             value={form.complexName}
             visible={isComplexVisible}
-          />
-          <LocationPicker
-            containerStyle={styles.fieldSpacing}
-            inputStyle={styles.baseLocationInput}
-            label="Localidad"
-            labelStyle={styles.centeredFieldLabel}
-            onChangeText={setBaseLocationInput}
-            onSelect={setSelectedBaseLocation}
-            placeholder="Buscar localidad"
-            selectedLocation={selectedBaseLocation}
-            value={baseLocationInput}
           />
         </View>
 

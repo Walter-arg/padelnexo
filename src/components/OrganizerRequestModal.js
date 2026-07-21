@@ -62,7 +62,9 @@ function buildUserLocationParts(user = {}) {
 }
 
 function buildComplexGeocodeCandidates(complex = {}, user = {}) {
-  const locationParts = buildUserLocationParts(user);
+  const locationParts = complex.localidad?.nombre
+    ? [complex.localidad.nombre, complex.localidad.provincia || "", "Argentina"].filter(Boolean)
+    : buildUserLocationParts(user);
 
   return [
     [complex.direccion, ...locationParts].filter(Boolean).join(", "),
@@ -78,6 +80,7 @@ function createEmptyComplexForm() {
     canchas: [createEmptyCourtForm()],
     coordinates: null,
     direccion: "",
+    localidad: { nombre: "", provincia: "" },
   };
 }
 
@@ -127,6 +130,10 @@ function mapComplexToForm(complex = createEmptyComplexForm()) {
       : mapLegacyCourts(complex),
     direccion: complex.direccion || "",
     coordinates: getCoordinatesFromObject(complex),
+    localidad: {
+      nombre: complex.localidad?.nombre || "",
+      provincia: complex.localidad?.provincia || "",
+    },
   };
 }
 
@@ -263,6 +270,20 @@ export default function OrganizerRequestModal({
         ...current,
         complejos: nuevosComplejos,
       };
+    });
+  };
+
+  const handleComplejoLocalidadChange = (index, subfield, value) => {
+    setForm((current) => {
+      const nuevosComplejos = [...current.complejos];
+      nuevosComplejos[index] = {
+        ...nuevosComplejos[index],
+        localidad: {
+          ...nuevosComplejos[index].localidad,
+          [subfield]: value,
+        },
+      };
+      return { ...current, complejos: nuevosComplejos };
     });
   };
 
@@ -442,6 +463,15 @@ export default function OrganizerRequestModal({
         return false;
       }
 
+      if (!complex.localidad?.nombre?.trim()) {
+        showFeedback(
+          "Falta la localidad",
+          `Completa la localidad del complejo ${index + 1}.`,
+          "danger"
+        );
+        return false;
+      }
+
       if (complex.totalCanchas <= 0) {
         showFeedback(
           "Cantidad invalida",
@@ -492,6 +522,11 @@ export default function OrganizerRequestModal({
             cemento: complex.cemento,
             totalCanchas: complex.totalCanchas,
             direccion: complex.direccion.trim(),
+            localidad: {
+              nombre: complex.localidad?.nombre?.trim() || "",
+              provincia: complex.localidad?.provincia?.trim() || "",
+              pais: "Argentina",
+            },
           })
         )
       );
@@ -635,6 +670,28 @@ export default function OrganizerRequestModal({
                         }
                         placeholder="Direccion"
                         value={complex.direccion}
+                      />
+
+                      <AppInput
+                        autoCapitalize="words"
+                        label="Localidad"
+                        labelStyle={styles.centeredLabel}
+                        onChangeText={(value) =>
+                          handleComplejoLocalidadChange(index, "nombre", value)
+                        }
+                        placeholder="Ej. Córdoba"
+                        value={complex.localidad?.nombre || ""}
+                      />
+
+                      <AppInput
+                        autoCapitalize="words"
+                        label="Provincia"
+                        labelStyle={styles.centeredLabel}
+                        onChangeText={(value) =>
+                          handleComplejoLocalidadChange(index, "provincia", value)
+                        }
+                        placeholder="Ej. Córdoba"
+                        value={complex.localidad?.provincia || ""}
                       />
 
                       <View style={styles.locationStatusRow}>
