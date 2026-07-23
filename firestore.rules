@@ -84,16 +84,35 @@ service cloud.firestore {
       );
     }
 
-    // Conversaciones — solo participantes mayores de 14
+    // Conversaciones — solo participantes mayores de 14, o usuarios con rol organizador
     function chatHabilitadoParaUsuario() {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.chatHabilitado == true;
     }
 
+    function esOrganizador() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "organizer";
+    }
+
+    function puedeUsarChat() {
+      return chatHabilitadoParaUsuario() || esOrganizador();
+    }
+
     match /conversations/{conversationId} {
-      allow read, write: if isAuth() &&
-        chatHabilitadoParaUsuario() &&
-        request.auth.uid in resource.data.participantIds;
-      allow create: if isAuth() && chatHabilitadoParaUsuario();
+      allow read: if isAuth() &&
+        puedeUsarChat() &&
+        request.auth.uid in resource.data.participants;
+      allow write: if isAuth() &&
+        puedeUsarChat() &&
+        (request.auth.uid in resource.data.participants ||
+         (esOrganizador() && "padelnexo-system" in resource.data.participants));
+      allow create: if isAuth() && puedeUsarChat();
+
+      match /messages/{messageId} {
+        allow read: if isAuth() &&
+          puedeUsarChat() &&
+          request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.participants;
+        allow create: if isAuth() && puedeUsarChat();
+      }
     }
 
     // Invitaciones
