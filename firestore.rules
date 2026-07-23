@@ -62,6 +62,17 @@ service cloud.firestore {
           get(/databases/$(database)/documents/tournaments/$(tournamentId)).data.createdBy == request.auth.uid
         );
       }
+
+      match /notifications/{notifId} {
+        allow read: if isAuth() && (
+          get(/databases/$(database)/documents/tournaments/$(tournamentId)).data.organizerId == request.auth.uid ||
+          get(/databases/$(database)/documents/tournaments/$(tournamentId)).data.createdBy == request.auth.uid
+        );
+        allow create: if isAuth() && (
+          get(/databases/$(database)/documents/tournaments/$(tournamentId)).data.organizerId == request.auth.uid ||
+          get(/databases/$(database)/documents/tournaments/$(tournamentId)).data.createdBy == request.auth.uid
+        );
+      }
     }
 
     // Reservas y configuraciones de turnos
