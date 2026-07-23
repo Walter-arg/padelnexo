@@ -97,20 +97,26 @@ service cloud.firestore {
       return chatHabilitadoParaUsuario() || esOrganizador();
     }
 
+    function esConversacionDelSistema(participants) {
+      return "padelnexo-system" in participants;
+    }
+
     match /conversations/{conversationId} {
       allow read: if isAuth() &&
-        puedeUsarChat() &&
-        request.auth.uid in resource.data.participants;
+        request.auth.uid in resource.data.participants &&
+        (puedeUsarChat() || esConversacionDelSistema(resource.data.participants));
       allow write: if isAuth() &&
         puedeUsarChat() &&
         (request.auth.uid in resource.data.participants ||
-         (esOrganizador() && "padelnexo-system" in resource.data.participants));
+         (esOrganizador() && esConversacionDelSistema(resource.data.participants)));
       allow create: if isAuth() && puedeUsarChat();
 
       match /messages/{messageId} {
         allow read: if isAuth() &&
-          puedeUsarChat() &&
-          request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.participants;
+          request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.participants &&
+          (puedeUsarChat() || esConversacionDelSistema(
+            get(/databases/$(database)/documents/conversations/$(conversationId)).data.participants
+          ));
         allow create: if isAuth() && puedeUsarChat();
       }
     }
