@@ -108,7 +108,8 @@ service cloud.firestore {
       allow write: if isAuth() &&
         puedeUsarChat() &&
         (request.auth.uid in resource.data.participants ||
-         (esOrganizador() && esConversacionDelSistema(resource.data.participants)));
+         (esConversacionDelSistema(resource.data.participants) &&
+          request.resource.data.lastMessageSenderId == "padelnexo-system"));
       allow create: if isAuth() && puedeUsarChat();
 
       match /messages/{messageId} {
