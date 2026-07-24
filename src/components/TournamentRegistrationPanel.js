@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Image,
   KeyboardAvoidingView,
@@ -315,6 +315,7 @@ export default function TournamentRegistrationPanel({
   const [playerFilterVisible, setPlayerFilterVisible] = useState(false);
   const [pendingPairs, setPendingPairs] = useState([]);
   const [pairMeta, setPairMeta] = useState({});
+  const confirmedListRef = useRef(null);
   const [activePairForAvailability, setActivePairForAvailability] = useState(null);
   const [expandedPairPaymentIndex, setExpandedPairPaymentIndex] = useState(null);
   const [guestModalVisible, setGuestModalVisible] = useState(false);
@@ -594,6 +595,12 @@ export default function TournamentRegistrationPanel({
     playersSource,
     registration,
   ]);
+
+  useEffect(() => {
+    if (pendingPairs.length > 0) {
+      confirmedListRef.current?.scrollToEnd({ animated: true });
+    }
+  }, [pendingPairs.length]);
 
   const availabilityItems = useMemo(
     () => getTournamentAvailabilitySummaryItems(availability || {}, tournamentDayOptions),
@@ -2058,6 +2065,7 @@ export default function TournamentRegistrationPanel({
 
             {isOrganizerCreating && pendingPairs.length > 0 ? (
               <ScrollView
+                ref={confirmedListRef}
                 nestedScrollEnabled
                 showsVerticalScrollIndicator={false}
                 style={styles.pickerConfirmedList}
