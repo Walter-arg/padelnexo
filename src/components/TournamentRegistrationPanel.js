@@ -1151,7 +1151,7 @@ export default function TournamentRegistrationPanel({
         return;
       }
 
-      if (!bypassMaxPairs) {
+      if (bypassMaxPairs !== true) {
         const maxPairs = Number(tournament?.maxPairs || 0);
         if (maxPairs > 0) {
           const activeCount = registrations.filter((r) => r.status !== "rejected").length;
@@ -1944,7 +1944,7 @@ export default function TournamentRegistrationPanel({
             !hasExistingReceipt &&
             !canSubmitManualPairRequest)
         }
-        onPress={handleSubmitRegistration}
+        onPress={() => handleSubmitRegistration()}
         title={submitButtonTitle}
       />
 
