@@ -2043,6 +2043,18 @@ export default function TournamentDetailScreen({ navigation, route }) {
                 .join(":")}
             />
 
+            {tournament?.status === "draft" && accessMeta.role === "organizer" ? (
+              <View style={styles.draftBanner}>
+                <Ionicons color="#7A4F00" name="eye-off-outline" size={16} />
+                <View style={styles.draftBannerCopy}>
+                  <Text style={styles.draftBannerTitle}>MODO BORRADOR · INVISIBLE</Text>
+                  <Text style={styles.draftBannerText}>
+                    Este torneo no es visible para los jugadores. Publicalo para que puedan inscribirse.
+                  </Text>
+                </View>
+              </View>
+            ) : null}
+
             <View style={styles.tabsGrid}>
               {accessMeta.role === "organizer" ? (
                 <Pressable
@@ -2433,6 +2445,34 @@ const styles = StyleSheet.create({
   },
   posterRemoveButtonPressed: {
     backgroundColor: "#FCE7E7",
+  },
+  draftBanner: {
+    alignItems: "flex-start",
+    backgroundColor: "#FFF8E7",
+    borderColor: "#E8C96A",
+    borderRadius: 12,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 10,
+  },
+  draftBannerCopy: {
+    flex: 1,
+    gap: 2,
+  },
+  draftBannerTitle: {
+    color: "#7A4F00",
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 0.5,
+  },
+  draftBannerText: {
+    color: "#9A6800",
+    fontSize: 12,
+    fontWeight: "500",
+    lineHeight: 17,
   },
   tabsGrid: {
     flexDirection: "row",
