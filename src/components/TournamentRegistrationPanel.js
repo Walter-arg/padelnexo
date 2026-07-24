@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  Alert,
   Image,
   KeyboardAvoidingView,
   Linking,
@@ -1119,7 +1120,7 @@ export default function TournamentRegistrationPanel({
     }
   };
 
-  const handleSubmitRegistration = async () => {
+  const handleSubmitRegistration = async (bypassMaxPairs = false) => {
     if (!currentUser?.uid) {
       showFeedback(
         "Sesion requerida",
@@ -1150,6 +1151,25 @@ export default function TournamentRegistrationPanel({
         return;
       }
 
+      if (!bypassMaxPairs) {
+        const maxPairs = Number(tournament?.maxPairs || 0);
+        if (maxPairs > 0) {
+          const activeCount = registrations.filter((r) => r.status !== "rejected").length;
+          if (activeCount + pendingPairs.length > maxPairs) {
+            const exceso = activeCount + pendingPairs.length - maxPairs;
+            Alert.alert(
+              "Límite de parejas alcanzado",
+              `El torneo tiene un límite de ${maxPairs} parejas. Hay ${activeCount} inscriptas y estás agregando ${pendingPairs.length}${exceso > 0 ? `, superando el límite en ${exceso}` : ""}. ¿Querés agregarlas igual?`,
+              [
+                { text: "Cancelar", style: "cancel" },
+                { text: "Agregar igual", onPress: () => handleSubmitRegistration(true) },
+              ]
+            );
+            return;
+          }
+        }
+      }
+
       try {
         setSubmitting(true);
 
@@ -1172,6 +1192,7 @@ export default function TournamentRegistrationPanel({
           await registerPairToTournament(tournament.id, {
             allowGuestPlayers: true,
             availability: meta.availability || [],
+            bypassMaxPairs,
             organizerConfirmed: true,
             paymentsOverride: pairPaymentsOverride,
             player1: p1,

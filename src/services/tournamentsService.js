@@ -1960,7 +1960,7 @@ export async function registerPairToTournament(tournamentId, payload = {}) {
       registration.status !== "rejected" && !isRegistrationWithdrawnConfirmed(registration)
   ).length;
 
-  if (activeRegistrationsCount >= Number(tournament.maxPairs || 0)) {
+  if (!payload.bypassMaxPairs && activeRegistrationsCount >= Number(tournament.maxPairs || 0)) {
     throw new Error("El torneo ya alcanzo el cupo maximo de parejas.");
   }
 
