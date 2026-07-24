@@ -4885,8 +4885,6 @@ export default function TournamentFixtureScreen({ navigation, route }) {
     [playerFixtureLastViewedSections, tournamentId]
   );
   const [selectedMode, setSelectedMode] = useState("automatic");
-  const [newzonesView, setNewzonesView] = useState("zonas");
-  const [creacionOpen, setCreacionOpen] = useState(false);
   const [selectedPathType, setSelectedPathType] = useState("strict");
   const [selectedManualBracketMode, setSelectedManualBracketMode] = useState("automatic");
   const [selectedZoneMatchFormat, setSelectedZoneMatchFormat] = useState("third_set");
@@ -10858,122 +10856,89 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                 .join(":")}
             />
 
-            {canEditFixture ? (
-              <View style={styles.creacionAccordion}>
+            <View style={styles.actionsRow}>
+              {canEditFixture ? (
                 <Pressable
-                  onPress={() => setCreacionOpen((o) => !o)}
+                  onPress={() => handleChangeActiveSection("configuration")}
                   style={({ pressed }) => [
-                    styles.creacionAccordionHeader,
-                    pressed ? styles.creacionAccordionHeaderPressed : null,
+                    styles.actionButton,
+                    activeSection === "configuration" ? styles.actionButtonActive : null,
+                    pressed ? styles.actionButtonPressed : null,
                   ]}
                 >
-                  <Text style={styles.creacionAccordionTitle}>
-                    CREACIÓN DE ZONAS Y LLAVES
-                  </Text>
                   <Ionicons
-                    color={colors.primaryDark}
-                    name={creacionOpen ? "chevron-up-outline" : "chevron-down-outline"}
+                    color={activeSection === "configuration" ? colors.surface : colors.primaryDark}
+                    name="construct-outline"
                     size={18}
                   />
+                  <Text
+                    style={[
+                      styles.actionButtonText,
+                      styles.actionButtonTextCompact,
+                      activeSection === "configuration" ? styles.actionButtonTextActive : null,
+                    ]}
+                  >
+                    CONFIGURAR
+                  </Text>
                 </Pressable>
+              ) : null}
 
-                {creacionOpen ? (
-                  <View style={styles.creacionGrid}>
-                    <Pressable
-                      onPress={() => {
-                        handleChangeActiveSection("configuration");
-                        setCreacionOpen(false);
-                      }}
-                      style={({ pressed }) => [
-                        styles.creacionGridBtn,
-                        activeSection === "configuration" ? styles.creacionGridBtnActive : null,
-                        pressed ? styles.creacionGridBtnPressed : null,
-                      ]}
-                    >
-                      <Ionicons
-                        color={activeSection === "configuration" ? colors.surface : colors.primaryDark}
-                        name="construct-outline"
-                        size={20}
-                      />
-                      <Text style={[
-                        styles.creacionGridBtnText,
-                        activeSection === "configuration" ? styles.creacionGridBtnTextActive : null,
-                      ]}>
-                        CONFIGURAR
-                      </Text>
-                    </Pressable>
+              <Pressable
+                onPress={() => handleChangeActiveSection("newzones")}
+                style={({ pressed }) => [
+                  styles.actionButton,
+                  activeSection === "newzones" ? styles.actionButtonActive : null,
+                  pressed ? styles.actionButtonPressed : null,
+                ]}
+              >
+                <Ionicons
+                  color={activeSection === "newzones" ? colors.surface : colors.primaryDark}
+                  name="calendar-outline"
+                  size={18}
+                />
+                <Text
+                  style={[
+                    styles.actionButtonText,
+                    styles.actionButtonTextCompact,
+                    activeSection === "newzones" ? styles.actionButtonTextActive : null,
+                  ]}
+                >
+                  {canEditFixture ? "NUEVAS ZONAS" : "ZONAS"}
+                </Text>
+              </Pressable>
 
-                    <Pressable
-                      onPress={() => {
-                        handleChangeActiveSection("newzones");
-                        setNewzonesView("zonas");
-                        setCreacionOpen(false);
-                      }}
-                      style={({ pressed }) => [
-                        styles.creacionGridBtn,
-                        activeSection === "newzones" && newzonesView === "zonas" ? styles.creacionGridBtnActive : null,
-                        pressed ? styles.creacionGridBtnPressed : null,
-                      ]}
-                    >
-                      <Ionicons
-                        color={activeSection === "newzones" && newzonesView === "zonas" ? colors.surface : colors.primaryDark}
-                        name="layers-outline"
-                        size={20}
-                      />
-                      <Text style={[
-                        styles.creacionGridBtnText,
-                        activeSection === "newzones" && newzonesView === "zonas" ? styles.creacionGridBtnTextActive : null,
-                      ]}>
-                        ARMADO{"\n"}AUTO
-                      </Text>
-                    </Pressable>
-
-                    <Pressable
-                      onPress={() => {
-                        setCreacionOpen(false);
-                        navigation.navigate("TournamentZonePlanning", {
-                          tournamentId: tournament.id,
-                          tournamentName: tournament.name || "Torneo",
-                        });
-                      }}
-                      style={({ pressed }) => [
-                        styles.creacionGridBtn,
-                        pressed ? styles.creacionGridBtnPressed : null,
-                      ]}
-                    >
-                      <Ionicons
-                        color={colors.primaryDark}
-                        name="create-outline"
-                        size={20}
-                      />
-                      <Text style={styles.creacionGridBtnText}>
-                        ARMADO{"\n"}MANUAL
-                      </Text>
-                    </Pressable>
-
-                    <Pressable
-                      onPress={() => {
-                        setCreacionOpen(false);
-                        handleCreateBracketPress();
-                      }}
-                      style={({ pressed }) => [
-                        styles.creacionGridBtn,
-                        pressed ? styles.creacionGridBtnPressed : null,
-                      ]}
-                    >
-                      <Ionicons
-                        color={colors.primaryDark}
-                        name="git-branch-outline"
-                        size={20}
-                      />
-                      <Text style={styles.creacionGridBtnText}>
-                        CREAR{"\n"}LLAVES
-                      </Text>
-                    </Pressable>
-                  </View>
-                ) : null}
-              </View>
-            ) : null}
+              <Pressable
+                disabled={bracketOpening}
+                onPress={handlePressBracketSection}
+                style={({ pressed }) => [
+                  styles.actionButton,
+                  activeSection === "bracket" ? styles.actionButtonActive : null,
+                  pressed ? styles.actionButtonPressed : null,
+                ]}
+              >
+                {bracketOpening ? (
+                  <ActivityIndicator
+                    color={activeSection === "bracket" ? colors.surface : colors.primaryDark}
+                    size="small"
+                  />
+                ) : (
+                  <Ionicons
+                    color={activeSection === "bracket" ? colors.surface : colors.primaryDark}
+                    name="git-branch-outline"
+                    size={18}
+                    style={styles.bracketActionIcon}
+                  />
+                )}
+                <Text
+                  style={[
+                    styles.actionButtonText,
+                    activeSection === "bracket" ? styles.actionButtonTextActive : null,
+                  ]}
+                >
+                  LLAVES
+                </Text>
+              </Pressable>
+            </View>
 
             {canEditFixture && activeSection === "configuration" ? (
               <View style={styles.card}>
@@ -11665,52 +11630,45 @@ export default function TournamentFixtureScreen({ navigation, route }) {
 
             {activeSection === "newzones" ? (
               <View style={styles.newZonesSection}>
-                <View style={styles.configurationActionsRow}>
-                  <Pressable
-                    onPress={() => setNewzonesView("zonas")}
-                    style={({ pressed }) => [
-                      styles.secondaryActionButton,
-                      styles.newZoneModeButton,
-                      newzonesView === "zonas" ? styles.newZoneModeButtonActive : null,
-                      pressed ? styles.primaryButtonPressed : null,
-                    ]}
-                  >
-                    <Text style={[
-                      styles.secondaryActionButtonText,
-                      styles.newZoneModeButtonText,
-                      newzonesView === "zonas" ? styles.newZoneModeButtonTextActive : null,
-                    ]}>
-                      ZONAS
-                    </Text>
-                  </Pressable>
-                  <Pressable
-                    disabled={bracketOpening}
-                    onPress={() => {
-                      setNewzonesView("llaves");
-                      handlePressBracketSection();
-                    }}
-                    style={({ pressed }) => [
-                      styles.secondaryActionButton,
-                      styles.newZoneModeButton,
-                      newzonesView === "llaves" ? styles.newZoneModeButtonActive : null,
-                      pressed ? styles.primaryButtonPressed : null,
-                    ]}
-                  >
-                    <Text style={[
-                      styles.secondaryActionButtonText,
-                      styles.newZoneModeButtonText,
-                      newzonesView === "llaves" ? styles.newZoneModeButtonTextActive : null,
-                    ]}>
-                      LLAVES
-                    </Text>
-                  </Pressable>
-                </View>
-                {newzonesView === "zonas" && hasZonePlanningUnsavedChanges ? (
+                {canEditFixture ? (
+                  <View style={styles.configurationActionsRow}>
+                    <Pressable
+                      onPress={handleCreateNewAutoZonesPress}
+                      style={({ pressed }) => [
+                        styles.secondaryActionButton,
+                        styles.newZoneModeButton,
+                        pressed ? styles.primaryButtonPressed : null,
+                      ]}
+                    >
+                      <Text style={[styles.secondaryActionButtonText, styles.newZoneModeButtonText]}>
+                        {savingKey === "zones" ? "CREANDO..." : "ARMADO\nAUTOMATICO"}
+                      </Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() =>
+                        navigation.navigate("TournamentZonePlanning", {
+                          tournamentId: tournament.id,
+                          tournamentName: tournament.name || "Torneo",
+                        })
+                      }
+                      style={({ pressed }) => [
+                        styles.secondaryActionButton,
+                        styles.newZoneModeButton,
+                        pressed ? styles.primaryButtonPressed : null,
+                      ]}
+                    >
+                      <Text style={[styles.secondaryActionButtonText, styles.newZoneModeButtonText]}>
+                        ARMADO{"\n"}MANUAL
+                      </Text>
+                    </Pressable>
+                  </View>
+                ) : null}
+                {hasZonePlanningUnsavedChanges ? (
                   <Text style={styles.unsavedChangesText}>
                     Hay cambios sin guardar en Nuevas zonas.
                   </Text>
                 ) : null}
-                {newzonesView === "zonas" && newZonePlanningZones.length ? (
+                {newZonePlanningZones.length ? (
                   <View style={styles.newZonesStack}>
                     {newZonePlanningZones.map((zone) => (
                       <View key={zone.id} style={styles.newZoneCard}>
@@ -12443,17 +12401,17 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                       );
                     })}
                   </View>
-                ) : newzonesView === "zonas" ? (
+                ) : (
                   <Text style={styles.emptyText}>
                     {canEditFixture
-                      ? "Todavia no hay zonas visibles. Usa `ARMADO AUTO` desde la barra superior."
+                      ? "Todavia no hay zonas visibles. Usa `ARMADO AUTOMATICO` desde Nuevas zonas."
                       : "Todavia no hay zonas visibles."}
                   </Text>
-                ) : null}
+                )}
               </View>
             ) : null}
 
-            {activeSection === "bracket" || (activeSection === "newzones" && newzonesView === "llaves") ? (
+            {activeSection === "bracket" ? (
               <View style={styles.card}>
                 {canEditFixture ? (
                   <View style={styles.configurationActionsRow}>
@@ -14343,77 +14301,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     lineHeight: 14,
     textAlign: "center",
-  },
-  newZoneModeButtonActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
-  },
-  newZoneModeButtonTextActive: {
-    color: colors.surface,
-  },
-  creacionAccordion: {
-    borderColor: colors.border,
-    borderRadius: 18,
-    borderWidth: 1,
-    marginBottom: spacing.sm,
-    overflow: "hidden",
-  },
-  creacionAccordionHeader: {
-    alignItems: "center",
-    backgroundColor: colors.secondary,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-  },
-  creacionAccordionHeaderPressed: {
-    backgroundColor: colors.border,
-  },
-  creacionAccordionTitle: {
-    color: colors.primaryDark,
-    fontSize: 12,
-    fontWeight: "900",
-    letterSpacing: 0.5,
-    textTransform: "uppercase",
-  },
-  creacionGrid: {
-    backgroundColor: colors.surface,
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: spacing.xs,
-    padding: spacing.sm,
-  },
-  creacionGridBtn: {
-    alignItems: "center",
-    backgroundColor: colors.surfaceAlt,
-    borderColor: colors.border,
-    borderRadius: 14,
-    borderWidth: 1,
-    flexBasis: "47%",
-    flexGrow: 1,
-    gap: 6,
-    justifyContent: "center",
-    minHeight: 72,
-    paddingHorizontal: spacing.xs,
-    paddingVertical: spacing.sm,
-  },
-  creacionGridBtnActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
-  },
-  creacionGridBtnPressed: {
-    opacity: 0.75,
-  },
-  creacionGridBtnText: {
-    color: colors.primaryDark,
-    fontSize: 11,
-    fontWeight: "900",
-    lineHeight: 14,
-    textAlign: "center",
-    textTransform: "uppercase",
-  },
-  creacionGridBtnTextActive: {
-    color: colors.surface,
   },
   actionsRow: {
     flexDirection: "row",
