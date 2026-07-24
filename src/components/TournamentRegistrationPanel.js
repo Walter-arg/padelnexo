@@ -2057,7 +2057,12 @@ export default function TournamentRegistrationPanel({
             ) : null}
 
             {isOrganizerCreating && pendingPairs.length > 0 ? (
-              <View style={styles.pickerConfirmedList}>
+              <ScrollView
+                nestedScrollEnabled
+                showsVerticalScrollIndicator={false}
+                style={styles.pickerConfirmedList}
+                contentContainerStyle={styles.pickerConfirmedListContent}
+              >
                 {pendingPairs.map((pair, index) => (
                   <View key={index} style={styles.pickerConfirmedItem}>
                     <Ionicons color="#1D7A34" name="checkmark-circle" size={13} />
@@ -2067,7 +2072,7 @@ export default function TournamentRegistrationPanel({
                     </Text>
                   </View>
                 ))}
-              </View>
+              </ScrollView>
             ) : null}
 
             <View style={[styles.pickerSearchRow, (playerCategoryFilter || playerSexFilter || playerCityFilter) && styles.pickerSearchRowActive]}>
@@ -2361,8 +2366,11 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   pickerConfirmedList: {
-    gap: 3,
     marginBottom: 8,
+    maxHeight: 78,
+  },
+  pickerConfirmedListContent: {
+    gap: 3,
   },
   pickerConfirmedItem: {
     alignItems: "center",
