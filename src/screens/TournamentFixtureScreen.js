@@ -4886,6 +4886,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
   );
   const [selectedMode, setSelectedMode] = useState("automatic");
   const [newzonesView, setNewzonesView] = useState("zonas");
+  const [creacionOpen, setCreacionOpen] = useState(false);
   const [selectedPathType, setSelectedPathType] = useState("strict");
   const [selectedManualBracketMode, setSelectedManualBracketMode] = useState("automatic");
   const [selectedZoneMatchFormat, setSelectedZoneMatchFormat] = useState("third_set");
@@ -10857,87 +10858,122 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                 .join(":")}
             />
 
-            <View style={styles.actionsRow}>
-              {canEditFixture ? (
+            {canEditFixture ? (
+              <View style={styles.creacionAccordion}>
                 <Pressable
-                  onPress={() => handleChangeActiveSection("configuration")}
+                  onPress={() => setCreacionOpen((o) => !o)}
                   style={({ pressed }) => [
-                    styles.actionButton,
-                    activeSection === "configuration" ? styles.actionButtonActive : null,
-                    pressed ? styles.actionButtonPressed : null,
+                    styles.creacionAccordionHeader,
+                    pressed ? styles.creacionAccordionHeaderPressed : null,
                   ]}
                 >
+                  <Text style={styles.creacionAccordionTitle}>
+                    CREACIÓN DE ZONAS Y LLAVES
+                  </Text>
                   <Ionicons
-                    color={activeSection === "configuration" ? colors.surface : colors.primaryDark}
-                    name="construct-outline"
+                    color={colors.primaryDark}
+                    name={creacionOpen ? "chevron-up-outline" : "chevron-down-outline"}
                     size={18}
                   />
-                  <Text
-                    style={[
-                      styles.actionButtonText,
-                      styles.actionButtonTextCompact,
-                      activeSection === "configuration" ? styles.actionButtonTextActive : null,
-                    ]}
-                  >
-                    CONFIGURAR
-                  </Text>
                 </Pressable>
-              ) : null}
 
-              <Pressable
-                onPress={() => {
-                  handleChangeActiveSection("newzones");
-                  setNewzonesView("zonas");
-                }}
-                style={({ pressed }) => [
-                  styles.actionButton,
-                  activeSection === "newzones" && newzonesView === "zonas" ? styles.actionButtonActive : null,
-                  pressed ? styles.actionButtonPressed : null,
-                ]}
-              >
-                <Ionicons
-                  color={activeSection === "newzones" && newzonesView === "zonas" ? colors.surface : colors.primaryDark}
-                  name="layers-outline"
-                  size={18}
-                />
-                <Text
-                  style={[
-                    styles.actionButtonText,
-                    styles.actionButtonTextCompact,
-                    activeSection === "newzones" && newzonesView === "zonas" ? styles.actionButtonTextActive : null,
-                  ]}
-                >
-                  ARMADO{"\n"}AUTO
-                </Text>
-              </Pressable>
+                {creacionOpen ? (
+                  <View style={styles.creacionGrid}>
+                    <Pressable
+                      onPress={() => {
+                        handleChangeActiveSection("configuration");
+                        setCreacionOpen(false);
+                      }}
+                      style={({ pressed }) => [
+                        styles.creacionGridBtn,
+                        activeSection === "configuration" ? styles.creacionGridBtnActive : null,
+                        pressed ? styles.creacionGridBtnPressed : null,
+                      ]}
+                    >
+                      <Ionicons
+                        color={activeSection === "configuration" ? colors.surface : colors.primaryDark}
+                        name="construct-outline"
+                        size={20}
+                      />
+                      <Text style={[
+                        styles.creacionGridBtnText,
+                        activeSection === "configuration" ? styles.creacionGridBtnTextActive : null,
+                      ]}>
+                        CONFIGURAR
+                      </Text>
+                    </Pressable>
 
-              <Pressable
-                onPress={() =>
-                  navigation.navigate("TournamentZonePlanning", {
-                    tournamentId: tournament.id,
-                    tournamentName: tournament.name || "Torneo",
-                  })
-                }
-                style={({ pressed }) => [
-                  styles.actionButton,
-                  pressed ? styles.actionButtonPressed : null,
-                ]}
-              >
-                <Ionicons
-                  color={colors.primaryDark}
-                  name="create-outline"
-                  size={18}
-                />
-                <Text
-                  style={[
-                    styles.actionButtonText,
-                    styles.actionButtonTextCompact,
-                  ]}
-                >
-                  ARMADO{"\n"}MANUAL
-                </Text>
-              </Pressable>
-            </View>
+                    <Pressable
+                      onPress={() => {
+                        handleChangeActiveSection("newzones");
+                        setNewzonesView("zonas");
+                        setCreacionOpen(false);
+                      }}
+                      style={({ pressed }) => [
+                        styles.creacionGridBtn,
+                        activeSection === "newzones" && newzonesView === "zonas" ? styles.creacionGridBtnActive : null,
+                        pressed ? styles.creacionGridBtnPressed : null,
+                      ]}
+                    >
+                      <Ionicons
+                        color={activeSection === "newzones" && newzonesView === "zonas" ? colors.surface : colors.primaryDark}
+                        name="layers-outline"
+                        size={20}
+                      />
+                      <Text style={[
+                        styles.creacionGridBtnText,
+                        activeSection === "newzones" && newzonesView === "zonas" ? styles.creacionGridBtnTextActive : null,
+                      ]}>
+                        ARMADO{"\n"}AUTO
+                      </Text>
+                    </Pressable>
+
+                    <Pressable
+                      onPress={() => {
+                        setCreacionOpen(false);
+                        navigation.navigate("TournamentZonePlanning", {
+                          tournamentId: tournament.id,
+                          tournamentName: tournament.name || "Torneo",
+                        });
+                      }}
+                      style={({ pressed }) => [
+                        styles.creacionGridBtn,
+                        pressed ? styles.creacionGridBtnPressed : null,
+                      ]}
+                    >
+                      <Ionicons
+                        color={colors.primaryDark}
+                        name="create-outline"
+                        size={20}
+                      />
+                      <Text style={styles.creacionGridBtnText}>
+                        ARMADO{"\n"}MANUAL
+                      </Text>
+                    </Pressable>
+
+                    <Pressable
+                      onPress={() => {
+                        setCreacionOpen(false);
+                        handleCreateBracketPress();
+                      }}
+                      style={({ pressed }) => [
+                        styles.creacionGridBtn,
+                        pressed ? styles.creacionGridBtnPressed : null,
+                      ]}
+                    >
+                      <Ionicons
+                        color={colors.primaryDark}
+                        name="git-branch-outline"
+                        size={20}
+                      />
+                      <Text style={styles.creacionGridBtnText}>
+                        CREAR{"\n"}LLAVES
+                      </Text>
+                    </Pressable>
+                  </View>
+                ) : null}
+              </View>
+            ) : null}
 
             {canEditFixture && activeSection === "configuration" ? (
               <View style={styles.card}>
@@ -14313,6 +14349,70 @@ const styles = StyleSheet.create({
     borderColor: colors.primary,
   },
   newZoneModeButtonTextActive: {
+    color: colors.surface,
+  },
+  creacionAccordion: {
+    borderColor: colors.border,
+    borderRadius: 18,
+    borderWidth: 1,
+    marginBottom: spacing.sm,
+    overflow: "hidden",
+  },
+  creacionAccordionHeader: {
+    alignItems: "center",
+    backgroundColor: colors.secondary,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  creacionAccordionHeaderPressed: {
+    backgroundColor: colors.border,
+  },
+  creacionAccordionTitle: {
+    color: colors.primaryDark,
+    fontSize: 12,
+    fontWeight: "900",
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
+  },
+  creacionGrid: {
+    backgroundColor: colors.surface,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.xs,
+    padding: spacing.sm,
+  },
+  creacionGridBtn: {
+    alignItems: "center",
+    backgroundColor: colors.surfaceAlt,
+    borderColor: colors.border,
+    borderRadius: 14,
+    borderWidth: 1,
+    flexBasis: "47%",
+    flexGrow: 1,
+    gap: 6,
+    justifyContent: "center",
+    minHeight: 72,
+    paddingHorizontal: spacing.xs,
+    paddingVertical: spacing.sm,
+  },
+  creacionGridBtnActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  creacionGridBtnPressed: {
+    opacity: 0.75,
+  },
+  creacionGridBtnText: {
+    color: colors.primaryDark,
+    fontSize: 11,
+    fontWeight: "900",
+    lineHeight: 14,
+    textAlign: "center",
+    textTransform: "uppercase",
+  },
+  creacionGridBtnTextActive: {
     color: colors.surface,
   },
   actionsRow: {
