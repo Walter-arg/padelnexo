@@ -4897,7 +4897,8 @@ export default function TournamentFixtureScreen({ navigation, route }) {
   const [selectedMatchDuration, setSelectedMatchDuration] = useState(
     formatMatchDurationValue(ZONE_MATCH_DURATION_MINUTES)
   );
-  const [expandedFormatSection, setExpandedFormatSection] = useState("zones");
+  const [expandedZoneFormat, setExpandedZoneFormat] = useState(true);
+  const [expandedBracketFormat, setExpandedBracketFormat] = useState(false);
   const [expandedVenueScheduleIds, setExpandedVenueScheduleIds] = useState([]);
   const [zoneVenueSchedules, setZoneVenueSchedules] = useState([]);
   const [zoneMatchPickerState, setZoneMatchPickerState] = useState({
@@ -5582,6 +5583,30 @@ export default function TournamentFixtureScreen({ navigation, route }) {
     selectedRapidModePoints,
     selectedZoneMatchFormat,
     selectedZoneSuperTieBreakPoints,
+  ]);
+
+  const configAutoSaveRef = useRef(null);
+  useEffect(() => {
+    if (!configurationHasUnsavedChanges) return;
+    clearTimeout(configAutoSaveRef.current);
+    configAutoSaveRef.current = setTimeout(() => {
+      saveFixtureSetup({ savingKey: "configuration", configurationStatus: "configured" }, "");
+    }, 800);
+    return () => clearTimeout(configAutoSaveRef.current);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    configurationHasUnsavedChanges,
+    selectedZoneMatchFormat,
+    selectedBracketMatchFormat,
+    selectedZoneSuperTieBreakPoints,
+    selectedBracketSuperTieBreakPoints,
+    selectedBracketFinalOverride,
+    selectedRapidMode,
+    selectedRapidModePoints,
+    selectedMatchDuration,
+    selectedMode,
+    selectedPathType,
+    selectedManualBracketMode,
   ]);
 
   useEffect(() => {
@@ -10878,7 +10903,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                       activeSection === "configuration" ? styles.actionButtonTextActive : null,
                     ]}
                   >
-                    CONFIGURAR
+                    PREFERENCIAS
                   </Text>
                 </Pressable>
               ) : null}
@@ -10955,9 +10980,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                     ]}
                   >
                     <Pressable
-                      onPress={() =>
-                        setExpandedFormatSection((current) => (current === "zones" ? "" : "zones"))
-                      }
+                      onPress={() => setExpandedZoneFormat((v) => !v)}
                       style={styles.formatSectionHeader}
                     >
                       <View style={styles.formatSectionHeaderCopy}>
@@ -10980,15 +11003,11 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                       </View>
                       <Ionicons
                         color={selectedRapidMode === "single_set" ? "#9AA6B2" : colors.primaryDark}
-                        name={
-                          expandedFormatSection === "zones"
-                            ? "chevron-up-circle"
-                            : "chevron-down-circle"
-                        }
+                        name={expandedZoneFormat ? "chevron-up-circle" : "chevron-down-circle"}
                         size={20}
                       />
                     </Pressable>
-                    {expandedFormatSection === "zones" ? (
+                    {expandedZoneFormat ? (
                       <View style={styles.formatSectionBody}>
                         <View style={styles.selectionList}>
                           <Pressable
@@ -11110,9 +11129,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                     ]}
                   >
                     <Pressable
-                      onPress={() =>
-                        setExpandedFormatSection((current) => (current === "bracket" ? "" : "bracket"))
-                      }
+                      onPress={() => setExpandedBracketFormat((v) => !v)}
                       style={styles.formatSectionHeader}
                     >
                       <View style={styles.formatSectionHeaderCopy}>
@@ -11135,15 +11152,11 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                       </View>
                       <Ionicons
                         color={selectedRapidMode === "single_set" ? "#9AA6B2" : colors.primaryDark}
-                        name={
-                          expandedFormatSection === "bracket"
-                            ? "chevron-up-circle"
-                            : "chevron-down-circle"
-                        }
+                        name={expandedBracketFormat ? "chevron-up-circle" : "chevron-down-circle"}
                         size={20}
                       />
                     </Pressable>
-                    {expandedFormatSection === "bracket" ? (
+                    {expandedBracketFormat ? (
                       <View style={styles.formatSectionBody}>
                         <View style={styles.selectionList}>
                           <Pressable
@@ -11339,26 +11352,6 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                   </View>
                 </View>
 
-                {configurationHasUnsavedChanges ? (
-                  <Text style={styles.unsavedChangesText}>
-                    Hay cambios sin guardar en la configuracion.
-                  </Text>
-                ) : null}
-
-                <View style={styles.primaryButtonWrap}>
-                  <Pressable
-                    onPress={handleCreateConfiguration}
-                    style={({ pressed }) => [
-                      styles.configSaveButton,
-                      pressed ? styles.primaryButtonPressed : null,
-                    ]}
-                  >
-                    <Ionicons color={colors.primaryDark} name="construct-outline" size={15} />
-                    <Text style={styles.configSaveButtonText}>
-                      {savingKey === "configuration" ? "GUARDANDO..." : "GUARDAR CONFIGURACION"}
-                    </Text>
-                    </Pressable>
-                  </View>
               </View>
             ) : null}
 
