@@ -10921,8 +10921,8 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                 .join(":")}
             />
 
-            <View style={styles.actionsRow}>
-              {canEditFixture ? (
+            {canEditFixture ? (
+              <View style={styles.actionsRow}>
                 <Pressable
                   onPress={() => handleChangeActiveSection("configuration")}
                   style={({ pressed }) => [
@@ -10946,8 +10946,10 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                     PREFERENCIAS
                   </Text>
                 </Pressable>
-              ) : null}
+              </View>
+            ) : null}
 
+            <View style={styles.actionsRow}>
               <Pressable
                 onPress={() => handleChangeActiveSection("newzones")}
                 style={({ pressed }) => [
@@ -10968,32 +10970,24 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                     activeSection === "newzones" ? styles.actionButtonTextActive : null,
                   ]}
                 >
-                  {canEditFixture ? "NUEVAS ZONAS" : "ZONAS"}
+                  ZONAS
                 </Text>
               </Pressable>
 
               <Pressable
-                disabled={bracketOpening}
-                onPress={handlePressBracketSection}
+                onPress={() => handleChangeActiveSection("bracket")}
                 style={({ pressed }) => [
                   styles.actionButton,
                   activeSection === "bracket" ? styles.actionButtonActive : null,
                   pressed ? styles.actionButtonPressed : null,
                 ]}
               >
-                {bracketOpening ? (
-                  <ActivityIndicator
-                    color={activeSection === "bracket" ? colors.surface : colors.primaryDark}
-                    size="small"
-                  />
-                ) : (
-                  <Ionicons
-                    color={activeSection === "bracket" ? colors.surface : colors.primaryDark}
-                    name="git-branch-outline"
-                    size={18}
-                    style={styles.bracketActionIcon}
-                  />
-                )}
+                <Ionicons
+                  color={activeSection === "bracket" ? colors.surface : colors.primaryDark}
+                  name="git-branch-outline"
+                  size={18}
+                  style={styles.bracketActionIcon}
+                />
                 <Text
                   style={[
                     styles.actionButtonText,
@@ -11004,6 +10998,40 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                 </Text>
               </Pressable>
             </View>
+
+            {activeSection === "newzones" && canEditFixture ? (
+              <View style={styles.configurationActionsRow}>
+                <Pressable
+                  onPress={handleCreateNewAutoZonesPress}
+                  style={({ pressed }) => [
+                    styles.secondaryActionButton,
+                    styles.newZoneModeButton,
+                    pressed ? styles.primaryButtonPressed : null,
+                  ]}
+                >
+                  <Text style={[styles.secondaryActionButtonText, styles.newZoneModeButtonText]}>
+                    {savingKey === "zones" ? "CREANDO..." : "ARMADO\nAUTOMATICO"}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  onPress={() =>
+                    navigation.navigate("TournamentZonePlanning", {
+                      tournamentId: tournament.id,
+                      tournamentName: tournament.name || "Torneo",
+                    })
+                  }
+                  style={({ pressed }) => [
+                    styles.secondaryActionButton,
+                    styles.newZoneModeButton,
+                    pressed ? styles.primaryButtonPressed : null,
+                  ]}
+                >
+                  <Text style={[styles.secondaryActionButtonText, styles.newZoneModeButtonText]}>
+                    ARMADO{"\n"}MANUAL
+                  </Text>
+                </Pressable>
+              </View>
+            ) : null}
 
             {canEditFixture && activeSection === "configuration" ? (
               <View style={styles.card}>
@@ -11702,39 +11730,6 @@ export default function TournamentFixtureScreen({ navigation, route }) {
 
             {activeSection === "newzones" ? (
               <View style={styles.newZonesSection}>
-                {canEditFixture ? (
-                  <View style={styles.configurationActionsRow}>
-                    <Pressable
-                      onPress={handleCreateNewAutoZonesPress}
-                      style={({ pressed }) => [
-                        styles.secondaryActionButton,
-                        styles.newZoneModeButton,
-                        pressed ? styles.primaryButtonPressed : null,
-                      ]}
-                    >
-                      <Text style={[styles.secondaryActionButtonText, styles.newZoneModeButtonText]}>
-                        {savingKey === "zones" ? "CREANDO..." : "ARMADO\nAUTOMATICO"}
-                      </Text>
-                    </Pressable>
-                    <Pressable
-                      onPress={() =>
-                        navigation.navigate("TournamentZonePlanning", {
-                          tournamentId: tournament.id,
-                          tournamentName: tournament.name || "Torneo",
-                        })
-                      }
-                      style={({ pressed }) => [
-                        styles.secondaryActionButton,
-                        styles.newZoneModeButton,
-                        pressed ? styles.primaryButtonPressed : null,
-                      ]}
-                    >
-                      <Text style={[styles.secondaryActionButtonText, styles.newZoneModeButtonText]}>
-                        ARMADO{"\n"}MANUAL
-                      </Text>
-                    </Pressable>
-                  </View>
-                ) : null}
                 {hasZonePlanningUnsavedChanges ? (
                   <Text style={styles.unsavedChangesText}>
                     Hay cambios sin guardar en Nuevas zonas.
