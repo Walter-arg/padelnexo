@@ -11046,6 +11046,9 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                       </Pressable>
                     );
                   })}
+                  <Text style={styles.ruleSetDescription}>
+                    {TOURNAMENT_RULESET_OPTIONS.find((o) => o.value === selectedRuleSet)?.description}
+                  </Text>
                 </View>
 
                 <View style={styles.formatAccordionStack}>
@@ -16723,6 +16726,14 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "600",
     marginTop: 2,
+    textAlign: "center",
+  },
+  ruleSetDescription: {
+    color: "#1E88C8",
+    fontSize: 12,
+    fontWeight: "600",
+    lineHeight: 18,
+    marginTop: spacing.sm,
     textAlign: "center",
   },
   maxPairsOverlay: {
