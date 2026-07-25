@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  Alert,
   Image,
   KeyboardAvoidingView,
   Linking,
@@ -319,6 +318,7 @@ export default function TournamentRegistrationPanel({
   const confirmedListRef = useRef(null);
   const [activePairForAvailability, setActivePairForAvailability] = useState(null);
   const [expandedPairPaymentIndex, setExpandedPairPaymentIndex] = useState(null);
+  const [maxPairsConfirm, setMaxPairsConfirm] = useState(null);
   const [guestModalVisible, setGuestModalVisible] = useState(false);
   const [guestTarget, setGuestTarget] = useState("player1");
   const [guestName, setGuestName] = useState("");
@@ -1157,14 +1157,12 @@ export default function TournamentRegistrationPanel({
           const activeCount = registrations.filter((r) => r.status !== "rejected").length;
           if (activeCount + pendingPairs.length > maxPairs) {
             const exceso = activeCount + pendingPairs.length - maxPairs;
-            Alert.alert(
-              "Límite de parejas alcanzado",
-              `El torneo tiene un límite de ${maxPairs} parejas. Hay ${activeCount} inscriptas y estás agregando ${pendingPairs.length}${exceso > 0 ? `, superando el límite en ${exceso}` : ""}. ¿Querés agregarlas igual?`,
-              [
-                { text: "Cancelar", style: "cancel" },
-                { text: "Agregar igual", onPress: () => handleSubmitRegistration(true) },
-              ]
-            );
+            setMaxPairsConfirm({
+              maxPairs,
+              activeCount,
+              adding: pendingPairs.length,
+              exceso,
+            });
             return;
           }
         }
@@ -2319,6 +2317,45 @@ export default function TournamentRegistrationPanel({
           </View>
         </KeyboardAvoidingView>
       </Modal>
+
+      <Modal
+        animationType="fade"
+        onRequestClose={() => setMaxPairsConfirm(null)}
+        transparent
+        visible={Boolean(maxPairsConfirm)}
+      >
+        <View style={styles.maxPairsOverlay}>
+          <Pressable onPress={() => setMaxPairsConfirm(null)} style={styles.maxPairsBackdrop} />
+          <View style={styles.maxPairsCard}>
+            <View style={styles.maxPairsIcon}>
+              <Text style={styles.maxPairsIconText}>!</Text>
+            </View>
+            <Text style={styles.maxPairsTitle}>Límite de parejas alcanzado</Text>
+            <Text style={styles.maxPairsMessage}>
+              {`El torneo tiene un límite de `}
+              <Text style={styles.maxPairsBold}>{maxPairsConfirm?.maxPairs} parejas</Text>
+              {`. Hay ${maxPairsConfirm?.activeCount} inscriptas y estás agregando ${maxPairsConfirm?.adding}${maxPairsConfirm?.exceso > 0 ? `, superando el límite en ${maxPairsConfirm.exceso}` : ""}.\n\n¿Querés agregarlas igual?`}
+            </Text>
+            <View style={styles.maxPairsActions}>
+              <Pressable
+                onPress={() => setMaxPairsConfirm(null)}
+                style={({ pressed }) => [styles.maxPairsBtnSecondary, pressed && styles.maxPairsBtnPressed]}
+              >
+                <Text style={styles.maxPairsBtnSecondaryText}>Cancelar</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  setMaxPairsConfirm(null);
+                  handleSubmitRegistration(true);
+                }}
+                style={({ pressed }) => [styles.maxPairsBtnPrimary, pressed && styles.maxPairsBtnPressed]}
+              >
+                <Text style={styles.maxPairsBtnPrimaryText}>Agregar igual</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -3414,5 +3451,93 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 13,
     fontWeight: "800",
+  },
+  maxPairsOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: spacing.lg,
+  },
+  maxPairsBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: colors.overlay,
+  },
+  maxPairsCard: {
+    backgroundColor: colors.surface,
+    borderColor: "#F2C94C",
+    borderRadius: 24,
+    borderWidth: 2,
+    padding: spacing.lg,
+    width: "100%",
+  },
+  maxPairsIcon: {
+    alignItems: "center",
+    alignSelf: "center",
+    backgroundColor: "#FFD84D",
+    borderColor: "#E0A400",
+    borderRadius: 999,
+    borderWidth: 2,
+    height: 58,
+    justifyContent: "center",
+    marginBottom: spacing.sm,
+    width: 58,
+  },
+  maxPairsIconText: {
+    color: "#7A4300",
+    fontSize: 34,
+    fontWeight: "900",
+    lineHeight: 38,
+  },
+  maxPairsTitle: {
+    color: colors.text,
+    fontSize: 20,
+    fontWeight: "800",
+    textAlign: "center",
+  },
+  maxPairsMessage: {
+    color: colors.muted,
+    fontSize: 14,
+    lineHeight: 21,
+    marginTop: spacing.sm,
+    textAlign: "center",
+  },
+  maxPairsBold: {
+    color: colors.text,
+    fontWeight: "900",
+  },
+  maxPairsActions: {
+    flexDirection: "row",
+    gap: spacing.sm,
+    marginTop: spacing.lg,
+  },
+  maxPairsBtnSecondary: {
+    alignItems: "center",
+    borderColor: colors.border,
+    borderRadius: 14,
+    borderWidth: 1,
+    flex: 1,
+    justifyContent: "center",
+    minHeight: 44,
+  },
+  maxPairsBtnSecondaryText: {
+    color: colors.muted,
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  maxPairsBtnPrimary: {
+    alignItems: "center",
+    backgroundColor: "#D99000",
+    borderRadius: 14,
+    flex: 1,
+    justifyContent: "center",
+    minHeight: 44,
+  },
+  maxPairsBtnPrimaryText: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "800",
+  },
+  maxPairsBtnPressed: {
+    opacity: 0.85,
   },
 });
