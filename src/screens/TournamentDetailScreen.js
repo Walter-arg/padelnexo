@@ -59,7 +59,7 @@ const TAB_LABELS = {
 
 const TAB_ICONS = {
   registration: "clipboard-outline",
-  fixture: "grid-outline",
+  fixture: "calendar-outline",
   payments: "card-outline",
   management: "settings-outline",
 };
