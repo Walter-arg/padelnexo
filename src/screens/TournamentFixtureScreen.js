@@ -89,6 +89,21 @@ const BRACKET_FINAL_OVERRIDE_OPTIONS = [
   },
 ];
 
+const TOURNAMENT_RULESET_OPTIONS = [
+  {
+    label: "TORNEO FAP",
+    value: "fap",
+    subtitle: "Federacion Argentina de Padel",
+    description: "3 clasificados por zona de 4. Modalidad mas extensa.",
+  },
+  {
+    label: "TORNEO APA",
+    value: "apa",
+    subtitle: "Asociacion Padel Argentina",
+    description: "2 clasificados por zona de 4. Modalidad mas corta.",
+  },
+];
+
 const BRACKET_HEADER_HEIGHT = 34;
 const BRACKET_CARD_WIDTH = 258;
 const BRACKET_CARD_HEIGHT = 150;
@@ -4873,9 +4888,10 @@ export default function TournamentFixtureScreen({ navigation, route }) {
   const canEditFixture = isOrganizer;
 
   const fixtureSetup = tournament?.fixtureSetup || {};
-  const tournamentRuleSet = String(tournament?.tournamentRuleSet || tournament?.ruleSet || "fap")
-    .trim()
-    .toLowerCase();
+  const [selectedRuleSet, setSelectedRuleSet] = useState(() =>
+    String(tournament?.tournamentRuleSet || tournament?.ruleSet || "fap").trim().toLowerCase()
+  );
+  const tournamentRuleSet = selectedRuleSet;
   const playerFixtureLastViewedSections = useMemo(
     () => userData?.tournamentFixtureLastViewedSections || {},
     [userData?.tournamentFixtureLastViewedSections]
@@ -4899,6 +4915,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
   );
   const [expandedZoneFormat, setExpandedZoneFormat] = useState(true);
   const [expandedBracketFormat, setExpandedBracketFormat] = useState(false);
+  const [noScheduleConfirm, setNoScheduleConfirm] = useState(false);
   const [expandedVenueScheduleIds, setExpandedVenueScheduleIds] = useState([]);
   const [zoneVenueSchedules, setZoneVenueSchedules] = useState([]);
   const [zoneMatchPickerState, setZoneMatchPickerState] = useState({
@@ -5608,6 +5625,22 @@ export default function TournamentFixtureScreen({ navigation, route }) {
     selectedPathType,
     selectedManualBracketMode,
   ]);
+
+  useEffect(() => {
+    setSelectedRuleSet(
+      String(tournament?.tournamentRuleSet || tournament?.ruleSet || "fap").trim().toLowerCase()
+    );
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tournament?.id]);
+
+  useEffect(() => {
+    const savedRuleSet = String(tournament?.tournamentRuleSet || tournament?.ruleSet || "fap")
+      .trim()
+      .toLowerCase();
+    if (selectedRuleSet === savedRuleSet || !tournament?.id) return;
+    updateTournament(tournament.id, currentOrganizer, { tournamentRuleSet: selectedRuleSet }, tournament);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedRuleSet]);
 
   useEffect(() => {
     const preferredSection = canEditFixture
@@ -7096,9 +7129,11 @@ export default function TournamentFixtureScreen({ navigation, route }) {
       pendingFixtureSetupRef.current = nextFixtureSetup;
       setZonePlanningDraft(null);
       setActiveSection("newzones");
+      const ruleSetLabel =
+        selectedRuleSet === "apa" ? "Torneo APA" : "Torneo FAP";
       setFeedback({
         visible: true,
-        title: "Zonas automaticas creadas",
+        title: `Zonas creadas · ${ruleSetLabel}`,
         message: "Las zonas automaticas ya quedaron reflejadas en Nuevas zonas.",
         tone: "success",
       });
@@ -7114,7 +7149,12 @@ export default function TournamentFixtureScreen({ navigation, route }) {
     }
   };
 
-  const handleCreateNewAutoZonesPress = () => {
+  const handleCreateNewAutoZonesPress = (bypassNoSchedule = false) => {
+    if (!bypassNoSchedule && zoneVenueSchedules.length === 0) {
+      setNoScheduleConfirm(true);
+      return;
+    }
+
     if (!newZonePlanningZones.length) {
       handleCreateNewAutoZones();
       return;
@@ -10972,6 +11012,42 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                   <Text style={styles.summaryValue}>{confirmedPairCount}</Text>
                 </View>
 
+                <View style={styles.configurationModeCard}>
+                  <Text style={styles.configurationModeTitle}>TIPO DE TORNEO</Text>
+                  {TOURNAMENT_RULESET_OPTIONS.map((option) => {
+                    const isActive = selectedRuleSet === option.value;
+                    return (
+                      <Pressable
+                        key={option.value}
+                        onPress={() => setSelectedRuleSet(option.value)}
+                        style={[
+                          styles.selectionRow,
+                          isActive ? styles.selectionRowActive : null,
+                        ]}
+                      >
+                        <View style={styles.selectionRowIconWrap}>
+                          {isActive ? (
+                            <Ionicons color={colors.primaryDark} name="checkmark-circle" size={16} />
+                          ) : (
+                            <Ionicons color="#B7C0CB" name="ellipse-outline" size={16} />
+                          )}
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text
+                            style={[
+                              styles.selectionRowText,
+                              isActive ? styles.selectionRowTextActive : null,
+                            ]}
+                          >
+                            {option.label}
+                          </Text>
+                          <Text style={styles.formatSectionSummary}>{option.subtitle}</Text>
+                        </View>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+
                 <View style={styles.formatAccordionStack}>
                   <View
                     style={[
@@ -12487,6 +12563,39 @@ export default function TournamentFixtureScreen({ navigation, route }) {
           </View>
         )}
       </View>
+
+      <Modal animationType="fade" transparent visible={noScheduleConfirm}>
+        <View style={styles.maxPairsOverlay}>
+          <Pressable onPress={() => setNoScheduleConfirm(false)} style={styles.maxPairsBackdrop} />
+          <View style={styles.maxPairsCard}>
+            <View style={styles.maxPairsIcon}>
+              <Text style={styles.maxPairsIconText}>!</Text>
+            </View>
+            <Text style={styles.maxPairsTitle}>Sin franjas horarias</Text>
+            <Text style={styles.maxPairsMessage}>
+              No se agregaron franjas horarias en Preferencias. Las zonas se crearan sin horarios
+              asignados. ¿Desea continuar igual?
+            </Text>
+            <View style={styles.maxPairsActions}>
+              <Pressable
+                onPress={() => setNoScheduleConfirm(false)}
+                style={({ pressed }) => [styles.maxPairsBtnSecondary, pressed && styles.maxPairsBtnPressed]}
+              >
+                <Text style={styles.maxPairsBtnSecondaryText}>Cancelar</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  setNoScheduleConfirm(false);
+                  handleCreateNewAutoZonesPress(true);
+                }}
+                style={({ pressed }) => [styles.maxPairsBtnPrimary, pressed && styles.maxPairsBtnPressed]}
+              >
+                <Text style={styles.maxPairsBtnPrimaryText}>Continuar igual</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       <Modal
         animationType="fade"
@@ -16615,5 +16724,89 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     marginTop: 2,
     textAlign: "center",
+  },
+  maxPairsOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: spacing.lg,
+  },
+  maxPairsBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: colors.overlay,
+  },
+  maxPairsCard: {
+    backgroundColor: colors.surface,
+    borderColor: "#F2C94C",
+    borderRadius: 24,
+    borderWidth: 2,
+    padding: spacing.lg,
+    width: "100%",
+  },
+  maxPairsIcon: {
+    alignItems: "center",
+    alignSelf: "center",
+    backgroundColor: "#FFD84D",
+    borderColor: "#E0A400",
+    borderRadius: 999,
+    borderWidth: 2,
+    height: 58,
+    justifyContent: "center",
+    marginBottom: spacing.sm,
+    width: 58,
+  },
+  maxPairsIconText: {
+    color: "#7A4300",
+    fontSize: 34,
+    fontWeight: "900",
+    lineHeight: 38,
+  },
+  maxPairsTitle: {
+    color: colors.text,
+    fontSize: 20,
+    fontWeight: "800",
+    textAlign: "center",
+  },
+  maxPairsMessage: {
+    color: colors.muted,
+    fontSize: 14,
+    lineHeight: 21,
+    marginTop: spacing.sm,
+    textAlign: "center",
+  },
+  maxPairsActions: {
+    flexDirection: "row",
+    gap: spacing.sm,
+    marginTop: spacing.lg,
+  },
+  maxPairsBtnSecondary: {
+    alignItems: "center",
+    borderColor: colors.border,
+    borderRadius: 14,
+    borderWidth: 1,
+    flex: 1,
+    justifyContent: "center",
+    minHeight: 44,
+  },
+  maxPairsBtnSecondaryText: {
+    color: colors.muted,
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  maxPairsBtnPrimary: {
+    alignItems: "center",
+    backgroundColor: "#D99000",
+    borderRadius: 14,
+    flex: 1,
+    justifyContent: "center",
+    minHeight: 44,
+  },
+  maxPairsBtnPrimaryText: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "800",
+  },
+  maxPairsBtnPressed: {
+    opacity: 0.85,
   },
 });

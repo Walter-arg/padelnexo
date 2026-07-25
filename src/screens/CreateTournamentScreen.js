@@ -1229,49 +1229,6 @@ export default function CreateTournamentScreen({ navigation, route }) {
         </View>
 
         <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>TIPO DE TORNEO</Text>
-          <View style={styles.confirmationList}>
-            {TOURNAMENT_RULESET_OPTIONS.map((option) => {
-              const isActive = form.tournamentRuleSet === option.value;
-
-              return (
-                <Pressable
-                  key={option.value}
-                  onPress={() => updateField("tournamentRuleSet", option.value)}
-                  style={[
-                    styles.confirmationOption,
-                    styles.ruleSetOption,
-                    isActive && styles.confirmationOptionActive,
-                  ]}
-                >
-                  <View
-                    style={[
-                      styles.confirmationBullet,
-                      isActive && styles.confirmationBulletActive,
-                    ]}
-                  />
-                  <View style={styles.ruleSetCopy}>
-                    <Text
-                      style={[
-                        styles.confirmationOptionText,
-                        isActive && styles.confirmationOptionTextActive,
-                      ]}
-                    >
-                      {option.label}
-                    </Text>
-                    <Text style={styles.ruleSetSubtitle}>{option.subtitle}</Text>
-                    <Text style={styles.ruleSetDescription}>{option.description}</Text>
-                  </View>
-                </Pressable>
-              );
-            })}
-          </View>
-          <Text style={styles.confirmationDescription}>
-            {getTournamentRuleSetOptionMeta(form.tournamentRuleSet).description}
-          </Text>
-        </View>
-
-        <View style={styles.sectionCard}>
           <Text style={styles.sectionTitle}>MODO DE ARMADO</Text>
           <View style={styles.confirmationList}>
             {CREATION_MODE_OPTIONS.map((option) => {
