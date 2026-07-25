@@ -94,13 +94,13 @@ const TOURNAMENT_RULESET_OPTIONS = [
     label: "TORNEO FAP",
     value: "fap",
     subtitle: "Federacion Argentina de Padel",
-    description: "3 clasificados por zona de 4. Modalidad mas extensa.",
+    description: "Modalidad mas extensa.",
   },
   {
     label: "TORNEO APA",
     value: "apa",
     subtitle: "Asociacion Padel Argentina",
-    description: "2 clasificados por zona de 4. Modalidad mas corta.",
+    description: "Modalidad mas corta.",
   },
 ];
 
