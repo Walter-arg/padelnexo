@@ -7676,6 +7676,64 @@ export default function TournamentFixtureScreen({ navigation, route }) {
     nextAction?.();
   };
 
+  const handleDeleteZones = () => {
+    setConfirmFixtureAction({
+      title: "Eliminar zonas",
+      message:
+        "Se eliminaran las zonas y las llaves creadas. La configuracion y las sedes se mantienen. Esta accion no se puede deshacer.",
+      confirmLabel: "Eliminar",
+      onConfirm: async () => {
+        await saveFixtureSetup(
+          {
+            savingKey: "zones",
+            zonesPreview: [],
+            zonesStatus: "pending",
+            zonePlanning: null,
+            bracketPreview: null,
+            bracketStatus: "pending",
+            bracketSaveGeneration: 0,
+          },
+          "Las zonas y las llaves fueron eliminadas."
+        );
+        await updateTournament(
+          tournament.id,
+          currentOrganizer,
+          { zonePlanning: null },
+          tournament
+        );
+      },
+    });
+  };
+
+  const handleDeleteFixture = () => {
+    setConfirmFixtureAction({
+      title: "Eliminar fixture",
+      message:
+        "Se eliminara toda la configuracion del fixture, incluyendo zonas, llaves y preferencias. Esta accion no se puede deshacer.",
+      confirmLabel: "Eliminar todo",
+      onConfirm: async () => {
+        try {
+          setSavingKey("configuration");
+          await updateTournament(
+            tournament.id,
+            currentOrganizer,
+            { fixtureSetup: {}, zonePlanning: null },
+            tournament
+          );
+          await loadScreen();
+          setFeedback({
+            visible: true,
+            title: "Fixture eliminado",
+            message: "El fixture fue reiniciado por completo.",
+            tone: "success",
+          });
+        } finally {
+          setSavingKey("");
+        }
+      },
+    });
+  };
+
   const handleToggleBracketWinner = (roundId, matchId, winnerKey) => {
     const baseBracketPreview = workingBracketPreviewRef.current || currentBracketPreview || {};
     const nextBracketPreview = applyBracketProgressions({
@@ -11725,6 +11783,34 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                   )}
                 </View>
 
+              </View>
+            ) : null}
+
+            {canEditFixture && activeSection === "configuration" && (hasCreatedZones || hasCreatedBracket) ? (
+              <View style={styles.dangerZoneCard}>
+                <Text style={styles.dangerZoneTitle}>ZONA DE PELIGRO</Text>
+                {hasCreatedZones || hasCreatedBracket ? (
+                  <Pressable
+                    onPress={handleDeleteZones}
+                    style={({ pressed }) => [
+                      styles.dangerButton,
+                      pressed ? styles.dangerButtonPressed : null,
+                    ]}
+                  >
+                    <Ionicons color={colors.danger} name="layers-outline" size={16} />
+                    <Text style={styles.dangerButtonText}>Eliminar zonas y llaves</Text>
+                  </Pressable>
+                ) : null}
+                <Pressable
+                  onPress={handleDeleteFixture}
+                  style={({ pressed }) => [
+                    styles.dangerButton,
+                    pressed ? styles.dangerButtonPressed : null,
+                  ]}
+                >
+                  <Ionicons color={colors.danger} name="trash-outline" size={16} />
+                  <Text style={styles.dangerButtonText}>Eliminar fixture completo</Text>
+                </Pressable>
               </View>
             ) : null}
 
@@ -16730,6 +16816,41 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     marginTop: spacing.sm,
     textAlign: "center",
+  },
+  dangerZoneCard: {
+    backgroundColor: colors.surface,
+    borderColor: colors.danger,
+    borderRadius: 16,
+    borderWidth: 1,
+    gap: spacing.sm,
+    opacity: 0.85,
+    padding: spacing.md,
+  },
+  dangerZoneTitle: {
+    color: colors.danger,
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 1,
+    marginBottom: 2,
+  },
+  dangerButton: {
+    alignItems: "center",
+    borderColor: colors.danger,
+    borderRadius: 12,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: spacing.xs,
+    justifyContent: "center",
+    minHeight: 40,
+    paddingHorizontal: spacing.md,
+  },
+  dangerButtonText: {
+    color: colors.danger,
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  dangerButtonPressed: {
+    opacity: 0.6,
   },
   maxPairsOverlay: {
     ...StyleSheet.absoluteFillObject,
