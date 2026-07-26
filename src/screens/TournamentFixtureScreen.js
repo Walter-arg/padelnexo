@@ -4916,6 +4916,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
   const [expandedZoneFormat, setExpandedZoneFormat] = useState(true);
   const [expandedBracketFormat, setExpandedBracketFormat] = useState(false);
   const [noScheduleConfirm, setNoScheduleConfirm] = useState(false);
+  const [deleteModal, setDeleteModal] = useState({ visible: false, zones: false, bracket: false });
   const [expandedVenueScheduleIds, setExpandedVenueScheduleIds] = useState([]);
   const [zoneVenueSchedules, setZoneVenueSchedules] = useState([]);
   const [zoneMatchPickerState, setZoneMatchPickerState] = useState({
@@ -7676,62 +7677,30 @@ export default function TournamentFixtureScreen({ navigation, route }) {
     nextAction?.();
   };
 
-  const handleDeleteZones = () => {
-    setConfirmFixtureAction({
-      title: "Eliminar zonas",
-      message:
-        "Se eliminaran las zonas y las llaves creadas. La configuracion y las sedes se mantienen. Esta accion no se puede deshacer.",
-      confirmLabel: "Eliminar",
-      onConfirm: async () => {
-        await saveFixtureSetup(
-          {
-            savingKey: "zones",
-            zonesPreview: [],
-            zonesStatus: "pending",
-            zonePlanning: null,
-            bracketPreview: null,
-            bracketStatus: "pending",
-            bracketSaveGeneration: 0,
-          },
-          "Las zonas y las llaves fueron eliminadas."
-        );
-        await updateTournament(
-          tournament.id,
-          currentOrganizer,
-          { zonePlanning: null },
-          tournament
-        );
-      },
-    });
-  };
-
-  const handleDeleteFixture = () => {
-    setConfirmFixtureAction({
-      title: "Eliminar fixture",
-      message:
-        "Se eliminara toda la configuracion del fixture, incluyendo zonas, llaves y preferencias. Esta accion no se puede deshacer.",
-      confirmLabel: "Eliminar todo",
-      onConfirm: async () => {
-        try {
-          setSavingKey("configuration");
-          await updateTournament(
-            tournament.id,
-            currentOrganizer,
-            { fixtureSetup: {}, zonePlanning: null },
-            tournament
-          );
-          await loadScreen();
-          setFeedback({
-            visible: true,
-            title: "Fixture eliminado",
-            message: "El fixture fue reiniciado por completo.",
-            tone: "success",
-          });
-        } finally {
-          setSavingKey("");
-        }
-      },
-    });
+  const handleConfirmDeleteSelection = async () => {
+    const { zones, bracket } = deleteModal;
+    setDeleteModal({ visible: false, zones: false, bracket: false });
+    const partial = {};
+    if (zones) {
+      partial.zonesPreview = [];
+      partial.zonesStatus = "pending";
+      partial.zonePlanning = null;
+    }
+    if (bracket) {
+      partial.bracketPreview = null;
+      partial.bracketStatus = "pending";
+      partial.bracketSaveGeneration = 0;
+    }
+    const msg =
+      zones && bracket
+        ? "Zonas y llaves eliminadas."
+        : zones
+        ? "Zonas eliminadas."
+        : "Llaves eliminadas.";
+    await saveFixtureSetup({ savingKey: "zones", ...partial }, msg);
+    if (zones) {
+      await updateTournament(tournament.id, currentOrganizer, { zonePlanning: null }, tournament);
+    }
   };
 
   const handleToggleBracketWinner = (roundId, matchId, winnerKey) => {
@@ -11787,31 +11756,13 @@ export default function TournamentFixtureScreen({ navigation, route }) {
             ) : null}
 
             {canEditFixture && activeSection === "configuration" && (hasCreatedZones || hasCreatedBracket) ? (
-              <View style={styles.dangerZoneCard}>
-                <Text style={styles.dangerZoneTitle}>ZONA DE PELIGRO</Text>
-                {hasCreatedZones || hasCreatedBracket ? (
-                  <Pressable
-                    onPress={handleDeleteZones}
-                    style={({ pressed }) => [
-                      styles.dangerButton,
-                      pressed ? styles.dangerButtonPressed : null,
-                    ]}
-                  >
-                    <Ionicons color={colors.danger} name="layers-outline" size={16} />
-                    <Text style={styles.dangerButtonText}>Eliminar zonas y llaves</Text>
-                  </Pressable>
-                ) : null}
-                <Pressable
-                  onPress={handleDeleteFixture}
-                  style={({ pressed }) => [
-                    styles.dangerButton,
-                    pressed ? styles.dangerButtonPressed : null,
-                  ]}
-                >
-                  <Ionicons color={colors.danger} name="trash-outline" size={16} />
-                  <Text style={styles.dangerButtonText}>Eliminar fixture completo</Text>
-                </Pressable>
-              </View>
+              <Pressable
+                onPress={() => setDeleteModal({ visible: true, zones: false, bracket: false })}
+                style={({ pressed }) => [styles.deleteFixtureButton, pressed && styles.deleteFixtureButtonPressed]}
+              >
+                <Ionicons color={colors.danger} name="trash-outline" size={15} />
+                <Text style={styles.deleteFixtureButtonText}>Eliminar</Text>
+              </Pressable>
             ) : null}
 
             {activeSection === "newzones" ? (
@@ -12647,6 +12598,75 @@ export default function TournamentFixtureScreen({ navigation, route }) {
           </View>
         )}
       </View>
+
+      <Modal animationType="fade" transparent visible={deleteModal.visible}>
+        <View style={styles.maxPairsOverlay}>
+          <Pressable
+            onPress={() => setDeleteModal({ visible: false, zones: false, bracket: false })}
+            style={styles.maxPairsBackdrop}
+          />
+          <View style={styles.deleteModalCard}>
+            <View style={styles.deleteModalIconWrap}>
+              <Ionicons color={colors.danger} name="trash-outline" size={26} />
+            </View>
+            <Text style={styles.deleteModalTitle}>¿Qué querés eliminar?</Text>
+            <Text style={styles.deleteModalSubtitle}>
+              Seleccioná uno o los dos. La configuracion y las sedes se mantienen.
+            </Text>
+            <View style={styles.deleteModalOptions}>
+              {hasCreatedZones ? (
+                <Pressable
+                  onPress={() => setDeleteModal((s) => ({ ...s, zones: !s.zones }))}
+                  style={[styles.deleteModalOption, deleteModal.zones && styles.deleteModalOptionActive]}
+                >
+                  <Ionicons
+                    color={deleteModal.zones ? colors.surface : colors.primaryDark}
+                    name={deleteModal.zones ? "checkmark-circle" : "ellipse-outline"}
+                    size={18}
+                  />
+                  <Text style={[styles.deleteModalOptionText, deleteModal.zones && styles.deleteModalOptionTextActive]}>
+                    Zonas
+                  </Text>
+                </Pressable>
+              ) : null}
+              {hasCreatedBracket ? (
+                <Pressable
+                  onPress={() => setDeleteModal((s) => ({ ...s, bracket: !s.bracket }))}
+                  style={[styles.deleteModalOption, deleteModal.bracket && styles.deleteModalOptionActive]}
+                >
+                  <Ionicons
+                    color={deleteModal.bracket ? colors.surface : colors.primaryDark}
+                    name={deleteModal.bracket ? "checkmark-circle" : "ellipse-outline"}
+                    size={18}
+                  />
+                  <Text style={[styles.deleteModalOptionText, deleteModal.bracket && styles.deleteModalOptionTextActive]}>
+                    Llaves
+                  </Text>
+                </Pressable>
+              ) : null}
+            </View>
+            <View style={styles.maxPairsActions}>
+              <Pressable
+                onPress={() => setDeleteModal({ visible: false, zones: false, bracket: false })}
+                style={({ pressed }) => [styles.maxPairsBtnSecondary, pressed && styles.maxPairsBtnPressed]}
+              >
+                <Text style={styles.maxPairsBtnSecondaryText}>Cancelar</Text>
+              </Pressable>
+              <Pressable
+                disabled={!deleteModal.zones && !deleteModal.bracket}
+                onPress={handleConfirmDeleteSelection}
+                style={({ pressed }) => [
+                  styles.deleteModalConfirmBtn,
+                  (!deleteModal.zones && !deleteModal.bracket) && styles.deleteModalConfirmBtnDisabled,
+                  pressed && styles.maxPairsBtnPressed,
+                ]}
+              >
+                <Text style={styles.deleteModalConfirmBtnText}>Eliminar</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       <Modal animationType="fade" transparent visible={noScheduleConfirm}>
         <View style={styles.maxPairsOverlay}>
@@ -16817,40 +16837,97 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
     textAlign: "center",
   },
-  dangerZoneCard: {
-    backgroundColor: colors.surface,
-    borderColor: colors.danger,
-    borderRadius: 16,
-    borderWidth: 1,
-    gap: spacing.sm,
-    opacity: 0.85,
-    padding: spacing.md,
-  },
-  dangerZoneTitle: {
-    color: colors.danger,
-    fontSize: 10,
-    fontWeight: "800",
-    letterSpacing: 1,
-    marginBottom: 2,
-  },
-  dangerButton: {
+  deleteFixtureButton: {
     alignItems: "center",
-    borderColor: colors.danger,
-    borderRadius: 12,
-    borderWidth: 1,
+    alignSelf: "center",
     flexDirection: "row",
     gap: spacing.xs,
-    justifyContent: "center",
-    minHeight: 40,
-    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
   },
-  dangerButtonText: {
+  deleteFixtureButtonText: {
     color: colors.danger,
     fontSize: 13,
     fontWeight: "700",
   },
-  dangerButtonPressed: {
-    opacity: 0.6,
+  deleteFixtureButtonPressed: {
+    opacity: 0.5,
+  },
+  deleteModalCard: {
+    backgroundColor: colors.surface,
+    borderColor: colors.danger,
+    borderRadius: 24,
+    borderWidth: 1.5,
+    padding: spacing.lg,
+    width: "100%",
+  },
+  deleteModalIconWrap: {
+    alignItems: "center",
+    alignSelf: "center",
+    backgroundColor: "#FEF2F2",
+    borderColor: "#FECACA",
+    borderRadius: 999,
+    borderWidth: 1.5,
+    height: 54,
+    justifyContent: "center",
+    marginBottom: spacing.sm,
+    width: 54,
+  },
+  deleteModalTitle: {
+    color: colors.text,
+    fontSize: 18,
+    fontWeight: "800",
+    marginBottom: spacing.xs,
+    textAlign: "center",
+  },
+  deleteModalSubtitle: {
+    color: colors.muted,
+    fontSize: 13,
+    lineHeight: 19,
+    marginBottom: spacing.md,
+    textAlign: "center",
+  },
+  deleteModalOptions: {
+    gap: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  deleteModalOption: {
+    alignItems: "center",
+    backgroundColor: "#F8FAFB",
+    borderColor: colors.border,
+    borderRadius: 14,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: spacing.sm,
+    minHeight: 48,
+    paddingHorizontal: spacing.md,
+  },
+  deleteModalOptionActive: {
+    backgroundColor: colors.primaryDark,
+    borderColor: colors.primaryDark,
+  },
+  deleteModalOptionText: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  deleteModalOptionTextActive: {
+    color: colors.surface,
+  },
+  deleteModalConfirmBtn: {
+    alignItems: "center",
+    backgroundColor: colors.danger,
+    borderRadius: 14,
+    flex: 1,
+    justifyContent: "center",
+    minHeight: 44,
+  },
+  deleteModalConfirmBtnDisabled: {
+    opacity: 0.35,
+  },
+  deleteModalConfirmBtnText: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "800",
   },
   maxPairsOverlay: {
     ...StyleSheet.absoluteFillObject,
