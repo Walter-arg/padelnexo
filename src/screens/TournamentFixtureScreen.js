@@ -4862,7 +4862,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
   const [loading, setLoading] = useState(true);
   const [savingKey, setSavingKey] = useState("");
   const [zonePlanningSavingKey, setZonePlanningSavingKey] = useState("");
-  const [activeSection, setActiveSection] = useState("configuration");
+  const [activeSection, setActiveSection] = useState("newzones");
   const [feedback, setFeedback] = useState({
     visible: false,
     title: "",
@@ -5644,9 +5644,13 @@ export default function TournamentFixtureScreen({ navigation, route }) {
   }, [selectedRuleSet]);
 
   useEffect(() => {
-    const preferredSection = canEditFixture
-      ? normalizeFixtureActiveSection(fixtureSetup.lastViewedSection)
-      : playerPreferredSection;
+    let preferredSection;
+    if (canEditFixture) {
+      const saved = fixtureSetup.lastViewedSection;
+      preferredSection = saved ? normalizeFixtureActiveSection(saved) : "newzones";
+    } else {
+      preferredSection = playerPreferredSection;
+    }
     setActiveSection(
       visibleSectionKeys.includes(preferredSection) ? preferredSection : visibleSectionKeys[0]
     );
@@ -10981,6 +10985,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                 onPress={() => handleChangeActiveSection("newzones")}
                 style={({ pressed }) => [
                   styles.actionButton,
+                  styles.actionButtonMain,
                   activeSection === "newzones" ? styles.actionButtonActive : null,
                   pressed ? styles.actionButtonPressed : null,
                 ]}
@@ -10988,12 +10993,12 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                 <Ionicons
                   color={activeSection === "newzones" ? colors.surface : colors.primaryDark}
                   name="calendar-outline"
-                  size={18}
+                  size={26}
                 />
                 <Text
                   style={[
                     styles.actionButtonText,
-                    styles.actionButtonTextCompact,
+                    styles.actionButtonMainText,
                     activeSection === "newzones" ? styles.actionButtonTextActive : null,
                   ]}
                 >
@@ -11005,6 +11010,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                 onPress={() => handleChangeActiveSection("bracket")}
                 style={({ pressed }) => [
                   styles.actionButton,
+                  styles.actionButtonMain,
                   activeSection === "bracket" ? styles.actionButtonActive : null,
                   pressed ? styles.actionButtonPressed : null,
                 ]}
@@ -11012,12 +11018,13 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                 <Ionicons
                   color={activeSection === "bracket" ? colors.surface : colors.primaryDark}
                   name="git-branch-outline"
-                  size={18}
+                  size={26}
                   style={styles.bracketActionIcon}
                 />
                 <Text
                   style={[
                     styles.actionButtonText,
+                    styles.actionButtonMainText,
                     activeSection === "bracket" ? styles.actionButtonTextActive : null,
                   ]}
                 >
@@ -11761,7 +11768,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                 style={({ pressed }) => [styles.deleteFixtureButton, pressed && styles.deleteFixtureButtonPressed]}
               >
                 <Ionicons color={colors.danger} name="trash-outline" size={15} />
-                <Text style={styles.deleteFixtureButtonText}>Eliminar</Text>
+                <Text style={styles.deleteFixtureButtonText}>Eliminar fixture</Text>
               </Pressable>
             ) : null}
 
@@ -14498,8 +14505,8 @@ const styles = StyleSheet.create({
   },
   newZoneModeButton: {
     flexDirection: "column",
-    gap: 3,
-    minHeight: 66,
+    gap: 2,
+    minHeight: 44,
     paddingHorizontal: spacing.xs,
     paddingVertical: spacing.xs,
   },
@@ -14527,6 +14534,9 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primaryDark,
     borderColor: colors.primaryDark,
   },
+  actionButtonMain: {
+    minHeight: 70,
+  },
   actionButtonPressed: {
     opacity: 0.9,
   },
@@ -14537,6 +14547,11 @@ const styles = StyleSheet.create({
     marginTop: 4,
     textAlign: "center",
     textTransform: "uppercase",
+  },
+  actionButtonMainText: {
+    fontSize: 14,
+    letterSpacing: 0.5,
+    marginTop: 6,
   },
   actionButtonTextCompact: {
     fontSize: 9,
