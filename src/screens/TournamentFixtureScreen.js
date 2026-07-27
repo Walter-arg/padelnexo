@@ -5795,7 +5795,9 @@ export default function TournamentFixtureScreen({ navigation, route }) {
       ),
     [bracketDraft, fixtureSetup?.bracketPreview, resolveCurrentBracketRoundFormat]
   );
-  const hasCreatedZones = Array.isArray(zonesPreview) && zonesPreview.length > 0;
+  const hasCreatedZones =
+    (Array.isArray(zonesPreview) && zonesPreview.length > 0) ||
+    (Array.isArray(committedZonePlanning?.zones) && committedZonePlanning.zones.length > 0);
   const hasCreatedBracket =
     Boolean(currentBracketPreview) &&
     Array.isArray(currentBracketPreview?.rounds) &&
