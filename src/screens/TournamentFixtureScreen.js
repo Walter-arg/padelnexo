@@ -1177,39 +1177,77 @@ function resolveFixtureRecommendation(pairCount = 0, pathType = "strict", ruleSe
   };
 }
 
-function buildAutomaticZones(registrations = [], recommendation = {}) {
-  const zoneTemplates = Array.isArray(recommendation.zoneTemplates) ? recommendation.zoneTemplates : [];
-  const zones = [];
-  let cursor = 0;
-
-  zoneTemplates.forEach((template, index) => {
-    const size = Number(template.size || 0);
-    const pairs = registrations.slice(cursor, cursor + size);
-    zones.push({
-      id: template.id || `zone-${index + 1}`,
-      name: template.name || `Zona ${String.fromCharCode(65 + index)}`,
-      size,
-      qualifiers: Number(template.qualifiers || 2),
-      pairs: pairs.map((registration) => ({
-        id: registration.id,
-        label: registration.pairLabel || "Pareja",
-      })),
-    });
-    cursor += size;
-  });
-
-  return zones;
+function getAvailabilityWindowCount(availability = {}) {
+  return Object.values(availability || {}).reduce((total, day) => {
+    return total + (day?.quickSlots?.length || 0) + (day?.customSlots?.length || 0);
+  }, 0);
 }
 
-function buildManualZones(recommendation = {}) {
-  return (recommendation.zoneTemplates || []).map((template) => ({
-    ...template,
-    pairs: [],
-  }));
+function computeAvailabilityCompatibilityScore(availA = {}, availB = {}) {
+  const daysA = Object.keys(availA);
+  if (!daysA.length || !Object.keys(availB).length) return 0;
+  let score = 0;
+  daysA.forEach((dayKey) => {
+    if (!availB[dayKey]) return;
+    (availA[dayKey]?.quickSlots || []).forEach((slot) => {
+      if ((availB[dayKey]?.quickSlots || []).includes(slot)) score += 3;
+    });
+    (availA[dayKey]?.customSlots || []).forEach((ca) => {
+      if ((availB[dayKey]?.customSlots || []).some((cb) => cb.from === ca.from && cb.to === ca.to)) score += 2;
+    });
+  });
+  return score;
+}
+
+function groupRegistrationsByAvailability(registrations, zoneTemplates) {
+  const sorted = [...registrations].sort((a, b) => {
+    const diff = getAvailabilityWindowCount(b.availability) - getAvailabilityWindowCount(a.availability);
+    return diff !== 0 ? diff : (a.pairLabel || "").localeCompare(b.pairLabel || "", "es");
+  });
+  const assignedIds = new Set();
+  const result = [];
+
+  zoneTemplates.forEach((template) => {
+    const size = Number(template.size || 0);
+    const group = [];
+
+    for (let i = 0; i < sorted.length && group.length < size; i++) {
+      if (!assignedIds.has(sorted[i].id) && group.length === 0) {
+        group.push(sorted[i]);
+        assignedIds.add(sorted[i].id);
+        break;
+      }
+    }
+
+    while (group.length < size) {
+      let bestScore = -1;
+      let bestIdx = -1;
+      for (let i = 0; i < sorted.length; i++) {
+        if (assignedIds.has(sorted[i].id)) continue;
+        const score = group.reduce(
+          (sum, member) => sum + computeAvailabilityCompatibilityScore(sorted[i].availability || {}, member.availability || {}),
+          0
+        );
+        if (score > bestScore || bestIdx === -1) {
+          bestScore = score;
+          bestIdx = i;
+        }
+      }
+      if (bestIdx === -1) break;
+      group.push(sorted[bestIdx]);
+      assignedIds.add(sorted[bestIdx].id);
+    }
+
+    result.push(...group);
+  });
+
+  sorted.forEach((r) => { if (!assignedIds.has(r.id)) result.push(r); });
+  return result;
 }
 
 function buildAutomaticZonePlanning(registrations = [], recommendation = {}) {
   const zoneTemplates = Array.isArray(recommendation.zoneTemplates) ? recommendation.zoneTemplates : [];
+  const sorted = groupRegistrationsByAvailability(registrations, zoneTemplates);
   let cursor = 0;
 
   return {
@@ -1217,7 +1255,7 @@ function buildAutomaticZonePlanning(registrations = [], recommendation = {}) {
     updatedAtMillis: Date.now(),
     zones: zoneTemplates.map((template, index) => {
       const size = Number(template.size || 0);
-      const pairs = registrations.slice(cursor, cursor + size);
+      const pairs = sorted.slice(cursor, cursor + size);
       cursor += size;
 
       return {
@@ -1228,6 +1266,77 @@ function buildAutomaticZonePlanning(registrations = [], recommendation = {}) {
       };
     }),
   };
+}
+
+function buildAutoMatchSchedules(zones = [], registrationsById, venueSchedules = [], matchDurationMinutes = 75) {
+  const slots = buildZoneMatchSchedulingSlots(venueSchedules, matchDurationMinutes);
+  if (!slots.length) return { zones, unassignedCount: 0 };
+
+  const usedSlotIds = new Set();
+  const pairOccupancy = new Map();
+  let unassignedCount = 0;
+
+  const overlaps = (a, b) =>
+    a.dayKey === b.dayKey && a.startMinutes < b.endMinutes && a.endMinutes > b.startMinutes;
+
+  const scheduledZones = zones.map((zone) => {
+    const pairCount = zone.registrationIds.length;
+    const matchLabels = buildPlanningMatchLabels(pairCount);
+    const matchSchedules = { ...(zone.matchSchedules || {}) };
+
+    matchLabels.forEach((matchLabel) => {
+      const parts = matchLabel.match(/^(\d+)\s+vs\s+(\d+)$/i);
+      if (!parts) return;
+
+      const idA = zone.registrationIds[Number(parts[1]) - 1];
+      const idB = zone.registrationIds[Number(parts[2]) - 1];
+      if (!idA || !idB) return;
+
+      const availA = registrationsById.get(idA)?.availability || {};
+      const availB = registrationsById.get(idB)?.availability || {};
+      const occA = pairOccupancy.get(idA) || [];
+      const occB = pairOccupancy.get(idB) || [];
+
+      const candidates = slots.filter(
+        (slot) =>
+          !usedSlotIds.has(slot.id) &&
+          !occA.some((u) => overlaps(slot, u)) &&
+          !occB.some((u) => overlaps(slot, u)) &&
+          isPairAvailableForSlot(availA, slot.dayKey, slot.startMinutes, slot.endMinutes) &&
+          isPairAvailableForSlot(availB, slot.dayKey, slot.startMinutes, slot.endMinutes)
+      );
+
+      if (!candidates.length) {
+        unassignedCount++;
+        return;
+      }
+
+      const allOcc = [...occA, ...occB];
+      candidates.sort((a, b) => {
+        const aVenue = allOcc.filter((u) => u.venueId === a.venueId).length;
+        const bVenue = allOcc.filter((u) => u.venueId === b.venueId).length;
+        if (bVenue !== aVenue) return bVenue - aVenue;
+        if (a.dayKey !== b.dayKey) return a.dayKey.localeCompare(b.dayKey);
+        if (a.startMinutes !== b.startMinutes) return a.startMinutes - b.startMinutes;
+        return a.courtIndex - b.courtIndex;
+      });
+
+      const chosen = candidates[0];
+      usedSlotIds.add(chosen.id);
+      pairOccupancy.set(idA, [...occA, chosen]);
+      pairOccupancy.set(idB, [...occB, chosen]);
+
+      matchSchedules[matchLabel] = {
+        dayKey: chosen.dayKey,
+        startTime: formatMinutesToTime(chosen.startMinutes),
+        venueId: chosen.venueId,
+      };
+    });
+
+    return { ...zone, matchSchedules };
+  });
+
+  return { zones: scheduledZones, unassignedCount };
 }
 
 function buildPlanningMatchLabels(pairCount = 0) {
@@ -7033,65 +7142,6 @@ export default function TournamentFixtureScreen({ navigation, route }) {
     });
   };
 
-  const handleCreateZones = () => {
-    if (confirmedPairCount < 6) {
-      setFeedback({
-        visible: true,
-        title: "Faltan parejas confirmadas",
-        message: "Se necesitan al menos 6 parejas confirmadas para crear zonas.",
-        tone: "warning",
-      });
-      return;
-    }
-
-    const nextZonesPreview =
-      selectedMode === "manual"
-        ? buildManualZones(recommendation)
-        : buildAutomaticZones(confirmedRegistrations, recommendation);
-    const zonesWithMatches = decorateZonesWithMatches(nextZonesPreview, currentMatchFormat.zones);
-    const scheduledZonesResult =
-      selectedMode !== "manual" && zoneVenueSchedules.length
-        ? assignSchedulesToZoneMatches(zonesWithMatches)
-        : { nextZonesPreview: zonesWithMatches, unassignedCount: 0 };
-    const finalZonesPreview = scheduledZonesResult.nextZonesPreview;
-
-    if (selectedMode === "manual") {
-      setSelectedAvailablePairId("");
-    }
-
-    applyWorkingZonesPreview(finalZonesPreview);
-
-    saveFixtureSetup(
-      {
-        savingKey: "zones",
-        skipReload: true,
-        zonesStatus: "created",
-        zonesPreview: finalZonesPreview,
-      },
-      selectedMode === "manual"
-        ? "Se creo una base recomendada de zonas para que ahora el organizador las complete manualmente."
-        : scheduledZonesResult.unassignedCount > 0
-        ? `Las zonas quedaron creadas. ${scheduledZonesResult.unassignedCount} partido(s) no pudieron distribuirse y quedaron pendientes en naranja.`
-        : "Las zonas ya quedaron visibles dentro del fixture."
-    );
-    handleChangeActiveSection("zones");
-  };
-
-  const handleCreateZonesPress = () => {
-    if (!hasCreatedZones) {
-      handleCreateZones();
-      return;
-    }
-
-    setConfirmFixtureAction({
-      title: "Volver a crear zonas",
-      message:
-        "Ya hay zonas creadas. Si continuas, se perderan los datos cargados y resultados de las zonas actuales.",
-      confirmLabel: "Continuar",
-      onConfirm: handleCreateZones,
-    });
-  };
-
   const handleCreateNewAutoZones = async () => {
     if (!tournament?.id) {
       return;
@@ -7109,12 +7159,27 @@ export default function TournamentFixtureScreen({ navigation, route }) {
 
     try {
       setSavingKey("zones");
-      const nextZonePlanning = buildAutomaticZonePlanning(confirmedRegistrations, recommendation);
+      const basePlanning = buildAutomaticZonePlanning(confirmedRegistrations, recommendation);
+      const activeVenueSchedules = zoneVenueSchedules.filter((s) => s.useForZones);
+      let finalZonePlanning = basePlanning;
+      let unassignedCount = 0;
+
+      if (activeVenueSchedules.length) {
+        const result = buildAutoMatchSchedules(
+          basePlanning.zones,
+          registrationsById,
+          activeVenueSchedules,
+          currentZoneMatchDurationMinutes
+        );
+        finalZonePlanning = { ...basePlanning, zones: result.zones };
+        unassignedCount = result.unassignedCount;
+      }
+
       const latestFixtureSetup = pendingFixtureSetupRef.current || fixtureSetup || {};
       const nextFixtureSetup = {
         ...latestFixtureSetup,
         lastViewedSection: "newzones",
-        zonePlanning: nextZonePlanning,
+        zonePlanning: finalZonePlanning,
       };
 
       await updateTournament(
@@ -7122,7 +7187,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
         currentOrganizer,
         {
           fixtureSetup: nextFixtureSetup,
-          zonePlanning: nextZonePlanning,
+          zonePlanning: finalZonePlanning,
         },
         tournament
       );
@@ -7134,19 +7199,23 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                 ...(current.fixtureSetup || {}),
                 ...nextFixtureSetup,
               },
-              zonePlanning: nextZonePlanning,
+              zonePlanning: finalZonePlanning,
             }
           : current
       );
       pendingFixtureSetupRef.current = nextFixtureSetup;
       setZonePlanningDraft(null);
       setActiveSection("newzones");
-      const ruleSetLabel =
-        selectedRuleSet === "apa" ? "Torneo APA" : "Torneo FAP";
+      const ruleSetLabel = selectedRuleSet === "apa" ? "Torneo APA" : "Torneo FAP";
+      const scheduleMsg = !activeVenueSchedules.length
+        ? "Las zonas quedaron creadas. Configura la disponibilidad de sede en Preferencias para asignar horarios automaticamente."
+        : unassignedCount > 0
+        ? `Las zonas quedaron creadas con horarios asignados segun disponibilidad. ${unassignedCount} partido(s) quedaron sin horario disponible.`
+        : "Las zonas quedaron creadas y los horarios asignados segun disponibilidad de parejas y sede.";
       setFeedback({
         visible: true,
         title: `Zonas creadas · ${ruleSetLabel}`,
-        message: "Las zonas automaticas ya quedaron reflejadas en Nuevas zonas.",
+        message: scheduleMsg,
         tone: "success",
       });
     } catch (error) {
@@ -12011,7 +12080,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
               </View>
             ) : null}
 
-            {false && activeSection === "zones" ? (
+            {false ? (
               <View style={styles.card}>
                 {Array.isArray(zonesPreview) && zonesPreview.length ? (
                   <View style={styles.previewStack}>
