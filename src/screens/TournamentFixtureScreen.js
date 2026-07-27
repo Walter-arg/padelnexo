@@ -5392,6 +5392,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
 
   useEffect(() => {
     const defaultDayKey = tournamentDayOptions[0]?.key || "";
+    const isSingleVenue = tournamentVenueOptions.length === 1;
 
     setScheduleVenueDrafts((current) => {
       const nextDrafts = {};
@@ -5425,13 +5426,13 @@ export default function TournamentFixtureScreen({ navigation, route }) {
               ? venueSchedules.some((entry) => entry.useForZones)
               : typeof currentDraft.useForZones === "boolean"
               ? currentDraft.useForZones
-              : false,
+              : isSingleVenue,
           useForBracket:
             venueSchedules.length
               ? venueSchedules.some((entry) => entry.useForBracket)
               : typeof currentDraft.useForBracket === "boolean"
               ? currentDraft.useForBracket
-              : false,
+              : isSingleVenue,
         };
       });
 
