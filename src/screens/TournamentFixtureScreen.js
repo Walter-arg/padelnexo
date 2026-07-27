@@ -1177,10 +1177,31 @@ function resolveFixtureRecommendation(pairCount = 0, pathType = "strict", ruleSe
   };
 }
 
+const QUICK_SLOT_MINUTE_RANGES = {
+  morning:    { from: 8 * 60,  to: 12 * 60 },
+  afternoon:  { from: 12 * 60, to: 18 * 60 },
+  night:      { from: 18 * 60, to: 23 * 60 },
+  late_night: { from: 23 * 60, to: 26 * 60 },
+};
+
 function getAvailabilityWindowCount(availability = {}) {
   return Object.values(availability || {}).reduce((total, day) => {
     return total + (day?.quickSlots?.length || 0) + (day?.customSlots?.length || 0);
   }, 0);
+}
+
+function getDayTimeRanges(dayAvailability = {}) {
+  const ranges = [];
+  (dayAvailability.quickSlots || []).forEach((key) => {
+    const r = QUICK_SLOT_MINUTE_RANGES[key];
+    if (r) ranges.push(r);
+  });
+  (dayAvailability.customSlots || []).forEach((slot) => {
+    const from = parseTimeToMinutes(slot.from);
+    const to = parseTimeToMinutes(slot.to);
+    if (to > from) ranges.push({ from, to });
+  });
+  return ranges;
 }
 
 function computeAvailabilityCompatibilityScore(availA = {}, availB = {}) {
@@ -1189,11 +1210,12 @@ function computeAvailabilityCompatibilityScore(availA = {}, availB = {}) {
   let score = 0;
   daysA.forEach((dayKey) => {
     if (!availB[dayKey]) return;
-    (availA[dayKey]?.quickSlots || []).forEach((slot) => {
-      if ((availB[dayKey]?.quickSlots || []).includes(slot)) score += 3;
-    });
-    (availA[dayKey]?.customSlots || []).forEach((ca) => {
-      if ((availB[dayKey]?.customSlots || []).some((cb) => cb.from === ca.from && cb.to === ca.to)) score += 2;
+    const rangesA = getDayTimeRanges(availA[dayKey]);
+    const rangesB = getDayTimeRanges(availB[dayKey]);
+    rangesA.forEach((ra) => {
+      rangesB.forEach((rb) => {
+        score += Math.max(0, Math.min(ra.to, rb.to) - Math.max(ra.from, rb.from));
+      });
     });
   });
   return score;
