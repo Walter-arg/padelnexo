@@ -713,10 +713,18 @@ function getRegistrationStatusFromPayments(tournament = {}, payments = [], force
 function getRegistrationStatusMeta(tournament = {}, payments = [], currentRegistration = {}) {
   const status = getRegistrationStatusFromPayments(tournament, payments, false);
 
+  // Si ya estaba confirmada y el recálculo daría "pending" (sin rechazo ni pago en revisión),
+  // conservar "confirmed" — evita que ediciones menores (como agregar disponibilidad) bajen el estado.
+  const resolvedStatus =
+    currentRegistration.status === "confirmed" && status === "pending" ? "confirmed" : status;
+
   return {
-    status,
-    confirmedAt: status === "confirmed" ? serverTimestamp() : currentRegistration.confirmedAt || null,
-    rejectedAt: status === "rejected" ? serverTimestamp() : null,
+    status: resolvedStatus,
+    confirmedAt:
+      resolvedStatus === "confirmed"
+        ? currentRegistration.confirmedAt || serverTimestamp()
+        : null,
+    rejectedAt: resolvedStatus === "rejected" ? serverTimestamp() : null,
   };
 }
 
