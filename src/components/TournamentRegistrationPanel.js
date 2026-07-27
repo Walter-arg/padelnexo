@@ -1965,6 +1965,31 @@ export default function TournamentRegistrationPanel({
               [activePairForAvailability]: { ...(prev[activePairForAvailability] || {}), availability: nextAvailability },
             }));
             setActivePairForAvailability(null);
+          } else if (registration) {
+            const player1Payload = buildCurrentPlayerPayload(currentUser, currentPlayerRecord);
+            const player2Payload = selectedPartner
+              ? selectedPartner?.isGuest
+                ? buildManualPlayerPayload(selectedPartner)
+                : buildPartnerPayload(selectedPartner)
+              : null;
+            const paymentsOverride = isOrganizerPaymentEditor
+              ? [player1Payload, player2Payload]
+                  .filter((player) => player?.playerId)
+                  .map((player) => ({
+                    playerId: player.playerId,
+                    userId: player.userId,
+                    method: paymentMethodByPlayer[player.playerId] || "",
+                  }))
+              : [];
+            await updateTournamentRegistration(tournament.id, registration.id, {
+              allowGuestPlayers: isOrganizerEditing || isOrganizerCreating,
+              availability: nextAvailability,
+              paymentsOverride,
+              player1: player1Payload,
+              player2: player2Payload,
+            });
+            setAvailability(nextAvailability);
+            await onRegistrationCreated?.();
           } else {
             setAvailability(nextAvailability);
           }
