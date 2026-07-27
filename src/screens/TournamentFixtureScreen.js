@@ -1190,6 +1190,12 @@ function getAvailabilityWindowCount(availability = {}) {
   }, 0);
 }
 
+function getTotalAvailabilityMinutes(availability = {}) {
+  return Object.values(availability || {}).reduce((total, day) => {
+    return total + getDayTimeRanges(day).reduce((sum, r) => sum + (r.to - r.from), 0);
+  }, 0);
+}
+
 function getDayTimeRanges(dayAvailability = {}) {
   const ranges = [];
   (dayAvailability.quickSlots || []).forEach((key) => {
@@ -1223,8 +1229,14 @@ function computeAvailabilityCompatibilityScore(availA = {}, availB = {}) {
 
 function groupRegistrationsByAvailability(registrations, zoneTemplates) {
   const sorted = [...registrations].sort((a, b) => {
-    const diff = getAvailabilityWindowCount(b.availability) - getAvailabilityWindowCount(a.availability);
-    return diff !== 0 ? diff : (a.pairLabel || "").localeCompare(b.pairLabel || "", "es");
+    const minsA = getTotalAvailabilityMinutes(a.availability);
+    const minsB = getTotalAvailabilityMinutes(b.availability);
+    // Parejas sin disponibilidad van al final (pueden ir a cualquier zona)
+    if (minsA === 0 && minsB === 0) return (a.pairLabel || "").localeCompare(b.pairLabel || "", "es");
+    if (minsA === 0) return 1;
+    if (minsB === 0) return -1;
+    // Mas restringidas (menos minutos disponibles) primero → seedean antes
+    return minsA !== minsB ? minsA - minsB : (a.pairLabel || "").localeCompare(b.pairLabel || "", "es");
   });
   const assignedIds = new Set();
   const result = [];
