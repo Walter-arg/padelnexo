@@ -402,8 +402,8 @@ function buildFormFromTournament(tournament = {}, userData = {}) {
     recommendedGroupSize: Number(tournament?.recommendedGroupSize || 3),
     startDateMillis: tournament?.startDateMillis || "",
     endDateMillis: tournament?.endDateMillis || "",
-    minPairs: "",
-    maxPairs: "",
+    minPairs: tournament?.minPairs ? String(tournament.minPairs) : "",
+    maxPairs: tournament?.maxPairs ? String(tournament.maxPairs) : "",
   };
 }
 
