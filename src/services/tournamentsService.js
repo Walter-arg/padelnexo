@@ -612,17 +612,28 @@ function isRegistrationWithdrawnConfirmed(registration = {}) {
   return normalizeWithdrawalStatus(registration?.withdrawalStatus) === "confirmed";
 }
 
+function deduplicatePersonName(name = "") {
+  const parts = String(name || "").trim().split(/\s+/).filter(Boolean);
+  return parts
+    .filter((part, i) => i === 0 || part.toLowerCase() !== parts[i - 1].toLowerCase())
+    .join(" ");
+}
+
 function normalizeRegistrationDoc(docSnapshot) {
   const data = docSnapshot.data() || {};
   const payments = Array.isArray(data.payments) ? data.payments : [];
   const player1Id = resolveRegistrationSidePlayerId(data, payments, "player1");
   const player2Id = resolveRegistrationSidePlayerId(data, payments, "player2");
+  const player1Name = deduplicatePersonName(data.player1Name || "");
+  const player2Name = deduplicatePersonName(data.player2Name || "");
 
   return {
     id: docSnapshot.id,
     ...data,
     player1Id,
     player2Id,
+    player1Name,
+    player2Name,
     createdAtMillis: resolveTimestampMillis(data.createdAt),
     updatedAtMillis: resolveTimestampMillis(data.updatedAt),
     withdrawalRequestedAtMillis: resolveTimestampMillis(data.withdrawalRequestedAt),
@@ -630,8 +641,9 @@ function normalizeRegistrationDoc(docSnapshot) {
     withdrawalStatus: normalizeWithdrawalStatus(data.withdrawalStatus),
     payments,
     pairLabel:
-      data.pairLabel ||
-      [data.player1Name || "Jugador 1", data.player2Name || "Jugador 2"].join(" / "),
+      data.pairLabel
+        ? data.pairLabel.split(" / ").map(deduplicatePersonName).join(" / ")
+        : [player1Name || "Jugador 1", player2Name || "Jugador 2"].join(" / "),
   };
 }
 
