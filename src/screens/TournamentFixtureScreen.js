@@ -5727,6 +5727,10 @@ export default function TournamentFixtureScreen({ navigation, route }) {
     if (nextMode === "single_set") {
       setSelectedRapidModePoints((current) => String(current || "9"));
       setSelectedBracketFinalOverride("none");
+    } else {
+      // "single_set" is only valid under rapid mode — reset if it leaked into independent selectors
+      setSelectedZoneMatchFormat((current) => (current === "single_set" ? "third_set" : current));
+      setSelectedBracketMatchFormat((current) => (current === "single_set" ? "third_set" : current));
     }
   }, []);
   const updateScheduleVenueDraft = useCallback((venueId, partialDraft) => {
