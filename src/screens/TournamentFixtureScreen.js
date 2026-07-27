@@ -7694,6 +7694,8 @@ export default function TournamentFixtureScreen({ navigation, route }) {
       partial.bracketPreview = null;
       partial.bracketStatus = "pending";
       partial.bracketSaveGeneration = 0;
+      setBracketDraft(null);
+      workingBracketPreviewRef.current = null;
     }
     const msg =
       zones && bracket
