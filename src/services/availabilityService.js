@@ -82,12 +82,7 @@ function normalizeCustomSlot(slot = {}) {
   const from = String(slot.from || "").trim();
   const to = String(slot.to || "").trim();
 
-  if (!TIME_OPTIONS.includes(from) || !TIME_OPTIONS.includes(to)) {
-    return null;
-  }
-
-  // Permitimos cruces de medianoche guardando el rango tal como lo eligio el usuario.
-  if (from === to) {
+  if (!/^\d{2}:\d{2}$/.test(from) || !/^\d{2}:\d{2}$/.test(to) || from === to) {
     return null;
   }
 
