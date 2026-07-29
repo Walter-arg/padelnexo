@@ -152,6 +152,7 @@ export default function TournamentRegistrationScreen({ navigation, route }) {
               category={tournament?.compositionConfig?.label || tournament?.compositionLabel || ""}
               compactFriendly
               endDateMillis={tournament?.endDateMillis || 0}
+              organizerLogoUrl={tournament?.organizerLogoUrl || ""}
               startDateMillis={tournament?.startDateMillis || 0}
               title={tournament?.name || "Torneo"}
             />

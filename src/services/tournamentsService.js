@@ -512,15 +512,20 @@ async function hydrateTournamentMercadoPagoConfig(
   }
 
   let resolvedOrganizerMercadoPagoConfig = organizerMercadoPagoConfig;
+  let resolvedOrganizerLogoUrl = tournament.organizerLogoUrl || "";
 
   if (resolvedOrganizerMercadoPagoConfig == null) {
     const organizerSnapshot = await getDoc(doc(db, "users", tournament.organizerId));
     const organizerData = organizerSnapshot.exists() ? organizerSnapshot.data() || {} : {};
     resolvedOrganizerMercadoPagoConfig = organizerData?.mercadoPagoConfig || {};
+    if (!resolvedOrganizerLogoUrl) {
+      resolvedOrganizerLogoUrl = organizerData?.organizerLogoURL || organizerData?.organizerLogoUrl || "";
+    }
   }
 
   return {
     ...tournament,
+    organizerLogoUrl: resolvedOrganizerLogoUrl,
     mercadoPagoConfig: mergeTournamentMercadoPagoConfig(
       tournament,
       resolvedOrganizerMercadoPagoConfig
