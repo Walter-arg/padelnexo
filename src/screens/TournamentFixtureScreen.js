@@ -7086,12 +7086,19 @@ export default function TournamentFixtureScreen({ navigation, route }) {
       const usedSlotIds = new Set();
       let unassignedCount = 0;
       let slotCursor = 0;
+      // Round-boundary tracking: each round can only start after the previous round ends.
+      let prevRoundMaxEndDayKey = "";
+      let prevRoundMaxEndMinutes = 0;
 
       const nextBracketPreview = {
         ...sourceBracketPreview,
-        rounds: sourceBracketPreview.rounds.map((round) => ({
-          ...round,
-          matches: (round.matches || []).map((match) => {
+        rounds: sourceBracketPreview.rounds.map((round) => {
+          const roundMinDayKey = prevRoundMaxEndDayKey;
+          const roundMinStartMinutes = prevRoundMaxEndMinutes;
+          let thisRoundMaxEndDayKey = "";
+          let thisRoundMaxEndMinutes = 0;
+
+          const nextMatches = (round.matches || []).map((match) => {
             if (match.teamAIsBye || match.teamBIsBye) {
               return {
                 ...match,
@@ -7109,7 +7116,17 @@ export default function TournamentFixtureScreen({ navigation, route }) {
             for (let index = 0; index < allSlots.length; index += 1) {
               const candidate = allSlots[(slotCursor + index) % allSlots.length];
 
-              if (candidate && !usedSlotIds.has(candidate.id)) {
+              if (!candidate || usedSlotIds.has(candidate.id)) {
+                continue;
+              }
+
+              // Only consider slots that start after the previous round has finished.
+              const isAfterPrevRound =
+                !roundMinDayKey ||
+                candidate.dayKey > roundMinDayKey ||
+                (candidate.dayKey === roundMinDayKey && candidate.startMinutes >= roundMinStartMinutes);
+
+              if (isAfterPrevRound) {
                 nextSlot = candidate;
                 slotCursor = (slotCursor + index + 1) % allSlots.length;
                 break;
@@ -7130,6 +7147,17 @@ export default function TournamentFixtureScreen({ navigation, route }) {
 
             usedSlotIds.add(nextSlot.id);
 
+            const slotEndMinutes = nextSlot.startMinutes + currentZoneMatchDurationMinutes;
+
+            if (
+              !thisRoundMaxEndDayKey ||
+              nextSlot.dayKey > thisRoundMaxEndDayKey ||
+              (nextSlot.dayKey === thisRoundMaxEndDayKey && slotEndMinutes > thisRoundMaxEndMinutes)
+            ) {
+              thisRoundMaxEndDayKey = nextSlot.dayKey;
+              thisRoundMaxEndMinutes = slotEndMinutes;
+            }
+
             return {
               ...match,
               distributionPending: false,
@@ -7139,8 +7167,15 @@ export default function TournamentFixtureScreen({ navigation, route }) {
               scheduledDayKey: nextSlot.dayKey,
               scheduledTime: formatMinutesToTime(nextSlot.startMinutes),
             };
-          }),
-        })),
+          });
+
+          if (thisRoundMaxEndDayKey) {
+            prevRoundMaxEndDayKey = thisRoundMaxEndDayKey;
+            prevRoundMaxEndMinutes = thisRoundMaxEndMinutes;
+          }
+
+          return { ...round, matches: nextMatches };
+        }),
       };
 
       return { nextBracketPreview, unassignedCount };
