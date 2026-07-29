@@ -11123,7 +11123,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
               </Pressable>
 
               <Pressable
-                onPress={() => handleChangeActiveSection("bracket")}
+                onPress={handlePressBracketSection}
                 style={({ pressed }) => [
                   styles.actionButton,
                   styles.actionButtonMain,
