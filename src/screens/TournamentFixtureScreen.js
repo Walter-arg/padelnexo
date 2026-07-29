@@ -7635,11 +7635,15 @@ export default function TournamentFixtureScreen({ navigation, route }) {
       tournamentDayOptions,
       tournamentVenueOptions
     );
+    const venueIdsWithSavedBracketSchedule = new Set(
+      zoneVenueSchedules.filter((entry) => entry.useForBracket).map((entry) => entry.venueId)
+    );
     const effectiveVenueSchedules = normalizeZoneVenueSchedules(
       [
         ...zoneVenueSchedules.filter((entry) => !entry.useForBracket),
         ...zoneVenueSchedules.filter((entry) => entry.useForBracket),
-        ...draftBracketSchedules,
+        // Solo incluir drafts para sedes que NO tienen schedule guardado con useForBracket
+        ...draftBracketSchedules.filter((draft) => !venueIdsWithSavedBracketSchedule.has(draft.venueId)),
       ],
       tournamentDayOptions,
       tournamentVenueOptions
