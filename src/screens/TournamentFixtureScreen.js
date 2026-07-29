@@ -11905,9 +11905,6 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                       <View key={zone.id} style={[styles.newZoneCard, isMyZone ? styles.newZoneCardHighlighted : null]}>
                         <View style={styles.newZoneTitleWrap}>
                           <Text style={styles.newZoneTitle}>{zone.label}</Text>
-                          <Text style={styles.newZoneBracketSeedText}>
-                            Llaves: Zona {zone.bracketLetter}
-                          </Text>
                         </View>
                         <View style={styles.newZonePairsStack}>
                           {zone.registrations.map((registration) => (
@@ -14805,26 +14802,16 @@ const styles = StyleSheet.create({
   },
   newZoneTitleWrap: {
     alignSelf: "center",
-    backgroundColor: "#E1F4F0",
-    borderColor: "#9FD6CF",
+    backgroundColor: "#0B5C65",
     borderRadius: 999,
-    borderWidth: 1,
     minWidth: 116,
     paddingHorizontal: spacing.md,
-    paddingVertical: 6,
+    paddingVertical: 7,
   },
   newZoneTitle: {
-    color: "#1F6D69",
+    color: "#FFFFFF",
     fontSize: 14,
     fontWeight: "900",
-    textAlign: "center",
-    textTransform: "uppercase",
-  },
-  newZoneBracketSeedText: {
-    color: "#3C7A75",
-    fontSize: 9,
-    fontWeight: "900",
-    marginTop: 2,
     textAlign: "center",
     textTransform: "uppercase",
   },
