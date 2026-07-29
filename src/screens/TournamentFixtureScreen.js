@@ -7091,7 +7091,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
 
       const nextBracketPreview = {
         ...sourceBracketPreview,
-        rounds: sourceBracketPreview.rounds.map((round) => {
+        rounds: sourceBracketPreview.rounds.map((round, roundIndex) => {
           const roundMinDayKey = prevRoundMaxEndDayKey;
           const roundMinStartMinutes = prevRoundMaxEndMinutes;
           let thisRoundMaxEndDayKey = "";
@@ -7118,38 +7118,61 @@ export default function TournamentFixtureScreen({ navigation, route }) {
             }
           });
 
-          // Assign one slot per playable match, filling each time window before advancing.
-          // Matches in the same round prefer the same start time (parallel courts) over
-          // spreading across different times — e.g. both semis play at the same hour.
+          // Semis (second-to-last round): find the earliest window with enough courts to host
+          // all matches simultaneously. For all other rounds: greedy fill — if a court is free,
+          // assign the next match immediately without waiting for a fuller window.
+          const isSemisRound = roundIndex === sourceBracketPreview.rounds.length - 2;
+          const numPlayable = (round.matches || []).filter(
+            (m) => !m.teamAIsBye && !m.teamBIsBye
+          ).length;
+          const simultaneousWindow = isSemisRound
+            ? (timeWindows.find((w) => w.length >= numPlayable) || null)
+            : null;
+
           const assignedSlots = new Map(); // match index → slot
           let windowIndex = 0;
-          let courtWithinWindow = 0;
+          let windowCourtOffset = 0;
 
           (round.matches || []).forEach((match, index) => {
             if (match.teamAIsBye || match.teamBIsBye) return;
 
-            while (windowIndex < timeWindows.length) {
-              if (courtWithinWindow < timeWindows[windowIndex].length) {
-                const slot = timeWindows[windowIndex][courtWithinWindow];
-                courtWithinWindow += 1;
-                assignedSlots.set(index, slot);
-                usedSlotIds.add(slot.id);
-                const slotEnd = slot.startMinutes + currentZoneMatchDurationMinutes;
-                if (
-                  !thisRoundMaxEndDayKey ||
-                  slot.dayKey > thisRoundMaxEndDayKey ||
-                  (slot.dayKey === thisRoundMaxEndDayKey && slotEnd > thisRoundMaxEndMinutes)
-                ) {
-                  thisRoundMaxEndDayKey = slot.dayKey;
-                  thisRoundMaxEndMinutes = slotEnd;
-                }
-                return;
+            let slot = null;
+
+            if (simultaneousWindow) {
+              // All semis come from the same time window (same hour, different courts).
+              if (windowCourtOffset < simultaneousWindow.length) {
+                slot = simultaneousWindow[windowCourtOffset];
+                windowCourtOffset += 1;
               }
-              windowIndex += 1;
-              courtWithinWindow = 0;
+            } else {
+              // Greedy: take the next free court, advancing windows when one is exhausted.
+              while (windowIndex < timeWindows.length) {
+                if (windowCourtOffset < timeWindows[windowIndex].length) {
+                  slot = timeWindows[windowIndex][windowCourtOffset];
+                  windowCourtOffset += 1;
+                  break;
+                }
+                windowIndex += 1;
+                windowCourtOffset = 0;
+              }
             }
 
-            unassignedCount += 1;
+            if (!slot) {
+              unassignedCount += 1;
+              return;
+            }
+
+            assignedSlots.set(index, slot);
+            usedSlotIds.add(slot.id);
+            const slotEnd = slot.startMinutes + currentZoneMatchDurationMinutes;
+            if (
+              !thisRoundMaxEndDayKey ||
+              slot.dayKey > thisRoundMaxEndDayKey ||
+              (slot.dayKey === thisRoundMaxEndDayKey && slotEnd > thisRoundMaxEndMinutes)
+            ) {
+              thisRoundMaxEndDayKey = slot.dayKey;
+              thisRoundMaxEndMinutes = slotEnd;
+            }
           });
 
           const nextMatches = (round.matches || []).map((match, index) => {
