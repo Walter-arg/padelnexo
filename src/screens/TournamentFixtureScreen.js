@@ -1258,10 +1258,14 @@ function groupRegistrationsByAvailability(registrations, zoneTemplates) {
       let bestIdx = -1;
       for (let i = 0; i < sorted.length; i++) {
         if (assignedIds.has(sorted[i].id)) continue;
-        const score = group.reduce(
+        const rawScore = group.reduce(
           (sum, member) => sum + computeAvailabilityCompatibilityScore(sorted[i].availability || {}, member.availability || {}),
           0
         );
+        // Sin disponibilidad configurada → "relleno flexible": preferir sobre
+        // parejas con horario incompatible (rawScore 0) pero cede ante overlap real
+        const isFlexible = getTotalAvailabilityMinutes(sorted[i].availability || {}) === 0;
+        const score = rawScore > 0 ? rawScore : (isFlexible ? 0.5 : 0);
         if (score > bestScore || bestIdx === -1) {
           bestScore = score;
           bestIdx = i;
