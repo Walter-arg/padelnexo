@@ -11897,8 +11897,12 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                 ) : null}
                 {newZonePlanningZones.length ? (
                   <View style={styles.newZonesStack}>
-                    {newZonePlanningZones.map((zone) => (
-                      <View key={zone.id} style={styles.newZoneCard}>
+                    {newZonePlanningZones.map((zone) => {
+                      const isMyZone =
+                        !!highlightedPairId &&
+                        zone.registrations.some((r) => r.id === highlightedPairId);
+                      return (
+                      <View key={zone.id} style={[styles.newZoneCard, isMyZone ? styles.newZoneCardHighlighted : null]}>
                         <View style={styles.newZoneTitleWrap}>
                           <Text style={styles.newZoneTitle}>{zone.label}</Text>
                           <Text style={styles.newZoneBracketSeedText}>
@@ -12091,7 +12095,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                           </Pressable>
                         </View>
                       </View>
-                    ))}
+                    ); })}
                     {canEditFixture ? (
                       <View style={styles.zoneShareButtonWrap}>
                         <Pressable
@@ -14795,6 +14799,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.md,
   },
+  newZoneCardHighlighted: {
+    borderColor: "#1F6F78",
+    borderWidth: 2,
+  },
   newZoneTitleWrap: {
     alignSelf: "center",
     backgroundColor: "#E1F4F0",
@@ -14847,7 +14855,11 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   newZonePairRowHighlighted: {
-    backgroundColor: "transparent",
+    backgroundColor: "#D6EEF0",
+    borderRadius: 8,
+    marginHorizontal: -6,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
   },
   newZonePairNumber: {
     alignItems: "center",
