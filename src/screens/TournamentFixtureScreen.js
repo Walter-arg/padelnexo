@@ -7108,11 +7108,6 @@ export default function TournamentFixtureScreen({ navigation, route }) {
               }
             }
 
-            if (!nextSlot && allSlots.length) {
-              nextSlot = allSlots[slotCursor % allSlots.length];
-              slotCursor += 1;
-            }
-
             if (!nextSlot) {
               unassignedCount += 1;
               return {
