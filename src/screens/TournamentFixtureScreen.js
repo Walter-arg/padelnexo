@@ -485,7 +485,17 @@ function buildZoneMatchSchedulingSlots(schedules = [], durationMinutes = ZONE_MA
     }
   });
 
-  return slots.sort((first, second) => {
+  // Deduplicar por identidad física: misma cancha/horario/día/sede no puede aparecer dos veces
+  // aunque provenga de distintos entries de schedule (ej: schedules guardados múltiples veces)
+  const seenPhysical = new Set();
+  const deduped = slots.filter((slot) => {
+    const key = `${slot.dayKey}|${slot.startMinutes}|${slot.venueId}|${slot.courtIndex}`;
+    if (seenPhysical.has(key)) return false;
+    seenPhysical.add(key);
+    return true;
+  });
+
+  return deduped.sort((first, second) => {
     if (first.dayKey !== second.dayKey) {
       return first.dayKey.localeCompare(second.dayKey, "es");
     }
@@ -6871,29 +6881,27 @@ export default function TournamentFixtureScreen({ navigation, route }) {
       return;
     }
 
+    const newEntry = venue
+      ? {
+          id: `zone-schedule-${Date.now()}-${venueId}`,
+          venueId: venue.id,
+          venueName: venue.name,
+          dayKey: venueDraft.selectedDayKey,
+          from: venueDraft.from,
+          to: venueDraft.to,
+          courts: selectedCourts,
+          useForZones: Boolean(venueDraft.useForZones),
+          useForBracket: Boolean(venueDraft.useForBracket),
+        }
+      : null;
+    // Reemplazar entradas existentes de la misma sede+día para no acumular duplicados
+    const baseSchedules = newEntry
+      ? zoneVenueSchedules.filter(
+          (entry) => !(entry.venueId === venueId && entry.dayKey === newEntry.dayKey)
+        )
+      : zoneVenueSchedules;
     const nextSchedules = normalizeZoneVenueSchedules(
-      [
-        ...zoneVenueSchedules,
-        ...(() => {
-          if (!venue) {
-            return [];
-          }
-
-          return [
-            {
-              id: `zone-schedule-${Date.now()}-${venueId}`,
-              venueId: venue.id,
-              venueName: venue.name,
-              dayKey: venueDraft.selectedDayKey,
-              from: venueDraft.from,
-              to: venueDraft.to,
-              courts: selectedCourts,
-              useForZones: Boolean(venueDraft.useForZones),
-              useForBracket: Boolean(venueDraft.useForBracket),
-            },
-          ];
-        })(),
-      ],
+      newEntry ? [...baseSchedules, newEntry] : baseSchedules,
       tournamentDayOptions,
       tournamentVenueOptions
     );
