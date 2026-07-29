@@ -7085,7 +7085,6 @@ export default function TournamentFixtureScreen({ navigation, route }) {
       const allSlots = generatedSlots.length ? generatedSlots : fallbackSlots;
       const usedSlotIds = new Set();
       let unassignedCount = 0;
-      let slotCursor = 0;
       // Round-boundary tracking: each round can only start after the previous round ends.
       let prevRoundMaxEndDayKey = "";
       let prevRoundMaxEndMinutes = 0;
@@ -7098,7 +7097,62 @@ export default function TournamentFixtureScreen({ navigation, route }) {
           let thisRoundMaxEndDayKey = "";
           let thisRoundMaxEndMinutes = 0;
 
-          const nextMatches = (round.matches || []).map((match) => {
+          // Eligible slots: unused and starting after the previous round ended.
+          const eligibleSlots = allSlots.filter(
+            (slot) =>
+              !usedSlotIds.has(slot.id) &&
+              (!roundMinDayKey ||
+                slot.dayKey > roundMinDayKey ||
+                (slot.dayKey === roundMinDayKey && slot.startMinutes >= roundMinStartMinutes))
+          );
+
+          // Group eligible slots into time windows (same dayKey + startMinutes = parallel courts).
+          // allSlots is sorted chronologically so adjacent same-time slots form natural groups.
+          const timeWindows = [];
+          eligibleSlots.forEach((slot) => {
+            const last = timeWindows[timeWindows.length - 1];
+            if (last && last[0].dayKey === slot.dayKey && last[0].startMinutes === slot.startMinutes) {
+              last.push(slot);
+            } else {
+              timeWindows.push([slot]);
+            }
+          });
+
+          // Assign one slot per playable match, filling each time window before advancing.
+          // Matches in the same round prefer the same start time (parallel courts) over
+          // spreading across different times — e.g. both semis play at the same hour.
+          const assignedSlots = new Map(); // match index → slot
+          let windowIndex = 0;
+          let courtWithinWindow = 0;
+
+          (round.matches || []).forEach((match, index) => {
+            if (match.teamAIsBye || match.teamBIsBye) return;
+
+            while (windowIndex < timeWindows.length) {
+              if (courtWithinWindow < timeWindows[windowIndex].length) {
+                const slot = timeWindows[windowIndex][courtWithinWindow];
+                courtWithinWindow += 1;
+                assignedSlots.set(index, slot);
+                usedSlotIds.add(slot.id);
+                const slotEnd = slot.startMinutes + currentZoneMatchDurationMinutes;
+                if (
+                  !thisRoundMaxEndDayKey ||
+                  slot.dayKey > thisRoundMaxEndDayKey ||
+                  (slot.dayKey === thisRoundMaxEndDayKey && slotEnd > thisRoundMaxEndMinutes)
+                ) {
+                  thisRoundMaxEndDayKey = slot.dayKey;
+                  thisRoundMaxEndMinutes = slotEnd;
+                }
+                return;
+              }
+              windowIndex += 1;
+              courtWithinWindow = 0;
+            }
+
+            unassignedCount += 1;
+          });
+
+          const nextMatches = (round.matches || []).map((match, index) => {
             if (match.teamAIsBye || match.teamBIsBye) {
               return {
                 ...match,
@@ -7111,30 +7165,9 @@ export default function TournamentFixtureScreen({ navigation, route }) {
               };
             }
 
-            let nextSlot = null;
+            const slot = assignedSlots.get(index);
 
-            for (let index = 0; index < allSlots.length; index += 1) {
-              const candidate = allSlots[(slotCursor + index) % allSlots.length];
-
-              if (!candidate || usedSlotIds.has(candidate.id)) {
-                continue;
-              }
-
-              // Only consider slots that start after the previous round has finished.
-              const isAfterPrevRound =
-                !roundMinDayKey ||
-                candidate.dayKey > roundMinDayKey ||
-                (candidate.dayKey === roundMinDayKey && candidate.startMinutes >= roundMinStartMinutes);
-
-              if (isAfterPrevRound) {
-                nextSlot = candidate;
-                slotCursor = (slotCursor + index + 1) % allSlots.length;
-                break;
-              }
-            }
-
-            if (!nextSlot) {
-              unassignedCount += 1;
+            if (!slot) {
               return {
                 ...match,
                 distributionPending: true,
@@ -7145,27 +7178,14 @@ export default function TournamentFixtureScreen({ navigation, route }) {
               };
             }
 
-            usedSlotIds.add(nextSlot.id);
-
-            const slotEndMinutes = nextSlot.startMinutes + currentZoneMatchDurationMinutes;
-
-            if (
-              !thisRoundMaxEndDayKey ||
-              nextSlot.dayKey > thisRoundMaxEndDayKey ||
-              (nextSlot.dayKey === thisRoundMaxEndDayKey && slotEndMinutes > thisRoundMaxEndMinutes)
-            ) {
-              thisRoundMaxEndDayKey = nextSlot.dayKey;
-              thisRoundMaxEndMinutes = slotEndMinutes;
-            }
-
             return {
               ...match,
               distributionPending: false,
-              venueId: nextSlot.venueId,
-              courtLabel: nextSlot.courtLabel,
-              scheduleLabel: `${getTournamentDayLabel(nextSlot.dayKey, tournamentDayOptions, "short")} · ${formatMinutesToTime(nextSlot.startMinutes)} hs`,
-              scheduledDayKey: nextSlot.dayKey,
-              scheduledTime: formatMinutesToTime(nextSlot.startMinutes),
+              venueId: slot.venueId,
+              courtLabel: slot.courtLabel,
+              scheduleLabel: `${getTournamentDayLabel(slot.dayKey, tournamentDayOptions, "short")} · ${formatMinutesToTime(slot.startMinutes)} hs`,
+              scheduledDayKey: slot.dayKey,
+              scheduledTime: formatMinutesToTime(slot.startMinutes),
             };
           });
 
