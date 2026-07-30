@@ -6151,7 +6151,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
   const chronologicalZoneMatches = useMemo(() => {
     const rows = [];
     newZonePlanningZones.forEach((zone) => {
-      const zoneLetter = zone.bracketLetter || zone.label?.split(" ").pop() || zone.label || "";
+      const zoneLabel = zone.label || "";
       (zone.matchRows || []).forEach((match) => {
         if (!match.startTime) return;
         const pairA = zone.registrations[Number(match.pairNumbers?.[0] || 1) - 1];
@@ -6160,16 +6160,19 @@ export default function TournamentFixtureScreen({ navigation, route }) {
           tournamentDayOptions.find((d) => d.key === match.dayKey)?.shortLabel ||
           match.dayLabel ||
           "";
+        const metaParts = [zoneLabel];
+        if (match.courtLabel) metaParts.push(match.courtLabel);
+        if (match.venueLabel && match.venueLabel !== "Elegir" && match.venueLabel !== "Sin sede") {
+          metaParts.push(match.venueLabel);
+        }
         rows.push({
           key: `${zone.id}-${match.key}`,
           dayKey: match.dayKey,
           startTime: match.startTime,
-          dayDisplay: dayShort,
-          timeDisplay: match.timeLabel,
-          zoneLetter,
+          timeDisplay: dayShort ? `${dayShort} ${match.timeLabel}` : match.timeLabel,
           pairALabel: pairA?.label || String(match.pairNumbers?.[0] || "?"),
           pairBLabel: pairB?.label || String(match.pairNumbers?.[1] || "?"),
-          venueText: match.courtLabel ? `${match.venueLabel} · ${match.courtLabel}` : match.venueLabel,
+          metaText: metaParts.join(" · "),
         });
       });
     });
@@ -12229,11 +12232,6 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                     {chronologicalZoneMatches.length > 0 ? (
                       <View style={styles.matchProgramCard}>
                         <Text style={styles.matchProgramTitle}>PROGRAMA DE PARTIDOS</Text>
-                        <View style={styles.matchProgramHeader}>
-                          <Text style={[styles.matchProgramCellLabel, styles.matchProgramTimeCol]}>Hora</Text>
-                          <Text style={[styles.matchProgramCellLabel, styles.matchProgramZoneCol]}>Zona</Text>
-                          <Text style={[styles.matchProgramCellLabel, { flex: 1 }]}>Sede</Text>
-                        </View>
                         {chronologicalZoneMatches.map((row, rowIndex) => (
                           <View
                             key={row.key}
@@ -12242,18 +12240,11 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                               rowIndex % 2 === 0 ? styles.matchProgramMatchEven : null,
                             ]}
                           >
-                            <View style={styles.matchProgramMatchRow1}>
-                              <View style={styles.matchProgramTimeCol}>
-                                <Text style={styles.matchProgramDateText}>{row.dayDisplay}</Text>
-                                <Text style={styles.matchProgramTimeText}>{row.timeDisplay}</Text>
-                              </View>
-                              <Text style={[styles.matchProgramZoneText, styles.matchProgramZoneCol]}>{row.zoneLetter}</Text>
-                              <Text style={styles.matchProgramVenueText} numberOfLines={1}>{row.venueText}</Text>
-                            </View>
-                            <View style={styles.matchProgramMatchRow2}>
-                              <View style={styles.matchProgramTimeCol} />
+                            <View style={styles.matchProgramLine1}>
+                              <Text style={styles.matchProgramTimeText}>{row.timeDisplay}</Text>
                               <Text style={styles.matchProgramPairsText} numberOfLines={1}>{row.pairALabel} vs {row.pairBLabel}</Text>
                             </View>
+                            <Text style={styles.matchProgramMetaText} numberOfLines={1}>{row.metaText}</Text>
                           </View>
                         ))}
                       </View>
@@ -15003,64 +14994,33 @@ const styles = StyleSheet.create({
     paddingTop: 10,
     paddingBottom: 6,
   },
-  matchProgramHeader: {
-    backgroundColor: "#D6EEF0",
-    flexDirection: "row",
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-  },
-  matchProgramCellLabel: {
-    color: colors.muted,
-    fontSize: 10,
-    fontWeight: "700",
-    letterSpacing: 0.3,
-  },
   matchProgramMatch: {
     paddingHorizontal: 12,
-    paddingVertical: 7,
+    paddingVertical: 8,
   },
   matchProgramMatchEven: {
     backgroundColor: "#EAF5F6",
   },
-  matchProgramMatchRow1: {
+  matchProgramLine1: {
     alignItems: "center",
     flexDirection: "row",
-  },
-  matchProgramMatchRow2: {
-    flexDirection: "row",
-    marginTop: 2,
-  },
-  matchProgramTimeCol: {
-    width: 58,
-  },
-  matchProgramZoneCol: {
-    width: 30,
-  },
-  matchProgramDateText: {
-    color: colors.muted,
-    fontSize: 11,
-    fontWeight: "600",
+    gap: 8,
   },
   matchProgramTimeText: {
     color: colors.text,
     fontSize: 12,
-    fontWeight: "600",
-  },
-  matchProgramZoneText: {
-    color: colors.primaryDark,
-    fontSize: 13,
     fontWeight: "700",
-    textAlign: "center",
-  },
-  matchProgramVenueText: {
-    color: colors.muted,
-    flex: 1,
-    fontSize: 11,
+    width: 92,
   },
   matchProgramPairsText: {
     color: colors.text,
     flex: 1,
     fontSize: 12,
+  },
+  matchProgramMetaText: {
+    color: colors.muted,
+    fontSize: 11,
+    marginTop: 3,
   },
   newZonePairRow: {
     alignItems: "center",
