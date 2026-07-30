@@ -7815,9 +7815,6 @@ export default function TournamentFixtureScreen({ navigation, route }) {
       });
       return;
     }
-    if (effectiveVenueSchedules !== zoneVenueSchedules) {
-      setZoneVenueSchedules(effectiveVenueSchedules);
-    }
     setBracketDraft(bracketPreview);
     workingBracketPreviewRef.current = bracketPreview;
     pendingFixtureSetupRef.current = {
@@ -7826,7 +7823,6 @@ export default function TournamentFixtureScreen({ navigation, route }) {
       bracketStatus: bracketPreview.mode === "manual" ? "manual_ready" : "automatic_ready",
       lastViewedSection: "bracket",
       zonesPreview: zonesForBracket,
-      zoneVenueSchedules: effectiveVenueSchedules,
     };
     setTournament((current) =>
       current
@@ -7850,7 +7846,6 @@ export default function TournamentFixtureScreen({ navigation, route }) {
         bracketPreview,
         lastViewedSection: "bracket",
         zonesPreview: zonesForBracket,
-        zoneVenueSchedules: effectiveVenueSchedules,
       },
       bracketPreview.mode === "manual"
         ? `Llaves creadas: ${bracketCreationStats.total} partido(s). Quedaron listas para completar manualmente.`
