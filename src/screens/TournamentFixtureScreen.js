@@ -12100,8 +12100,11 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                             <Text style={[styles.newZoneMatchHeaderText, styles.newZoneTimeColumn]}>
                               HORARIO
                             </Text>
+                            <Text style={[styles.newZoneMatchHeaderText, styles.newZoneCourtColumn]}>
+                              CANCHA
+                            </Text>
                             <Text style={[styles.newZoneMatchHeaderText, styles.newZonePlaceColumn]}>
-                              LUGAR
+                              SEDE
                             </Text>
                           </View>
                           {zone.matchRows.length ? (
@@ -12186,6 +12189,12 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                                     {match.timeLabel}
                                   </Text>
                                 </Pressable>
+                                <Text
+                                  numberOfLines={1}
+                                  style={[styles.newZoneMatchCellText, styles.newZoneCourtColumn]}
+                                >
+                                  {match.courtLabel ? match.courtLabel.replace("Cancha ", "") : "-"}
+                                </Text>
                                 <Pressable
                                   disabled={!canEditFixture}
                                   onPress={() => cycleZonePlanningMatchVenue(zone.id, match.key, match.venueId)}
@@ -15133,19 +15142,23 @@ const styles = StyleSheet.create({
     opacity: 1,
   },
   newZoneResultColumn: {
-    flex: 1.04,
+    flex: 0.95,
   },
   newZonePairColumn: {
-    flex: 0.78,
+    flex: 0.70,
   },
   newZoneDayColumn: {
-    flex: 0.74,
+    flex: 0.65,
   },
   newZoneTimeColumn: {
-    flex: 0.78,
+    flex: 0.68,
+  },
+  newZoneCourtColumn: {
+    flex: 0.48,
+    textAlign: "center",
   },
   newZonePlaceColumn: {
-    flex: 0.82,
+    flex: 0.70,
   },
   newZonePlaceText: {
     lineHeight: 11,
