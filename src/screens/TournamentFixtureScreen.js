@@ -6150,21 +6150,23 @@ export default function TournamentFixtureScreen({ navigation, route }) {
 
   const chronologicalZoneMatches = useMemo(() => {
     const rows = [];
-    const isMultiDay = tournamentDayOptions.length > 1;
     newZonePlanningZones.forEach((zone) => {
+      const zoneLetter = zone.bracketLetter || zone.label?.split(" ").pop() || zone.label || "";
       (zone.matchRows || []).forEach((match) => {
         if (!match.startTime) return;
         const pairA = zone.registrations[Number(match.pairNumbers?.[0] || 1) - 1];
         const pairB = zone.registrations[Number(match.pairNumbers?.[1] || 2) - 1];
-        const dayShort = isMultiDay
-          ? (tournamentDayOptions.find((d) => d.key === match.dayKey)?.shortLabel || match.dayLabel || "")
-          : "";
+        const dayShort =
+          tournamentDayOptions.find((d) => d.key === match.dayKey)?.shortLabel ||
+          match.dayLabel ||
+          "";
         rows.push({
           key: `${zone.id}-${match.key}`,
           dayKey: match.dayKey,
           startTime: match.startTime,
-          timeDisplay: dayShort ? `${dayShort} · ${match.timeLabel}` : match.timeLabel,
-          zoneLabel: zone.label,
+          dayDisplay: dayShort,
+          timeDisplay: match.timeLabel,
+          zoneLetter,
           pairALabel: pairA?.label || String(match.pairNumbers?.[0] || "?"),
           pairBLabel: pairB?.label || String(match.pairNumbers?.[1] || "?"),
           venueText: match.courtLabel ? `${match.venueLabel} · ${match.courtLabel}` : match.venueLabel,
@@ -12230,21 +12232,28 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                         <View style={styles.matchProgramHeader}>
                           <Text style={[styles.matchProgramCellLabel, styles.matchProgramTimeCol]}>Hora</Text>
                           <Text style={[styles.matchProgramCellLabel, styles.matchProgramZoneCol]}>Zona</Text>
-                          <Text style={[styles.matchProgramCellLabel, styles.matchProgramPairsCol]}>Partido</Text>
-                          <Text style={[styles.matchProgramCellLabel, styles.matchProgramVenueCol]}>Cancha</Text>
+                          <Text style={[styles.matchProgramCellLabel, { flex: 1 }]}>Sede</Text>
                         </View>
                         {chronologicalZoneMatches.map((row, rowIndex) => (
                           <View
                             key={row.key}
                             style={[
-                              styles.matchProgramRow,
-                              rowIndex % 2 === 0 ? styles.matchProgramRowEven : null,
+                              styles.matchProgramMatch,
+                              rowIndex % 2 === 0 ? styles.matchProgramMatchEven : null,
                             ]}
                           >
-                            <Text style={[styles.matchProgramCell, styles.matchProgramTimeCol]}>{row.timeDisplay}</Text>
-                            <Text style={[styles.matchProgramCell, styles.matchProgramZoneCol]}>{row.zoneLabel}</Text>
-                            <Text style={[styles.matchProgramCell, styles.matchProgramPairsCol]}>{row.pairALabel} vs {row.pairBLabel}</Text>
-                            <Text style={[styles.matchProgramCell, styles.matchProgramVenueCol]}>{row.venueText}</Text>
+                            <View style={styles.matchProgramMatchRow1}>
+                              <View style={styles.matchProgramTimeCol}>
+                                <Text style={styles.matchProgramDateText}>{row.dayDisplay}</Text>
+                                <Text style={styles.matchProgramTimeText}>{row.timeDisplay}</Text>
+                              </View>
+                              <Text style={[styles.matchProgramZoneText, styles.matchProgramZoneCol]}>{row.zoneLetter}</Text>
+                              <Text style={styles.matchProgramVenueText} numberOfLines={1}>{row.venueText}</Text>
+                            </View>
+                            <View style={styles.matchProgramMatchRow2}>
+                              <View style={styles.matchProgramTimeCol} />
+                              <Text style={styles.matchProgramPairsText} numberOfLines={1}>{row.pairALabel} vs {row.pairBLabel}</Text>
+                            </View>
                           </View>
                         ))}
                       </View>
@@ -15000,37 +15009,58 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 6,
   },
-  matchProgramRow: {
-    flexDirection: "row",
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-  },
-  matchProgramRowEven: {
-    backgroundColor: "#EAF5F6",
-  },
   matchProgramCellLabel: {
     color: colors.muted,
     fontSize: 10,
     fontWeight: "700",
     letterSpacing: 0.3,
   },
-  matchProgramCell: {
-    color: colors.text,
-    fontSize: 12,
+  matchProgramMatch: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  matchProgramMatchEven: {
+    backgroundColor: "#EAF5F6",
+  },
+  matchProgramMatchRow1: {
+    alignItems: "center",
+    flexDirection: "row",
+  },
+  matchProgramMatchRow2: {
+    flexDirection: "row",
+    marginTop: 2,
   },
   matchProgramTimeCol: {
-    width: 72,
+    width: 58,
   },
   matchProgramZoneCol: {
-    width: 46,
+    width: 30,
   },
-  matchProgramPairsCol: {
-    flex: 1,
-  },
-  matchProgramVenueCol: {
+  matchProgramDateText: {
+    color: colors.muted,
     fontSize: 11,
-    textAlign: "right",
-    width: 88,
+    fontWeight: "600",
+  },
+  matchProgramTimeText: {
+    color: colors.text,
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  matchProgramZoneText: {
+    color: colors.primaryDark,
+    fontSize: 13,
+    fontWeight: "700",
+    textAlign: "center",
+  },
+  matchProgramVenueText: {
+    color: colors.muted,
+    flex: 1,
+    fontSize: 11,
+  },
+  matchProgramPairsText: {
+    color: colors.text,
+    flex: 1,
+    fontSize: 12,
   },
   newZonePairRow: {
     alignItems: "center",
