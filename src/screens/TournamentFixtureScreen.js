@@ -1233,6 +1233,9 @@ function computeAvailabilityCompatibilityScore(availA = {}, availB = {}) {
   let score = 0;
   daysA.forEach((dayKey) => {
     if (!availB[dayKey]) return;
+    // Bonus por compartir el mismo día (aunque los horarios no se superpongan).
+    // Garantiza que parejas del mismo día queden juntas en zona antes que parejas de distintos días.
+    score += 1;
     const rangesA = getDayTimeRanges(availA[dayKey]);
     const rangesB = getDayTimeRanges(availB[dayKey]);
     rangesA.forEach((ra) => {
@@ -1363,7 +1366,8 @@ function buildAutoMatchSchedules(zones = [], registrationsById, venueSchedules =
         );
 
       const strictCandidates = findCandidates(0);
-      const candidates = strictCandidates.length ? strictCandidates : findCandidates(AVAILABILITY_EXTENSION_MINUTES);
+      const extendedCandidates = strictCandidates.length ? strictCandidates : findCandidates(AVAILABILITY_EXTENSION_MINUTES);
+      const candidates = extendedCandidates.length ? extendedCandidates : findCandidates(AVAILABILITY_EXTENSION_MINUTES * 2);
 
       if (!candidates.length) {
         unassignedCount++;
@@ -7050,7 +7054,8 @@ export default function TournamentFixtureScreen({ navigation, route }) {
             });
 
           const strictSlots = filterSlots(0);
-          const nextSlot = (strictSlots.length ? strictSlots : filterSlots(AVAILABILITY_EXTENSION_MINUTES))
+          const extendedSlots = strictSlots.length ? strictSlots : filterSlots(AVAILABILITY_EXTENSION_MINUTES);
+          const nextSlot = (extendedSlots.length ? extendedSlots : filterSlots(AVAILABILITY_EXTENSION_MINUTES * 2))
             .sort((firstSlot, secondSlot) => {
               const getVenueContinuityScore = (slot) =>
                 [...pairAOccupiedSlots, ...pairBOccupiedSlots].reduce((score, entry) => {
