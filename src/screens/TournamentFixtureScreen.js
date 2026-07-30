@@ -12100,7 +12100,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                             <Text style={[styles.newZoneMatchHeaderText, styles.newZoneTimeColumn]}>
                               HORA
                             </Text>
-                            <Text style={[styles.newZoneMatchHeaderText, styles.newZoneCourtColumn, { fontSize: 8 }]}>
+                            <Text style={[styles.newZoneMatchHeaderText, styles.newZoneCourtColumn, { fontSize: 7, paddingHorizontal: 2 }]}>
                               CANCHA
                             </Text>
                             <Text style={[styles.newZoneMatchHeaderText, styles.newZonePlaceColumn]}>
