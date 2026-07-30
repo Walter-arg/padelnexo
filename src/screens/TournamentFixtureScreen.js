@@ -220,6 +220,7 @@ function getDistanceBetweenTouches(touches = []) {
 }
 
 const ZONE_MATCH_DURATION_MINUTES = 75;
+const AVAILABILITY_EXTENSION_MINUTES = 90;
 
 function formatTwoDigits(value) {
   return String(value).padStart(2, "0");
@@ -428,18 +429,18 @@ function expandAvailabilityWindowsForDay(dayAvailability = {}) {
   return windows;
 }
 
-function isSlotInsideWindow(slotStartMinutes, slotEndMinutes, window = {}) {
-  const windowStart = parseTimeToMinutes(window.from);
-  const windowEnd = parseTimeToMinutes(window.to);
+function isSlotInsideWindow(slotStartMinutes, slotEndMinutes, window = {}, extensionMinutes = 0) {
+  const rawStart = parseTimeToMinutes(window.from);
+  const rawEnd = parseTimeToMinutes(window.to);
 
-  if (windowEnd <= windowStart) {
+  if (rawEnd <= rawStart) {
     return false;
   }
 
-  return slotStartMinutes >= windowStart && slotEndMinutes <= windowEnd;
+  return slotStartMinutes >= rawStart - extensionMinutes && slotEndMinutes <= rawEnd + extensionMinutes;
 }
 
-function isPairAvailableForSlot(availability = {}, dayKey = "", slotStartMinutes = 0, slotEndMinutes = 0) {
+function isPairAvailableForSlot(availability = {}, dayKey = "", slotStartMinutes = 0, slotEndMinutes = 0, extensionMinutes = 0) {
   // No availability configured at all → can play any time (pair chose "coordinate by chat")
   if (!Object.keys(availability).length) {
     return true;
@@ -458,7 +459,7 @@ function isPairAvailableForSlot(availability = {}, dayKey = "", slotStartMinutes
     return false;
   }
 
-  return windows.some((window) => isSlotInsideWindow(slotStartMinutes, slotEndMinutes, window));
+  return windows.some((window) => isSlotInsideWindow(slotStartMinutes, slotEndMinutes, window, extensionMinutes));
 }
 
 function buildZoneMatchSchedulingSlots(schedules = [], durationMinutes = ZONE_MATCH_DURATION_MINUTES) {
@@ -1351,14 +1352,18 @@ function buildAutoMatchSchedules(zones = [], registrationsById, venueSchedules =
       const occA = pairOccupancy.get(idA) || [];
       const occB = pairOccupancy.get(idB) || [];
 
-      const candidates = slots.filter(
-        (slot) =>
-          !usedSlotIds.has(slot.id) &&
-          !occA.some((u) => overlaps(slot, u)) &&
-          !occB.some((u) => overlaps(slot, u)) &&
-          isPairAvailableForSlot(availA, slot.dayKey, slot.startMinutes, slot.endMinutes) &&
-          isPairAvailableForSlot(availB, slot.dayKey, slot.startMinutes, slot.endMinutes)
-      );
+      const findCandidates = (extensionMinutes) =>
+        slots.filter(
+          (slot) =>
+            !usedSlotIds.has(slot.id) &&
+            !occA.some((u) => overlaps(slot, u)) &&
+            !occB.some((u) => overlaps(slot, u)) &&
+            isPairAvailableForSlot(availA, slot.dayKey, slot.startMinutes, slot.endMinutes, extensionMinutes) &&
+            isPairAvailableForSlot(availB, slot.dayKey, slot.startMinutes, slot.endMinutes, extensionMinutes)
+        );
+
+      const strictCandidates = findCandidates(0);
+      const candidates = strictCandidates.length ? strictCandidates : findCandidates(AVAILABILITY_EXTENSION_MINUTES);
 
       if (!candidates.length) {
         unassignedCount++;
@@ -6996,8 +7001,8 @@ export default function TournamentFixtureScreen({ navigation, route }) {
           const pairB = registrationsById.get(match.teamBId);
           const pairAOccupiedSlots = pairOccupancy.get(match.teamAId) || [];
           const pairBOccupiedSlots = pairOccupancy.get(match.teamBId) || [];
-          const nextSlot = allSlots
-            .filter((slot) => {
+          const filterSlots = (extensionMinutes) =>
+            allSlots.filter((slot) => {
               if (usedSlotIds.has(slot.id)) {
                 return false;
               }
@@ -7039,10 +7044,13 @@ export default function TournamentFixtureScreen({ navigation, route }) {
               }
 
               return (
-                isPairAvailableForSlot(pairA?.availability, slot.dayKey, slot.startMinutes, slot.endMinutes) &&
-                isPairAvailableForSlot(pairB?.availability, slot.dayKey, slot.startMinutes, slot.endMinutes)
+                isPairAvailableForSlot(pairA?.availability, slot.dayKey, slot.startMinutes, slot.endMinutes, extensionMinutes) &&
+                isPairAvailableForSlot(pairB?.availability, slot.dayKey, slot.startMinutes, slot.endMinutes, extensionMinutes)
               );
-            })
+            });
+
+          const strictSlots = filterSlots(0);
+          const nextSlot = (strictSlots.length ? strictSlots : filterSlots(AVAILABILITY_EXTENSION_MINUTES))
             .sort((firstSlot, secondSlot) => {
               const getVenueContinuityScore = (slot) =>
                 [...pairAOccupiedSlots, ...pairBOccupiedSlots].reduce((score, entry) => {
