@@ -440,16 +440,22 @@ function isSlotInsideWindow(slotStartMinutes, slotEndMinutes, window = {}) {
 }
 
 function isPairAvailableForSlot(availability = {}, dayKey = "", slotStartMinutes = 0, slotEndMinutes = 0) {
+  // No availability configured at all → can play any time (pair chose "coordinate by chat")
+  if (!Object.keys(availability).length) {
+    return true;
+  }
+
   const dayAvailability = availability?.[dayKey];
 
+  // Has availability for other days but not this one → not available this day
   if (!dayAvailability) {
-    return true;
+    return false;
   }
 
   const windows = expandAvailabilityWindowsForDay(dayAvailability);
 
   if (!windows.length) {
-    return true;
+    return false;
   }
 
   return windows.some((window) => isSlotInsideWindow(slotStartMinutes, slotEndMinutes, window));
