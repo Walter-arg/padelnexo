@@ -12098,9 +12098,9 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                               DIA
                             </Text>
                             <Text style={[styles.newZoneMatchHeaderText, styles.newZoneTimeColumn]}>
-                              HORARIO
+                              HORA
                             </Text>
-                            <Text style={[styles.newZoneMatchHeaderText, styles.newZoneCourtColumn]}>
+                            <Text style={[styles.newZoneMatchHeaderText, styles.newZoneCourtColumn, { fontSize: 8 }]}>
                               CANCHA
                             </Text>
                             <Text style={[styles.newZoneMatchHeaderText, styles.newZonePlaceColumn]}>
