@@ -6930,7 +6930,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
   const assignSchedulesToZoneMatches = useCallback(
     (sourceZones = []) => {
       const allSlots = buildZoneMatchSchedulingSlots(
-        zoneVenueSchedules,
+        zoneVenueSchedules.filter((s) => s.useForZones),
         currentZoneMatchDurationMinutes
       );
       const usedSlotIds = new Set();
