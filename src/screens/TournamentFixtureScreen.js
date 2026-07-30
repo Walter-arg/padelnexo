@@ -6156,10 +6156,11 @@ export default function TournamentFixtureScreen({ navigation, route }) {
         if (!match.startTime) return;
         const pairA = zone.registrations[Number(match.pairNumbers?.[0] || 1) - 1];
         const pairB = zone.registrations[Number(match.pairNumbers?.[1] || 2) - 1];
-        const dayShort =
-          tournamentDayOptions.find((d) => d.key === match.dayKey)?.shortLabel ||
-          match.dayLabel ||
-          "";
+        const dayOption = tournamentDayOptions.find((d) => d.key === match.dayKey);
+        const rawWeekday = dayOption ? (dayOption.label || "").split(" ")[0] : "";
+        const dayShort = rawWeekday
+          ? rawWeekday.charAt(0).toUpperCase() + rawWeekday.slice(1)
+          : "";
         const metaParts = [zoneLabel];
         if (match.courtLabel) metaParts.push(match.courtLabel);
         if (match.venueLabel && match.venueLabel !== "Elegir" && match.venueLabel !== "Sin sede") {
@@ -15004,23 +15005,23 @@ const styles = StyleSheet.create({
   matchProgramLine1: {
     alignItems: "center",
     flexDirection: "row",
-    gap: 8,
   },
   matchProgramTimeText: {
     color: colors.text,
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "700",
-    width: 92,
+    width: 80,
   },
   matchProgramPairsText: {
     color: colors.text,
     flex: 1,
-    fontSize: 12,
+    fontSize: 11,
   },
   matchProgramMetaText: {
     color: colors.muted,
-    fontSize: 11,
+    fontSize: 10,
     marginTop: 3,
+    textAlign: "center",
   },
   newZonePairRow: {
     alignItems: "center",
