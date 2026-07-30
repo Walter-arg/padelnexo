@@ -9705,7 +9705,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
               pressed ? styles.primaryButtonPressed : null,
             ]}
           >
-            <Text style={styles.bracketResultModalButtonText}>Definir</Text>
+            <Text style={styles.bracketResultModalButtonText}>Editar</Text>
           </Pressable>
         ) : null}
       </View>
