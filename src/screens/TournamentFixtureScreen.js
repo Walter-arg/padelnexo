@@ -1378,6 +1378,7 @@ function buildAutoMatchSchedules(zones = [], registrationsById, venueSchedules =
         dayKey: chosen.dayKey,
         startTime: formatMinutesToTime(chosen.startMinutes),
         venueId: chosen.venueId,
+        courtIndex: chosen.courtIndex || 0,
       };
     });
 
@@ -6081,6 +6082,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
             (tournamentVenueOptions.length ? "Elegir" : "Sin sede");
 
           return {
+            courtLabel: schedule.courtIndex ? `Cancha ${schedule.courtIndex}` : "",
             dayLabel: effectiveDayKey
               ? formatScheduleWeekdayDisplay(effectiveDayKey, tournamentDayOptions)
               : "Dia",
@@ -6145,6 +6147,40 @@ export default function TournamentFixtureScreen({ navigation, route }) {
     tournamentRuleSet,
     tournamentVenueOptions,
   ]);
+
+  const chronologicalZoneMatches = useMemo(() => {
+    const rows = [];
+    const isMultiDay = tournamentDayOptions.length > 1;
+    newZonePlanningZones.forEach((zone) => {
+      (zone.matchRows || []).forEach((match) => {
+        if (!match.startTime) return;
+        const pairA = zone.registrations[Number(match.pairNumbers?.[0] || 1) - 1];
+        const pairB = zone.registrations[Number(match.pairNumbers?.[1] || 2) - 1];
+        const dayShort = isMultiDay
+          ? (tournamentDayOptions.find((d) => d.key === match.dayKey)?.shortLabel || match.dayLabel || "")
+          : "";
+        rows.push({
+          key: `${zone.id}-${match.key}`,
+          dayKey: match.dayKey,
+          startTime: match.startTime,
+          timeDisplay: dayShort ? `${dayShort} · ${match.timeLabel}` : match.timeLabel,
+          zoneLabel: zone.label,
+          pairALabel: pairA?.label || String(match.pairNumbers?.[0] || "?"),
+          pairBLabel: pairB?.label || String(match.pairNumbers?.[1] || "?"),
+          venueText: match.courtLabel ? `${match.venueLabel} · ${match.courtLabel}` : match.venueLabel,
+        });
+      });
+    });
+
+    const dayOrderByKey = new Map(tournamentDayOptions.map((d, i) => [d.key, i]));
+    return rows.sort((a, b) => {
+      const aDay = dayOrderByKey.get(a.dayKey) ?? Number.MAX_SAFE_INTEGER;
+      const bDay = dayOrderByKey.get(b.dayKey) ?? Number.MAX_SAFE_INTEGER;
+      if (aDay !== bDay) return aDay - bDay;
+      return parseTimeToMinutes(a.startTime) - parseTimeToMinutes(b.startTime);
+    });
+  }, [newZonePlanningZones, tournamentDayOptions]);
+
   const buildZonesPreviewForPlanning = useCallback(
     (zonePlanning) =>
       buildZonesPreviewFromZonePlanning({
@@ -12188,6 +12224,31 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                         </Pressable>
                       </View>
                     ) : null}
+                    {chronologicalZoneMatches.length > 0 ? (
+                      <View style={styles.matchProgramCard}>
+                        <Text style={styles.matchProgramTitle}>PROGRAMA DE PARTIDOS</Text>
+                        <View style={styles.matchProgramHeader}>
+                          <Text style={[styles.matchProgramCellLabel, styles.matchProgramTimeCol]}>Hora</Text>
+                          <Text style={[styles.matchProgramCellLabel, styles.matchProgramZoneCol]}>Zona</Text>
+                          <Text style={[styles.matchProgramCellLabel, styles.matchProgramPairsCol]}>Partido</Text>
+                          <Text style={[styles.matchProgramCellLabel, styles.matchProgramVenueCol]}>Cancha</Text>
+                        </View>
+                        {chronologicalZoneMatches.map((row, rowIndex) => (
+                          <View
+                            key={row.key}
+                            style={[
+                              styles.matchProgramRow,
+                              rowIndex % 2 === 0 ? styles.matchProgramRowEven : null,
+                            ]}
+                          >
+                            <Text style={[styles.matchProgramCell, styles.matchProgramTimeCol]}>{row.timeDisplay}</Text>
+                            <Text style={[styles.matchProgramCell, styles.matchProgramZoneCol]}>{row.zoneLabel}</Text>
+                            <Text style={[styles.matchProgramCell, styles.matchProgramPairsCol]}>{row.pairALabel} vs {row.pairBLabel}</Text>
+                            <Text style={[styles.matchProgramCell, styles.matchProgramVenueCol]}>{row.venueText}</Text>
+                          </View>
+                        ))}
+                      </View>
+                    ) : null}
                   </View>
                 ) : (
                   <Text style={styles.emptyText}>
@@ -14915,6 +14976,61 @@ const styles = StyleSheet.create({
   },
   zoneShareButtonDisabled: {
     opacity: 0.65,
+  },
+  matchProgramCard: {
+    backgroundColor: "#F0F8F9",
+    borderColor: "#B8DCDD",
+    borderRadius: 12,
+    borderWidth: 1,
+    marginTop: spacing.md,
+    overflow: "hidden",
+  },
+  matchProgramTitle: {
+    color: colors.primaryDark,
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 0.8,
+    paddingHorizontal: 12,
+    paddingTop: 10,
+    paddingBottom: 6,
+  },
+  matchProgramHeader: {
+    backgroundColor: "#D6EEF0",
+    flexDirection: "row",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  matchProgramRow: {
+    flexDirection: "row",
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  matchProgramRowEven: {
+    backgroundColor: "#EAF5F6",
+  },
+  matchProgramCellLabel: {
+    color: colors.muted,
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 0.3,
+  },
+  matchProgramCell: {
+    color: colors.text,
+    fontSize: 12,
+  },
+  matchProgramTimeCol: {
+    width: 72,
+  },
+  matchProgramZoneCol: {
+    width: 46,
+  },
+  matchProgramPairsCol: {
+    flex: 1,
+  },
+  matchProgramVenueCol: {
+    fontSize: 11,
+    textAlign: "right",
+    width: 88,
   },
   newZonePairRow: {
     alignItems: "center",
