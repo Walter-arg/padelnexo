@@ -15107,7 +15107,7 @@ const styles = StyleSheet.create({
   },
   newZoneMatchHeaderText: {
     color: "#1F6D69",
-    fontSize: 9,
+    fontSize: 8,
     fontWeight: "900",
     paddingHorizontal: 5,
     paddingVertical: 7,
@@ -15152,7 +15152,7 @@ const styles = StyleSheet.create({
     flex: 0.65,
   },
   newZoneTimeColumn: {
-    flex: 0.55,
+    flex: 0.44,
   },
   newZoneCourtColumn: {
     flex: 0.62,
