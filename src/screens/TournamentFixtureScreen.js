@@ -12100,7 +12100,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                             <Text style={[styles.newZoneMatchHeaderText, styles.newZoneTimeColumn]}>
                               HORA
                             </Text>
-                            <Text style={[styles.newZoneMatchHeaderText, styles.newZoneCourtColumn, { fontSize: 7, paddingHorizontal: 2 }]}>
+                            <Text style={[styles.newZoneMatchHeaderText, styles.newZoneCourtColumn]}>
                               CANCHA
                             </Text>
                             <Text style={[styles.newZoneMatchHeaderText, styles.newZonePlaceColumn]}>
@@ -15098,6 +15098,7 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   newZoneMatchHeader: {
+    alignItems: "center",
     backgroundColor: "#E1F4F0",
     borderBottomColor: "#9FD6CF",
     borderBottomWidth: 1,
@@ -15151,10 +15152,10 @@ const styles = StyleSheet.create({
     flex: 0.65,
   },
   newZoneTimeColumn: {
-    flex: 0.68,
+    flex: 0.55,
   },
   newZoneCourtColumn: {
-    flex: 0.48,
+    flex: 0.62,
     textAlign: "center",
   },
   newZonePlaceColumn: {
