@@ -5100,6 +5100,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
   const [zoneMatchTimePickerTarget, setZoneMatchTimePickerTarget] = useState(null);
   const [zonePlanningDayPickerTarget, setZonePlanningDayPickerTarget] = useState(null);
   const [zonePlanningTimePickerTarget, setZonePlanningTimePickerTarget] = useState(null);
+  const [zonePlanningSlotPickerTarget, setZonePlanningSlotPickerTarget] = useState(null);
   const [zonePlanningResultEditor, setZonePlanningResultEditor] = useState(null);
   const [bracketResultEditor, setBracketResultEditor] = useState(null);
   const [bracketProgramEditor, setBracketProgramEditor] = useState(null);
@@ -6202,6 +6203,37 @@ export default function TournamentFixtureScreen({ navigation, route }) {
       return parseTimeToMinutes(a.startTime) - parseTimeToMinutes(b.startTime);
     });
   }, [newZonePlanningZones, tournamentDayOptions]);
+
+  const zonePlanningSlotsByDay = useMemo(() => {
+    if (!zonePlanningSlotPickerTarget) return [];
+    const { zoneId, matchKey } = zonePlanningSlotPickerTarget;
+    const occupiedKeys = new Set();
+    (activeZonePlanning?.zones || []).forEach((zone) => {
+      Object.entries(zone.matchSchedules || {}).forEach(([mk, schedule]) => {
+        if (zone.id === zoneId && mk === matchKey) return;
+        if (!schedule.startTime || !schedule.dayKey) return;
+        occupiedKeys.add(`${schedule.dayKey}|${schedule.startTime}|${schedule.venueId || ""}|${schedule.courtIndex || 0}`);
+      });
+    });
+    const allSlots = buildZoneMatchSchedulingSlots(
+      zoneVenueSchedules.filter((s) => s.useForZones),
+      currentZoneMatchDurationMinutes
+    );
+    const available = allSlots.filter((slot) => {
+      const key = `${slot.dayKey}|${formatMinutesToTime(slot.startMinutes)}|${slot.venueId}|${slot.courtIndex}`;
+      return !occupiedKeys.has(key);
+    });
+    const grouped = {};
+    available.forEach((slot) => {
+      if (!grouped[slot.dayKey]) grouped[slot.dayKey] = [];
+      grouped[slot.dayKey].push(slot);
+    });
+    return tournamentDayOptions.filter((day) => grouped[day.key]).map((day) => ({
+      dayKey: day.key,
+      dayLabel: day.label,
+      slots: grouped[day.key],
+    }));
+  }, [zonePlanningSlotPickerTarget, activeZonePlanning, zoneVenueSchedules, currentZoneMatchDurationMinutes, tournamentDayOptions]);
 
   const buildZonesPreviewForPlanning = useCallback(
     (zonePlanning) =>
@@ -7574,6 +7606,31 @@ export default function TournamentFixtureScreen({ navigation, route }) {
         venueLabel: nextVenue.label || nextVenue.name || "",
       });
     }
+  };
+
+  const handleSelectZonePlanningSlot = (slot) => {
+    if (!zonePlanningSlotPickerTarget) return;
+    updateZonePlanningMatchSchedule(
+      zonePlanningSlotPickerTarget.zoneId,
+      zonePlanningSlotPickerTarget.matchKey,
+      {
+        dayKey: slot.dayKey,
+        startTime: formatMinutesToTime(slot.startMinutes),
+        venueId: slot.venueId,
+        courtIndex: slot.courtIndex,
+      }
+    );
+    setZonePlanningSlotPickerTarget(null);
+  };
+
+  const handleClearZonePlanningSlot = () => {
+    if (!zonePlanningSlotPickerTarget) return;
+    updateZonePlanningMatchSchedule(
+      zonePlanningSlotPickerTarget.zoneId,
+      zonePlanningSlotPickerTarget.matchKey,
+      { dayKey: "", startTime: "", venueId: "", courtIndex: 0 }
+    );
+    setZonePlanningSlotPickerTarget(null);
   };
 
   const handleZonePlanningTimePickerChange = (_, selectedDate) => {
@@ -12212,10 +12269,15 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                                 <Pressable
                                   disabled={!canEditFixture}
                                   onPress={() =>
-                                    setZonePlanningTimePickerTarget({
-                                      currentValue: match.startTime || "19:00",
+                                    setZonePlanningSlotPickerTarget({
                                       matchKey: match.key,
                                       zoneId: zone.id,
+                                      currentStartTime: match.startTime || "",
+                                      currentDayKey: match.dayKey || "",
+                                      currentVenueId: match.venueId || "",
+                                      currentCourtIndex: match.courtLabel
+                                        ? Number(match.courtLabel.replace(/\D/g, "")) || 0
+                                        : 0,
                                     })
                                   }
                                   style={[
@@ -13481,6 +13543,65 @@ export default function TournamentFixtureScreen({ navigation, route }) {
           value={buildDateFromTime(bracketMatchTimePickerTarget.currentValue)}
         />
       ) : null}
+      <Modal
+        animationType="fade"
+        onRequestClose={() => setZonePlanningSlotPickerTarget(null)}
+        transparent
+        visible={Boolean(zonePlanningSlotPickerTarget)}
+      >
+        <View style={styles.confirmOverlay}>
+          <Pressable onPress={() => setZonePlanningSlotPickerTarget(null)} style={styles.confirmBackdrop} />
+          <View style={styles.slotPickerCard}>
+            <Text style={styles.slotPickerTitle}>Seleccionar horario</Text>
+            <ScrollView showsVerticalScrollIndicator={false} style={styles.slotPickerScroll}>
+              <Pressable
+                onPress={handleClearZonePlanningSlot}
+                style={styles.slotPickerClearRow}
+              >
+                <Ionicons color={colors.muted} name="close-circle-outline" size={16} />
+                <Text style={styles.slotPickerClearText}>Sin horario</Text>
+              </Pressable>
+              {zonePlanningSlotsByDay.length === 0 ? (
+                <Text style={styles.slotPickerEmptyText}>
+                  No hay horarios disponibles. Todos los slots ya tienen partido asignado.
+                </Text>
+              ) : (
+                zonePlanningSlotsByDay.map((group) => (
+                  <View key={`slot-group-${group.dayKey}`}>
+                    <Text style={styles.slotPickerDayHeader}>{group.dayLabel.toUpperCase()}</Text>
+                    {group.slots.map((slot) => {
+                      const isCurrentSlot =
+                        zonePlanningSlotPickerTarget &&
+                        slot.dayKey === zonePlanningSlotPickerTarget.currentDayKey &&
+                        formatMinutesToTime(slot.startMinutes) === zonePlanningSlotPickerTarget.currentStartTime &&
+                        slot.venueId === zonePlanningSlotPickerTarget.currentVenueId &&
+                        slot.courtIndex === zonePlanningSlotPickerTarget.currentCourtIndex;
+
+                      return (
+                        <Pressable
+                          key={slot.id}
+                          onPress={() => handleSelectZonePlanningSlot(slot)}
+                          style={[styles.slotPickerOption, isCurrentSlot ? styles.slotPickerOptionSelected : null]}
+                        >
+                          <Text style={[styles.slotPickerOptionTime, isCurrentSlot ? styles.slotPickerOptionTimeSelected : null]}>
+                            {formatMinutesToTime(slot.startMinutes)} hs
+                          </Text>
+                          <Text style={[styles.slotPickerOptionVenue, isCurrentSlot ? styles.slotPickerOptionVenueSelected : null]} numberOfLines={1}>
+                            {slot.venueName} · Cancha {slot.courtIndex}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                ))
+              )}
+            </ScrollView>
+            <Pressable onPress={() => setZonePlanningSlotPickerTarget(null)} style={styles.slotPickerCancelButton}>
+              <Text style={styles.slotPickerCancelText}>Cancelar</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
       <Modal
         animationType="fade"
         onRequestClose={() => setZoneMatchPickerState({ zoneId: "", matchId: "", field: "" })}
@@ -16794,6 +16915,102 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 12,
     fontWeight: "900",
+  },
+  slotPickerCard: {
+    alignSelf: "center",
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 18,
+    borderWidth: 1,
+    marginHorizontal: spacing.lg,
+    marginTop: "15%",
+    maxWidth: 380,
+    paddingBottom: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.md,
+    width: "92%",
+    zIndex: 3,
+  },
+  slotPickerTitle: {
+    color: colors.primaryDark,
+    fontSize: 13,
+    fontWeight: "900",
+    marginBottom: spacing.sm,
+    textAlign: "center",
+    textTransform: "uppercase",
+  },
+  slotPickerScroll: {
+    maxHeight: 340,
+  },
+  slotPickerClearRow: {
+    alignItems: "center",
+    borderBottomColor: colors.border,
+    borderBottomWidth: 1,
+    flexDirection: "row",
+    gap: 8,
+    paddingVertical: spacing.sm,
+    marginBottom: spacing.xs,
+  },
+  slotPickerClearText: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  slotPickerEmptyText: {
+    color: colors.muted,
+    fontSize: 12,
+    paddingVertical: spacing.md,
+    textAlign: "center",
+  },
+  slotPickerDayHeader: {
+    color: colors.primaryDark,
+    fontSize: 10,
+    fontWeight: "900",
+    letterSpacing: 0.8,
+    marginBottom: 4,
+    marginTop: spacing.sm,
+  },
+  slotPickerOption: {
+    alignItems: "center",
+    borderColor: colors.border,
+    borderRadius: 10,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 10,
+    marginBottom: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  slotPickerOptionSelected: {
+    backgroundColor: "#DDF6EF",
+    borderColor: "#89D9C4",
+  },
+  slotPickerOptionTime: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: "700",
+    width: 60,
+  },
+  slotPickerOptionTimeSelected: {
+    color: "#176B5B",
+  },
+  slotPickerOptionVenue: {
+    color: colors.muted,
+    flex: 1,
+    fontSize: 12,
+  },
+  slotPickerOptionVenueSelected: {
+    color: "#176B5B",
+  },
+  slotPickerCancelButton: {
+    alignItems: "center",
+    marginTop: spacing.sm,
+    paddingVertical: 8,
+  },
+  slotPickerCancelText: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "600",
   },
   bracketDayPickerModalCard: {
     alignSelf: "center",
