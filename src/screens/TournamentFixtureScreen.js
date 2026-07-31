@@ -11318,7 +11318,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                   ]}
                 >
                   <Text style={[styles.secondaryActionButtonText, styles.newZoneModeButtonText]}>
-                    ARMADO{"\n"}MANUAL
+                    ARMADO{"\n"}MANUAL - EDITAR
                   </Text>
                 </Pressable>
               </View>
@@ -12042,11 +12042,20 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                       const isMyZone =
                         !!highlightedPairId &&
                         zone.registrations.some((r) => r.id === highlightedPairId);
+                      const hasUnscheduledMatches = zone.matchRows.some((m) => !m.startTime);
                       return (
-                      <View key={zone.id} style={[styles.newZoneCard, isMyZone ? styles.newZoneCardHighlighted : null]}>
+                      <View key={zone.id} style={[styles.newZoneCard, isMyZone ? styles.newZoneCardHighlighted : null, hasUnscheduledMatches ? styles.newZoneCardUnscheduled : null]}>
                         <View style={styles.newZoneTitleWrap}>
                           <Text style={styles.newZoneTitle}>{zone.label}</Text>
                         </View>
+                        {hasUnscheduledMatches ? (
+                          <View style={styles.newZoneUnscheduledBanner}>
+                            <Ionicons color={colors.danger} name="warning-outline" size={13} />
+                            <Text style={styles.newZoneUnscheduledBannerText}>
+                              Atención: hay partidos sin horario designado
+                            </Text>
+                          </View>
+                        ) : null}
                         <View style={styles.newZonePairsStack}>
                           {zone.registrations.map((registration) => (
                             <View
@@ -14969,6 +14978,27 @@ const styles = StyleSheet.create({
   newZoneCardHighlighted: {
     borderColor: "#1F6F78",
     borderWidth: 2,
+  },
+  newZoneCardUnscheduled: {
+    borderColor: colors.danger,
+    borderWidth: 2,
+  },
+  newZoneUnscheduledBanner: {
+    alignItems: "center",
+    backgroundColor: "#FFF0F0",
+    borderColor: colors.danger,
+    borderRadius: 8,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 5,
+    marginTop: spacing.sm,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  newZoneUnscheduledBannerText: {
+    color: colors.danger,
+    fontSize: 11,
+    fontWeight: "600",
   },
   newZoneTitleWrap: {
     alignSelf: "center",
