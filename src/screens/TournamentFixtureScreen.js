@@ -13596,9 +13596,28 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                 ))
               )}
             </ScrollView>
-            <Pressable onPress={() => setZonePlanningSlotPickerTarget(null)} style={styles.slotPickerCancelButton}>
-              <Text style={styles.slotPickerCancelText}>Cancelar</Text>
-            </Pressable>
+            <View style={styles.slotPickerFooter}>
+              <Pressable
+                onPress={() => {
+                  const target = zonePlanningSlotPickerTarget;
+                  setZonePlanningSlotPickerTarget(null);
+                  if (target) {
+                    setZonePlanningTimePickerTarget({
+                      currentValue: target.currentStartTime || "19:00",
+                      matchKey: target.matchKey,
+                      zoneId: target.zoneId,
+                    });
+                  }
+                }}
+                style={styles.slotPickerCustomButton}
+              >
+                <Ionicons color={colors.primaryDark} name="time-outline" size={15} />
+                <Text style={styles.slotPickerCustomText}>Horario libre</Text>
+              </Pressable>
+              <Pressable onPress={() => setZonePlanningSlotPickerTarget(null)} style={styles.slotPickerCancelButton}>
+                <Text style={styles.slotPickerCancelText}>Cancelar</Text>
+              </Pressable>
+            </View>
           </View>
         </View>
       </Modal>
@@ -17002,9 +17021,29 @@ const styles = StyleSheet.create({
   slotPickerOptionVenueSelected: {
     color: "#176B5B",
   },
+  slotPickerFooter: {
+    alignItems: "center",
+    borderTopColor: colors.border,
+    borderTopWidth: 1,
+    flexDirection: "row",
+    gap: 8,
+    justifyContent: "space-between",
+    marginTop: spacing.sm,
+    paddingTop: spacing.sm,
+  },
+  slotPickerCustomButton: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 5,
+    paddingVertical: 8,
+  },
+  slotPickerCustomText: {
+    color: colors.primaryDark,
+    fontSize: 13,
+    fontWeight: "700",
+  },
   slotPickerCancelButton: {
     alignItems: "center",
-    marginTop: spacing.sm,
     paddingVertical: 8,
   },
   slotPickerCancelText: {
