@@ -6098,8 +6098,8 @@ export default function TournamentFixtureScreen({ navigation, route }) {
 
           return {
             courtLabel: schedule.courtIndex ? `Cancha ${schedule.courtIndex}` : "",
-            dayLabel: effectiveDayKey
-              ? formatScheduleWeekdayDisplay(effectiveDayKey, tournamentDayOptions)
+            dayLabel: schedule.dayKey
+              ? formatScheduleWeekdayDisplay(schedule.dayKey, tournamentDayOptions)
               : "Dia",
             dayKey: effectiveDayKey,
             key: matchLabel,
