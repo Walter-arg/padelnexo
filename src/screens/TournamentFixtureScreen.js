@@ -12280,7 +12280,11 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                           >
                             <View style={styles.matchProgramLine1}>
                               <Text style={styles.matchProgramTimeText}>{row.timeDisplay}</Text>
-                              <Text style={styles.matchProgramPairsText} numberOfLines={1}>{row.pairALabel} vs {row.pairBLabel}</Text>
+                              <Text style={styles.matchProgramPairsText} numberOfLines={1}>
+                                {row.pairALabel}{" "}
+                                <Text style={styles.matchProgramVsText}>vs</Text>
+                                {" "}{row.pairBLabel}
+                              </Text>
                             </View>
                             <Text style={styles.matchProgramMetaText} numberOfLines={1}>{row.metaText}</Text>
                           </View>
@@ -15068,12 +15072,16 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 11,
     fontWeight: "700",
-    width: 80,
+    width: 62,
   },
   matchProgramPairsText: {
     color: colors.text,
     flex: 1,
-    fontSize: 11,
+    fontSize: 10,
+  },
+  matchProgramVsText: {
+    color: "#000",
+    fontWeight: "700",
   },
   matchProgramMetaText: {
     color: colors.muted,
