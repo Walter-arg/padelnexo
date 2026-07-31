@@ -586,6 +586,8 @@ export default function TournamentZonePlanningScreen({ navigation, route }) {
   const [zoneDayPickerTarget, setZoneDayPickerTarget] = useState(null);
   const [zoneTimePickerTarget, setZoneTimePickerTarget] = useState(null);
   const [slotPickerTarget, setSlotPickerTarget] = useState(null);
+  const [slotPickerActiveDay, setSlotPickerActiveDay] = useState("");
+  const [slotPickerActiveVenueId, setSlotPickerActiveVenueId] = useState("");
   const [resultEditor, setResultEditor] = useState(null);
   const [zoneDeleteTarget, setZoneDeleteTarget] = useState(null);
   const [confirmArmadoPrompt, setConfirmArmadoPrompt] = useState(null);
@@ -1098,6 +1100,18 @@ export default function TournamentZonePlanningScreen({ navigation, route }) {
     }
   };
 
+  const closeSlotPicker = () => {
+    setSlotPickerTarget(null);
+    setSlotPickerActiveDay("");
+    setSlotPickerActiveVenueId("");
+  };
+
+  const openSlotPicker = (target) => {
+    setSlotPickerTarget(target);
+    setSlotPickerActiveDay(target.currentDayKey || "");
+    setSlotPickerActiveVenueId(target.currentVenueId || "");
+  };
+
   const handleSelectSlot = (slot) => {
     if (!slotPickerTarget) return;
     updateZoneMatchSchedule(slotPickerTarget.zoneId, slotPickerTarget.matchKey, {
@@ -1106,7 +1120,7 @@ export default function TournamentZonePlanningScreen({ navigation, route }) {
       venueId: slot.venueId,
       courtIndex: slot.courtIndex,
     });
-    setSlotPickerTarget(null);
+    closeSlotPicker();
   };
 
   const handleClearSlot = () => {
@@ -1117,7 +1131,7 @@ export default function TournamentZonePlanningScreen({ navigation, route }) {
       venueId: "",
       courtIndex: 0,
     });
-    setSlotPickerTarget(null);
+    closeSlotPicker();
   };
 
   const getZoneMatchSchedule = (zone = {}, matchKey = "") => {
@@ -1837,7 +1851,7 @@ export default function TournamentZonePlanningScreen({ navigation, route }) {
                                 </Pressable>
                                 <Pressable
                                   onPress={() =>
-                                    setSlotPickerTarget({
+                                    openSlotPicker({
                                       matchKey: matchLabel,
                                       zoneId: zone.id,
                                       currentStartTime: matchSchedule.startTime || "",
@@ -1949,59 +1963,121 @@ export default function TournamentZonePlanningScreen({ navigation, route }) {
         />
       ) : null}
       <Modal
-        animationType="fade"
-        onRequestClose={() => setSlotPickerTarget(null)}
+        animationType="slide"
+        onRequestClose={closeSlotPicker}
         transparent
         visible={Boolean(slotPickerTarget)}
       >
         <View style={styles.slotPickerOverlay}>
-          <Pressable onPress={() => setSlotPickerTarget(null)} style={styles.slotPickerBackdrop} />
+          <Pressable onPress={closeSlotPicker} style={styles.slotPickerBackdrop} />
           <View style={styles.slotPickerCard}>
             <Text style={styles.slotPickerTitle}>Seleccionar horario</Text>
-            <ScrollView showsVerticalScrollIndicator={false} style={styles.slotPickerScroll}>
-              <Pressable onPress={handleClearSlot} style={styles.slotPickerClearRow}>
-                <Ionicons color={colors.muted} name="close-circle-outline" size={16} />
-                <Text style={styles.slotPickerClearText}>Sin horario</Text>
-              </Pressable>
-              {slotsByDay.length === 0 ? (
-                <Text style={styles.slotPickerEmptyText}>
-                  No hay horarios disponibles. Configurá franjas horarias en las preferencias del fixture para verlos acá.
-                </Text>
-              ) : (
-                slotsByDay.map((group) => (
-                  <View key={`slot-group-${group.dayKey}`}>
-                    <Text style={styles.slotPickerDayHeader}>{group.dayLabel.toUpperCase()}</Text>
-                    {group.slots.map((slot) => {
-                      const isCurrentSlot =
-                        slotPickerTarget &&
-                        slot.dayKey === slotPickerTarget.currentDayKey &&
-                        formatMinutesToTime(slot.startMinutes) === slotPickerTarget.currentStartTime &&
-                        slot.venueId === slotPickerTarget.currentVenueId &&
-                        slot.courtIndex === slotPickerTarget.currentCourtIndex;
+
+            {slotsByDay.length === 0 ? (
+              <Text style={styles.slotPickerEmptyText}>
+                No hay horarios disponibles. Configurá franjas horarias en las preferencias del fixture para verlos acá.
+              </Text>
+            ) : (() => {
+              const effectiveDay = slotPickerActiveDay || slotsByDay[0]?.dayKey || "";
+              const dayGroup = slotsByDay.find((g) => g.dayKey === effectiveDay);
+              const daySlots = dayGroup?.slots || [];
+              const uniqueVenues = [...new Map(daySlots.map((s) => [s.venueId, { id: s.venueId, name: s.venueName }])).values()];
+              const effectiveVenueId = uniqueVenues.length > 1 ? slotPickerActiveVenueId : "";
+              const visibleSlots = effectiveVenueId ? daySlots.filter((s) => s.venueId === effectiveVenueId) : daySlots;
+
+              return (
+                <>
+                  {/* Day chips */}
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.slotPickerDayRow} contentContainerStyle={styles.slotPickerDayRowContent}>
+                    {slotsByDay.map((group) => {
+                      const isActive = group.dayKey === effectiveDay;
                       return (
                         <Pressable
-                          key={slot.id}
-                          onPress={() => handleSelectSlot(slot)}
-                          style={[styles.slotPickerOption, isCurrentSlot ? styles.slotPickerOptionSelected : null]}
+                          key={group.dayKey}
+                          onPress={() => { setSlotPickerActiveDay(group.dayKey); setSlotPickerActiveVenueId(""); }}
+                          style={[styles.slotPickerDayChip, isActive ? styles.slotPickerDayChipActive : null]}
                         >
-                          <Text style={[styles.slotPickerOptionTime, isCurrentSlot ? styles.slotPickerOptionTimeSelected : null]}>
-                            {formatMinutesToTime(slot.startMinutes)} hs
-                          </Text>
-                          <Text style={[styles.slotPickerOptionVenue, isCurrentSlot ? styles.slotPickerOptionVenueSelected : null]} numberOfLines={1}>
-                            {slot.venueName} · Cancha {slot.courtIndex}
+                          <Text style={[styles.slotPickerDayChipText, isActive ? styles.slotPickerDayChipTextActive : null]}>
+                            {group.dayLabel}
                           </Text>
                         </Pressable>
                       );
                     })}
-                  </View>
-                ))
-              )}
-            </ScrollView>
+                  </ScrollView>
+
+                  {/* Venue: single chip or filter chips */}
+                  {uniqueVenues.length === 1 ? (
+                    <View style={styles.slotPickerSingleVenueRow}>
+                      <Ionicons color={colors.primaryDark} name="location-outline" size={13} />
+                      <Text style={styles.slotPickerSingleVenueText} numberOfLines={1}>{uniqueVenues[0].name}</Text>
+                    </View>
+                  ) : uniqueVenues.length > 1 ? (
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.slotPickerVenueRow} contentContainerStyle={styles.slotPickerVenueRowContent}>
+                      <Pressable
+                        onPress={() => setSlotPickerActiveVenueId("")}
+                        style={[styles.slotPickerVenueChip, !effectiveVenueId ? styles.slotPickerVenueChipActive : null]}
+                      >
+                        <Text style={[styles.slotPickerVenueChipText, !effectiveVenueId ? styles.slotPickerVenueChipTextActive : null]}>Todos</Text>
+                      </Pressable>
+                      {uniqueVenues.map((venue) => {
+                        const isVenueActive = effectiveVenueId === venue.id;
+                        return (
+                          <Pressable
+                            key={venue.id}
+                            onPress={() => setSlotPickerActiveVenueId(venue.id)}
+                            style={[styles.slotPickerVenueChip, isVenueActive ? styles.slotPickerVenueChipActive : null]}
+                          >
+                            <Text style={[styles.slotPickerVenueChipText, isVenueActive ? styles.slotPickerVenueChipTextActive : null]} numberOfLines={1}>{venue.name}</Text>
+                          </Pressable>
+                        );
+                      })}
+                    </ScrollView>
+                  ) : null}
+
+                  {/* Slots list */}
+                  <ScrollView showsVerticalScrollIndicator={false} style={styles.slotPickerSlotsScroll}>
+                    {visibleSlots.length === 0 ? (
+                      <Text style={styles.slotPickerEmptyText}>No hay horarios disponibles para este filtro.</Text>
+                    ) : (
+                      visibleSlots.map((slot) => {
+                        const isSelected =
+                          slotPickerTarget &&
+                          slot.dayKey === slotPickerTarget.currentDayKey &&
+                          formatMinutesToTime(slot.startMinutes) === slotPickerTarget.currentStartTime &&
+                          slot.venueId === slotPickerTarget.currentVenueId &&
+                          slot.courtIndex === slotPickerTarget.currentCourtIndex;
+                        return (
+                          <Pressable
+                            key={slot.id}
+                            onPress={() => handleSelectSlot(slot)}
+                            style={[styles.slotPickerSlot, isSelected ? styles.slotPickerSlotSelected : null]}
+                          >
+                            <Text style={[styles.slotPickerSlotTime, isSelected ? styles.slotPickerSlotTimeSelected : null]}>
+                              {formatMinutesToTime(slot.startMinutes)} hs
+                            </Text>
+                            <Text style={[styles.slotPickerSlotCourt, isSelected ? styles.slotPickerSlotCourtSelected : null]}>
+                              Cancha {slot.courtIndex}
+                            </Text>
+                            {isSelected ? <Ionicons color="#1B5D92" name="checkmark-circle" size={17} /> : null}
+                          </Pressable>
+                        );
+                      })
+                    )}
+                  </ScrollView>
+                </>
+              );
+            })()}
+
+            {/* Footer */}
             <View style={styles.slotPickerFooter}>
+              <Pressable onPress={handleClearSlot} style={styles.slotPickerClearButton}>
+                <Ionicons color={colors.muted} name="close-circle-outline" size={14} />
+                <Text style={styles.slotPickerClearButtonText}>Sin horario</Text>
+              </Pressable>
               <Pressable
                 onPress={() => {
                   const target = slotPickerTarget;
-                  setSlotPickerTarget(null);
+                  closeSlotPicker();
                   if (target) {
                     setZoneTimePickerTarget({
                       currentValue: target.currentStartTime || "19:00",
@@ -2010,12 +2086,12 @@ export default function TournamentZonePlanningScreen({ navigation, route }) {
                     });
                   }
                 }}
-                style={styles.slotPickerCustomButton}
+                style={styles.slotPickerDefineButton}
               >
-                <Ionicons color={colors.primaryDark} name="time-outline" size={15} />
-                <Text style={styles.slotPickerCustomText}>Horario libre</Text>
+                <Ionicons color={colors.surface} name="time-outline" size={14} />
+                <Text style={styles.slotPickerDefineButtonText}>Definir horario</Text>
               </Pressable>
-              <Pressable onPress={() => setSlotPickerTarget(null)} style={styles.slotPickerCancelButton}>
+              <Pressable onPress={closeSlotPicker} style={styles.slotPickerCancelButton}>
                 <Text style={styles.slotPickerCancelText}>Cancelar</Text>
               </Pressable>
             </View>
@@ -3407,126 +3483,186 @@ const styles = StyleSheet.create({
   },
   slotPickerOverlay: {
     ...StyleSheet.absoluteFillObject,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: spacing.lg,
+    justifyContent: "flex-end",
   },
   slotPickerBackdrop: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0,0,0,0.45)",
+    backgroundColor: "rgba(0,0,0,0.5)",
   },
   slotPickerCard: {
     backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: 22,
-    borderWidth: 1,
-    maxHeight: "80%",
-    padding: spacing.lg,
-    width: "100%",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    maxHeight: "85%",
+    paddingBottom: 28,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.lg,
   },
   slotPickerTitle: {
     color: colors.text,
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: "900",
-    marginBottom: spacing.sm,
+    marginBottom: spacing.md,
     textAlign: "center",
-  },
-  slotPickerScroll: {
-    maxHeight: 320,
-  },
-  slotPickerClearRow: {
-    alignItems: "center",
-    borderBottomColor: colors.border,
-    borderBottomWidth: 1,
-    flexDirection: "row",
-    gap: 6,
-    marginBottom: spacing.sm,
-    paddingBottom: spacing.sm,
-    paddingHorizontal: 4,
-  },
-  slotPickerClearText: {
-    color: colors.muted,
-    fontSize: 13,
-    fontWeight: "700",
   },
   slotPickerEmptyText: {
     color: colors.muted,
     fontSize: 13,
     fontWeight: "600",
-    paddingVertical: spacing.sm,
+    paddingVertical: spacing.lg,
     textAlign: "center",
   },
-  slotPickerDayHeader: {
-    color: colors.primaryDark,
-    fontSize: 11,
-    fontWeight: "900",
-    letterSpacing: 0.5,
-    marginTop: spacing.sm,
-    paddingHorizontal: 4,
+  slotPickerDayRow: {
+    flexGrow: 0,
+    marginBottom: spacing.sm,
   },
-  slotPickerOption: {
-    borderColor: colors.border,
-    borderRadius: 10,
-    borderWidth: 1,
-    flexDirection: "row",
+  slotPickerDayRowContent: {
     gap: 8,
-    marginTop: 4,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 8,
+    paddingHorizontal: 2,
   },
-  slotPickerOptionSelected: {
+  slotPickerDayChip: {
+    borderColor: colors.border,
+    borderRadius: 999,
+    borderWidth: 1.5,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+  },
+  slotPickerDayChipActive: {
+    backgroundColor: colors.primaryDark,
+    borderColor: colors.primaryDark,
+  },
+  slotPickerDayChipText: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  slotPickerDayChipTextActive: {
+    color: colors.surface,
+  },
+  slotPickerSingleVenueRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 5,
+    marginBottom: spacing.sm,
+    paddingHorizontal: 2,
+  },
+  slotPickerSingleVenueText: {
+    color: colors.primaryDark,
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  slotPickerVenueRow: {
+    flexGrow: 0,
+    marginBottom: spacing.sm,
+  },
+  slotPickerVenueRowContent: {
+    gap: 6,
+    paddingHorizontal: 2,
+  },
+  slotPickerVenueChip: {
+    borderColor: colors.border,
+    borderRadius: 8,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  slotPickerVenueChipActive: {
     backgroundColor: "#EAF3FF",
     borderColor: "#1B5D92",
   },
-  slotPickerOptionTime: {
-    color: colors.text,
-    fontSize: 14,
-    fontWeight: "800",
-    minWidth: 52,
+  slotPickerVenueChipText: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "700",
   },
-  slotPickerOptionTimeSelected: {
+  slotPickerVenueChipTextActive: {
     color: "#1B5D92",
   },
-  slotPickerOptionVenue: {
+  slotPickerSlotsScroll: {
+    maxHeight: 280,
+  },
+  slotPickerSlot: {
+    alignItems: "center",
+    borderColor: colors.border,
+    borderRadius: 12,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 10,
+    marginBottom: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+  },
+  slotPickerSlotSelected: {
+    backgroundColor: "#EAF3FF",
+    borderColor: "#1B5D92",
+    borderWidth: 1.5,
+  },
+  slotPickerSlotTime: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: "800",
+    minWidth: 60,
+  },
+  slotPickerSlotTimeSelected: {
+    color: "#1B5D92",
+  },
+  slotPickerSlotCourt: {
     color: colors.muted,
     flex: 1,
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: "600",
   },
-  slotPickerOptionVenueSelected: {
+  slotPickerSlotCourtSelected: {
     color: "#1B5D92",
   },
   slotPickerFooter: {
     borderTopColor: colors.border,
     borderTopWidth: 1,
     flexDirection: "row",
-    gap: spacing.sm,
-    justifyContent: "space-between",
+    gap: 8,
     marginTop: spacing.sm,
     paddingTop: spacing.sm,
   },
-  slotPickerCustomButton: {
+  slotPickerClearButton: {
     alignItems: "center",
+    borderColor: colors.border,
+    borderRadius: 10,
+    borderWidth: 1,
     flex: 1,
     flexDirection: "row",
     gap: 4,
     justifyContent: "center",
-    paddingVertical: 8,
+    paddingVertical: 9,
   },
-  slotPickerCustomText: {
-    color: colors.primaryDark,
-    fontSize: 13,
+  slotPickerClearButtonText: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  slotPickerDefineButton: {
+    alignItems: "center",
+    backgroundColor: colors.primaryDark,
+    borderRadius: 10,
+    flex: 1,
+    flexDirection: "row",
+    gap: 4,
+    justifyContent: "center",
+    paddingVertical: 9,
+  },
+  slotPickerDefineButtonText: {
+    color: colors.surface,
+    fontSize: 12,
     fontWeight: "800",
   },
   slotPickerCancelButton: {
     alignItems: "center",
     flex: 1,
     justifyContent: "center",
-    paddingVertical: 8,
+    paddingVertical: 9,
   },
   slotPickerCancelText: {
     color: colors.muted,
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: "700",
   },
 });
