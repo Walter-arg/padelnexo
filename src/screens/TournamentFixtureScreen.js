@@ -5122,6 +5122,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
   const [selectedAvailablePairId, setSelectedAvailablePairId] = useState("");
   const [expandedZoneIds, setExpandedZoneIds] = useState([]);
   const zoneSetInputRefs = useRef({});
+  const resultModalSetRefs = useRef({});
   const zoneSaveTimeoutRef = useRef(null);
   const workingZonesPreviewRef = useRef([]);
   const bracketSetInputRefs = useRef({});
@@ -7627,12 +7628,35 @@ export default function TournamentFixtureScreen({ navigation, route }) {
       participants,
       sets: normalizeResultSets(schedule?.result?.sets, currentMatchFormat.zones),
       winnerRegistrationId: String(schedule?.result?.winnerRegistrationId || ""),
+      isWO: Boolean(schedule?.result?.isWO),
       zoneId,
     });
   };
 
   const closeZonePlanningResultEditor = () => {
     setZonePlanningResultEditor(null);
+  };
+
+  const toggleZoneResultWO = () => {
+    setZonePlanningResultEditor((current) => {
+      if (!current) return current;
+      const nextIsWO = !current.isWO;
+      if (!nextIsWO) return { ...current, isWO: false };
+      const winnerIndex = current.participants.findIndex(
+        (p) => String(p.id) === String(current.winnerRegistrationId)
+      );
+      const teamAWins = winnerIndex !== 1;
+      const woSets = normalizeResultSets(current.sets, currentMatchFormat.zones).map((set, index) => {
+        if (index >= 2) return set;
+        return {
+          ...set,
+          teamA: teamAWins ? "6" : "0",
+          teamB: teamAWins ? "0" : "6",
+          inputValue: teamAWins ? "6/0" : "0/6",
+        };
+      });
+      return { ...current, isWO: true, sets: woSets };
+    });
   };
 
   const updateZonePlanningResultSetScore = (setIndex, value) => {
@@ -7709,6 +7733,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
       result: {
         score: resultText,
         sets,
+        isWO: Boolean(zonePlanningResultEditor.isWO),
         winnerLabel: winner?.label || "",
         winnerRegistrationId: winner?.id || "",
       },
@@ -13060,6 +13085,10 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                   {(zonePlanningResultEditor?.participants || []).map((participant, index) => {
                     const isSelected =
                       String(zonePlanningResultEditor?.winnerRegistrationId || "") === String(participant.id);
+                    const isLoser =
+                      zonePlanningResultEditor?.isWO &&
+                      Boolean(zonePlanningResultEditor?.winnerRegistrationId) &&
+                      !isSelected;
 
                     return (
                       <Pressable
@@ -13087,6 +13116,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                           ]}
                         >
                           {index + 1}. {participant.label}
+                          {isLoser ? <Text style={styles.woBadgeInlineText}> W.O.</Text> : null}
                         </Text>
                         {isSelected ? <Text style={styles.winnerBadgeText}>GANADOR</Text> : null}
                       </Pressable>
@@ -13098,6 +13128,12 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                   Este cruce necesita resultados previos para seleccionar ganador.
                 </Text>
               )}
+              <Pressable onPress={toggleZoneResultWO} style={styles.woToggleRow}>
+                <View style={[styles.woToggleCheckbox, zonePlanningResultEditor?.isWO ? styles.woToggleCheckboxActive : null]}>
+                  {zonePlanningResultEditor?.isWO ? <Ionicons color="#fff" name="checkmark" size={12} /> : null}
+                </View>
+                <Text style={styles.woToggleLabel}>W.O. (Walk Over)</Text>
+              </Pressable>
               <View style={styles.setsGrid}>
                 {normalizeResultSets(zonePlanningResultEditor?.sets, currentMatchFormat.zones).map((set, setIndex) => {
                   const allowDoubleDigits = shouldAllowDoubleDigitSetScore(
@@ -13112,9 +13148,16 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                         {allowDoubleDigits ? "SUPER TIE BREAK" : set.label}
                       </Text>
                       <TextInput
+                        ref={(ref) => { resultModalSetRefs.current[setIndex] = ref; }}
                         keyboardType="number-pad"
                         maxLength={allowDoubleDigits ? 5 : 3}
-                        onChangeText={(value) => updateZonePlanningResultSetScore(setIndex, value)}
+                        onChangeText={(value) => {
+                          updateZonePlanningResultSetScore(setIndex, value);
+                          if (!allowDoubleDigits && value.replace(/\D/g, "").length === 2) {
+                            const nextRef = resultModalSetRefs.current[setIndex + 1];
+                            if (nextRef?.focus) setTimeout(() => nextRef.focus(), 30);
+                          }
+                        }}
                         style={[
                           styles.setInput,
                           allowDoubleDigits ? styles.superTieBreakSetInput : null,
@@ -15431,6 +15474,33 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     marginTop: 2,
     textAlign: "center",
+  },
+  woBadgeInlineText: {
+    color: colors.danger,
+    fontWeight: "900",
+  },
+  woToggleRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 10,
+    marginTop: spacing.md,
+    paddingVertical: 4,
+  },
+  woToggleCheckbox: {
+    alignItems: "center",
+    backgroundColor: colors.border,
+    borderRadius: 4,
+    height: 22,
+    justifyContent: "center",
+    width: 22,
+  },
+  woToggleCheckboxActive: {
+    backgroundColor: colors.danger,
+  },
+  woToggleLabel: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: "700",
   },
   resultNoWinnerText: {
     color: colors.muted,
