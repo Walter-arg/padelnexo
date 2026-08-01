@@ -2006,13 +2006,6 @@ export default function TournamentZonePlanningScreen({ navigation, route }) {
         )}
       </View>
 
-      {hasUnsavedChanges ? (
-        <View style={[styles.unsavedChangesBanner, { bottom: BOTTOM_QUICK_ACTIONS_SPACE + 16 }]}>
-          <Ionicons color="#A84F00" name="alert-circle" size={15} />
-          <Text style={styles.unsavedChangesText}>Hay cambios sin guardar</Text>
-        </View>
-      ) : null}
-
       {zoneTimePickerTarget ? (
         <DateTimePicker
           display={Platform.OS === "ios" ? "spinner" : "clock"}
@@ -2554,6 +2547,12 @@ export default function TournamentZonePlanningScreen({ navigation, route }) {
         visible={feedback.visible}
       />
       <BottomQuickActionsBar />
+      {hasUnsavedChanges ? (
+        <View style={[styles.unsavedChangesBanner, { bottom: BOTTOM_QUICK_ACTIONS_SPACE + Math.max(insets.bottom, 6) + 16 }]}>
+          <Ionicons color="#A84F00" name="alert-circle" size={15} />
+          <Text style={styles.unsavedChangesText}>Hay cambios sin guardar</Text>
+        </View>
+      ) : null}
     </SafeAreaView>
   );
 }
