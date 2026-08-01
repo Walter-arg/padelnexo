@@ -1121,18 +1121,25 @@ export default function TournamentZonePlanningScreen({ navigation, route }) {
     }
   };
 
-  const checkScheduleConflict = (zoneId, matchKey, dayKey, startTime, venueId, courtIndex) =>
-    (zonePlanning.zones || []).some((zone) =>
-      Object.entries(zone.matchSchedules || {}).some(([mk, schedule]) => {
-        if (zone.id === zoneId && mk === matchKey) return false;
-        return (
-          schedule.dayKey === dayKey &&
-          schedule.startTime === startTime &&
-          String(schedule.venueId || "") === String(venueId || "") &&
-          (Number(schedule.courtIndex) || 0) === (Number(courtIndex) || 0)
-        );
-      })
-    );
+  const findScheduleConflict = (zoneId, matchKey, dayKey, startTime, venueId, courtIndex) => {
+    const proposedStart = parseMinutes(startTime);
+    const proposedEnd = proposedStart + ZONE_MATCH_DURATION_MINUTES;
+    for (const zone of (zonePlanning.zones || [])) {
+      for (const [mk, schedule] of Object.entries(zone.matchSchedules || {})) {
+        if (zone.id === zoneId && mk === matchKey) continue;
+        if (schedule.dayKey !== dayKey) continue;
+        if (!schedule.startTime) continue;
+        if (String(schedule.venueId || "") !== String(venueId || "")) continue;
+        if ((Number(schedule.courtIndex) || 0) !== (Number(courtIndex) || 0)) continue;
+        const existingStart = parseMinutes(schedule.startTime);
+        const existingEnd = existingStart + ZONE_MATCH_DURATION_MINUTES;
+        if (proposedStart < existingEnd && proposedEnd > existingStart) {
+          return { conflictTime: schedule.startTime };
+        }
+      }
+    }
+    return null;
+  };
 
   const handleConfirmCustomSchedule = () => {
     if (!customScheduleModal) return;
@@ -2016,7 +2023,8 @@ export default function TournamentZonePlanningScreen({ navigation, route }) {
         <View style={styles.slotPickerOverlay}>
           <Pressable onPress={closeSlotPicker} style={styles.slotPickerBackdrop} />
           <View style={[styles.slotPickerCard, { paddingBottom: Math.max(28, insets.bottom + 16) }]}>
-            <Text style={styles.slotPickerTitle}>Seleccionar horario</Text>
+            <Text style={styles.slotPickerTitle}>Horarios disponibles</Text>
+            <Text style={styles.slotPickerSubtitle}>Seleccionar</Text>
 
             {slotsByDay.length === 0 ? (
               <Text style={styles.slotPickerEmptyText}>
@@ -2080,7 +2088,7 @@ export default function TournamentZonePlanningScreen({ navigation, route }) {
                   ) : null}
 
                   {/* Slots label */}
-                  <Text style={styles.slotPickerSlotsLabel}>Horarios disponibles</Text>
+                  <Text style={styles.slotPickerSlotsLabel}>Tocá un horario para asignarlo</Text>
 
                   {/* Slots list */}
                   <ScrollView showsVerticalScrollIndicator={false} style={styles.slotPickerSlotsScroll}>
@@ -2119,7 +2127,7 @@ export default function TournamentZonePlanningScreen({ navigation, route }) {
             {/* Footer */}
             <View style={styles.slotPickerFooter}>
               <Pressable onPress={handleClearSlot} style={styles.slotPickerClearButton}>
-                <Ionicons color={colors.muted} name="close-circle-outline" size={14} />
+                <Ionicons color="#B04040" name="close-circle-outline" size={14} />
                 <Text style={styles.slotPickerClearButtonText}>Sin horario</Text>
               </Pressable>
               <Pressable
@@ -2155,7 +2163,7 @@ export default function TournamentZonePlanningScreen({ navigation, route }) {
         const effectiveVenueId = customScheduleModal.venueId || tournamentVenueOptions[0]?.id || "";
         const maxCourts = getMaxCourtsForVenue(venueSchedules, effectiveVenueId);
         const dayOption = tournamentDayOptions.find((d) => d.key === customScheduleModal.dayKey);
-        const hasConflict = checkScheduleConflict(
+        const conflict = findScheduleConflict(
           customScheduleModal.zoneId,
           customScheduleModal.matchKey,
           customScheduleModal.dayKey,
@@ -2163,6 +2171,7 @@ export default function TournamentZonePlanningScreen({ navigation, route }) {
           effectiveVenueId,
           customScheduleModal.courtIndex
         );
+        const hasConflict = Boolean(conflict);
         return (
           <Modal animationType="fade" onRequestClose={() => setCustomScheduleModal(null)} transparent visible>
             <View style={styles.customScheduleOverlay}>
@@ -2217,7 +2226,7 @@ export default function TournamentZonePlanningScreen({ navigation, route }) {
                 {hasConflict ? (
                   <View style={styles.customScheduleConflictRow}>
                     <Ionicons color={colors.danger} name="warning-outline" size={15} />
-                    <Text style={styles.customScheduleConflictText}>Ya hay un partido en esta cancha y horario</Text>
+                    <Text style={styles.customScheduleConflictText}>{conflict?.conflictTime ? `Se pisa con el partido que comienza a las ${conflict.conflictTime} hs` : "Ya hay un partido en esta cancha y horario"}</Text>
                   </View>
                 ) : null}
                 <View style={styles.customScheduleActions}>
@@ -3789,8 +3798,15 @@ const styles = StyleSheet.create({
   },
   slotPickerTitle: {
     color: colors.text,
-    fontSize: 17,
+    fontSize: 20,
     fontWeight: "900",
+    marginBottom: 2,
+    textAlign: "center",
+  },
+  slotPickerSubtitle: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "500",
     marginBottom: spacing.md,
     textAlign: "center",
   },
@@ -3923,9 +3939,10 @@ const styles = StyleSheet.create({
   },
   slotPickerClearButton: {
     alignItems: "center",
-    borderColor: colors.border,
+    backgroundColor: "#FEF4F4",
+    borderColor: "#D9A8A8",
     borderRadius: 10,
-    borderWidth: 1,
+    borderWidth: 1.5,
     flex: 1,
     flexDirection: "row",
     gap: 4,
@@ -3933,13 +3950,13 @@ const styles = StyleSheet.create({
     paddingVertical: 9,
   },
   slotPickerClearButtonText: {
-    color: colors.muted,
+    color: "#B04040",
     fontSize: 12,
     fontWeight: "700",
   },
   slotPickerDefineButton: {
     alignItems: "center",
-    backgroundColor: colors.primaryDark,
+    backgroundColor: "#2563A8",
     borderRadius: 10,
     flex: 1,
     flexDirection: "row",
