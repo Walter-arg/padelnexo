@@ -1530,23 +1530,28 @@ export default function TournamentZonePlanningScreen({ navigation, route }) {
     if (changeType === "none") {
       return {
         confirmed,
-        message: `No hay cambios nuevos en el armado.${unassignedMessage}\n\n¿Queres guardar de todos modos?`,
-        title: confirmed ? "Establecer Cambios" : "Guardar borrador",
+        confirmLabel: "Guardar igual",
+        message: `No hay cambios en el armado respecto al ultimo guardado.${unassignedMessage}\n\n¿Queres guardar de todos modos?`,
+        title: "Sin cambios nuevos",
       };
     }
 
     if (changeType === "additive") {
       return {
         confirmed,
-        message: `Vas a actualizar el armado agregando nuevas parejas o zonas. No se eliminaran las zonas existentes.${unassignedMessage}`,
-        title: confirmed ? "Actualizar armado" : "Guardar borrador",
+        confirmLabel: confirmed ? "Sí, establecer" : "Sí, guardar",
+        message: `Estás agregando nuevas parejas o zonas al armado existente. Las zonas ya guardadas no se van a modificar.${unassignedMessage}`,
+        title: confirmed ? "Agregar al fixture" : "Guardar borrador",
       };
     }
 
     return {
       confirmed,
-      message: `Este cambio puede modificar un armado de zonas ya existente.${unassignedMessage}\n\n¿Queres continuar?`,
-      title: "Revisar cambios",
+      confirmLabel: confirmed ? "Sí, aplicar cambios" : "Sí, guardar",
+      message: confirmed
+        ? `Modificaste horarios, parejas o la configuración de zonas ya guardadas. Al confirmar, el fixture del torneo se va a actualizar y volverás a la pantalla anterior.${unassignedMessage}`
+        : `Modificaste horarios, parejas o la configuración de zonas ya guardadas. Al guardar, los cambios quedan como borrador sin afectar el fixture actual.${unassignedMessage}`,
+      title: confirmed ? "Aplicar cambios al fixture" : "Guardar borrador",
     };
   };
 
@@ -2533,7 +2538,7 @@ export default function TournamentZonePlanningScreen({ navigation, route }) {
                 <Text style={styles.deleteCancelButtonText}>Cancelar</Text>
               </Pressable>
               <Pressable onPress={confirmPromptArmado} style={styles.deleteConfirmButton}>
-                <Text style={styles.deleteConfirmButtonText}>Confirmar</Text>
+                <Text style={styles.deleteConfirmButtonText}>{confirmArmadoPrompt?.confirmLabel || "Confirmar"}</Text>
               </Pressable>
             </View>
           </View>
