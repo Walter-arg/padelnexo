@@ -2007,7 +2007,7 @@ export default function TournamentZonePlanningScreen({ navigation, route }) {
       </View>
 
       {hasUnsavedChanges ? (
-        <View style={styles.unsavedChangesBanner}>
+        <View style={[styles.unsavedChangesBanner, { bottom: BOTTOM_QUICK_ACTIONS_SPACE + 16 }]}>
           <Ionicons color="#A84F00" name="alert-circle" size={15} />
           <Text style={styles.unsavedChangesText}>Hay cambios sin guardar</Text>
         </View>
@@ -2600,7 +2600,6 @@ const styles = StyleSheet.create({
     borderColor: "#FFB357",
     borderRadius: 999,
     borderWidth: 1,
-    bottom: 20,
     elevation: 6,
     flexDirection: "row",
     gap: 6,
