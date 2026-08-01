@@ -14,7 +14,7 @@ import {
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect } from "@react-navigation/native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
 import BottomQuickActionsBar, {
   BOTTOM_QUICK_ACTIONS_SPACE,
@@ -82,6 +82,12 @@ function formatMinutesToTime(totalMinutes = 0) {
   const h = Math.floor(totalMinutes / 60);
   const m = totalMinutes % 60;
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
+function getMaxCourtsForVenue(venueSchedules = [], venueId = "") {
+  const schedules = venueSchedules.filter((s) => s.venueId === venueId && s.useForZones);
+  if (!schedules.length) return 4;
+  return Math.max(...schedules.map((s) => Number(s.courts || 1)));
 }
 
 function buildZoneMatchSchedulingSlots(schedules = [], durationMinutes = ZONE_MATCH_DURATION_MINUTES) {
@@ -588,6 +594,9 @@ export default function TournamentZonePlanningScreen({ navigation, route }) {
   const [slotPickerTarget, setSlotPickerTarget] = useState(null);
   const [slotPickerActiveDay, setSlotPickerActiveDay] = useState("");
   const [slotPickerActiveVenueId, setSlotPickerActiveVenueId] = useState("");
+  const [customTimeContext, setCustomTimeContext] = useState(null);
+  const [customScheduleModal, setCustomScheduleModal] = useState(null);
+  const insets = useSafeAreaInsets();
   const [resultEditor, setResultEditor] = useState(null);
   const [zoneDeleteTarget, setZoneDeleteTarget] = useState(null);
   const [confirmArmadoPrompt, setConfirmArmadoPrompt] = useState(null);
@@ -1090,14 +1099,50 @@ export default function TournamentZonePlanningScreen({ navigation, route }) {
       const nextTime = `${formatTwoDigits(selectedDate.getHours())}:${formatTwoDigits(
         selectedDate.getMinutes()
       )}`;
-      updateZoneMatchSchedule(zoneTimePickerTarget.zoneId, zoneTimePickerTarget.matchKey, {
-        startTime: nextTime,
-      });
+      if (customTimeContext) {
+        setCustomScheduleModal({
+          zoneId: zoneTimePickerTarget.zoneId,
+          matchKey: zoneTimePickerTarget.matchKey,
+          dayKey: customTimeContext.dayKey,
+          startTime: nextTime,
+          venueId: customTimeContext.venueId,
+          courtIndex: customTimeContext.courtIndex || 1,
+        });
+        setCustomTimeContext(null);
+      } else {
+        updateZoneMatchSchedule(zoneTimePickerTarget.zoneId, zoneTimePickerTarget.matchKey, {
+          startTime: nextTime,
+        });
+      }
     }
 
     if (Platform.OS !== "ios") {
       setZoneTimePickerTarget(null);
     }
+  };
+
+  const checkScheduleConflict = (zoneId, matchKey, dayKey, startTime, venueId, courtIndex) =>
+    (zonePlanning.zones || []).some((zone) =>
+      Object.entries(zone.matchSchedules || {}).some(([mk, schedule]) => {
+        if (zone.id === zoneId && mk === matchKey) return false;
+        return (
+          schedule.dayKey === dayKey &&
+          schedule.startTime === startTime &&
+          String(schedule.venueId || "") === String(venueId || "") &&
+          (Number(schedule.courtIndex) || 0) === (Number(courtIndex) || 0)
+        );
+      })
+    );
+
+  const handleConfirmCustomSchedule = () => {
+    if (!customScheduleModal) return;
+    updateZoneMatchSchedule(customScheduleModal.zoneId, customScheduleModal.matchKey, {
+      startTime: customScheduleModal.startTime,
+      dayKey: customScheduleModal.dayKey,
+      venueId: customScheduleModal.venueId,
+      courtIndex: customScheduleModal.courtIndex,
+    });
+    setCustomScheduleModal(null);
   };
 
   const closeSlotPicker = () => {
@@ -1970,7 +2015,7 @@ export default function TournamentZonePlanningScreen({ navigation, route }) {
       >
         <View style={styles.slotPickerOverlay}>
           <Pressable onPress={closeSlotPicker} style={styles.slotPickerBackdrop} />
-          <View style={styles.slotPickerCard}>
+          <View style={[styles.slotPickerCard, { paddingBottom: Math.max(28, insets.bottom + 16) }]}>
             <Text style={styles.slotPickerTitle}>Seleccionar horario</Text>
 
             {slotsByDay.length === 0 ? (
@@ -2034,6 +2079,9 @@ export default function TournamentZonePlanningScreen({ navigation, route }) {
                     </ScrollView>
                   ) : null}
 
+                  {/* Slots label */}
+                  <Text style={styles.slotPickerSlotsLabel}>Horarios disponibles</Text>
+
                   {/* Slots list */}
                   <ScrollView showsVerticalScrollIndicator={false} style={styles.slotPickerSlotsScroll}>
                     {visibleSlots.length === 0 ? (
@@ -2077,6 +2125,10 @@ export default function TournamentZonePlanningScreen({ navigation, route }) {
               <Pressable
                 onPress={() => {
                   const target = slotPickerTarget;
+                  const capturedDay = slotPickerActiveDay || slotsByDay[0]?.dayKey || "";
+                  const capturedVenueId = slotPickerActiveVenueId || tournamentVenueOptions[0]?.id || "";
+                  const capturedCourt = target?.currentCourtIndex || 1;
+                  setCustomTimeContext({ dayKey: capturedDay, venueId: capturedVenueId, courtIndex: capturedCourt });
                   closeSlotPicker();
                   if (target) {
                     setZoneTimePickerTarget({
@@ -2098,6 +2150,92 @@ export default function TournamentZonePlanningScreen({ navigation, route }) {
           </View>
         </View>
       </Modal>
+      {customScheduleModal ? (() => {
+        const venueSchedules = tournament?.fixtureSetup?.zoneVenueSchedules || [];
+        const effectiveVenueId = customScheduleModal.venueId || tournamentVenueOptions[0]?.id || "";
+        const maxCourts = getMaxCourtsForVenue(venueSchedules, effectiveVenueId);
+        const dayOption = tournamentDayOptions.find((d) => d.key === customScheduleModal.dayKey);
+        const hasConflict = checkScheduleConflict(
+          customScheduleModal.zoneId,
+          customScheduleModal.matchKey,
+          customScheduleModal.dayKey,
+          customScheduleModal.startTime,
+          effectiveVenueId,
+          customScheduleModal.courtIndex
+        );
+        return (
+          <Modal animationType="fade" onRequestClose={() => setCustomScheduleModal(null)} transparent visible>
+            <View style={styles.customScheduleOverlay}>
+              <Pressable onPress={() => setCustomScheduleModal(null)} style={styles.slotPickerBackdrop} />
+              <View style={[styles.customScheduleCard, { paddingBottom: Math.max(20, insets.bottom + 12) }]}>
+                <Text style={styles.customScheduleTitle}>Definir horario</Text>
+                <View style={styles.customScheduleSummary}>
+                  <Text style={styles.customScheduleDayText}>{dayOption?.fullLabel || customScheduleModal.dayKey || "Sin dia"}</Text>
+                  <Text style={styles.customScheduleTimeText}>{customScheduleModal.startTime} hs</Text>
+                </View>
+                {tournamentVenueOptions.length > 1 ? (
+                  <View>
+                    <Text style={styles.customScheduleLabel}>Sede</Text>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.customScheduleChipRow}>
+                      {tournamentVenueOptions.map((venue) => {
+                        const isActive = effectiveVenueId === venue.id;
+                        return (
+                          <Pressable
+                            key={venue.id}
+                            onPress={() => setCustomScheduleModal((prev) => ({ ...prev, venueId: venue.id, courtIndex: 1 }))}
+                            style={[styles.customScheduleChip, isActive ? styles.customScheduleChipActive : null]}
+                          >
+                            <Text style={[styles.customScheduleChipText, isActive ? styles.customScheduleChipTextActive : null]} numberOfLines={1}>{venue.label}</Text>
+                          </Pressable>
+                        );
+                      })}
+                    </ScrollView>
+                  </View>
+                ) : tournamentVenueOptions.length === 1 ? (
+                  <View style={styles.slotPickerSingleVenueRow}>
+                    <Ionicons color={colors.primaryDark} name="location-outline" size={13} />
+                    <Text style={styles.slotPickerSingleVenueText} numberOfLines={1}>{tournamentVenueOptions[0].label}</Text>
+                  </View>
+                ) : null}
+                <View>
+                  <Text style={styles.customScheduleLabel}>Cancha</Text>
+                  <View style={styles.customScheduleCourtRow}>
+                    {Array.from({ length: maxCourts }, (_, i) => i + 1).map((n) => {
+                      const isActive = customScheduleModal.courtIndex === n;
+                      return (
+                        <Pressable
+                          key={n}
+                          onPress={() => setCustomScheduleModal((prev) => ({ ...prev, courtIndex: n }))}
+                          style={[styles.customScheduleCourtChip, isActive ? styles.customScheduleCourtChipActive : null]}
+                        >
+                          <Text style={[styles.customScheduleCourtText, isActive ? styles.customScheduleCourtTextActive : null]}>{n}</Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                </View>
+                {hasConflict ? (
+                  <View style={styles.customScheduleConflictRow}>
+                    <Ionicons color={colors.danger} name="warning-outline" size={15} />
+                    <Text style={styles.customScheduleConflictText}>Ya hay un partido en esta cancha y horario</Text>
+                  </View>
+                ) : null}
+                <View style={styles.customScheduleActions}>
+                  <Pressable onPress={() => setCustomScheduleModal(null)} style={styles.customScheduleCancelButton}>
+                    <Text style={styles.customScheduleCancelText}>Cancelar</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={handleConfirmCustomSchedule}
+                    style={[styles.customScheduleConfirmButton, hasConflict ? styles.customScheduleConfirmWarning : null]}
+                  >
+                    <Text style={styles.customScheduleConfirmText}>{hasConflict ? "Establecer de todos modos" : "Confirmar"}</Text>
+                  </Pressable>
+                </View>
+              </View>
+            </View>
+          </Modal>
+        );
+      })() : null}
       <Modal animationType="fade" onRequestClose={closeZoneDayPicker} transparent visible={Boolean(zoneDayPickerTarget)}>
         <View style={styles.dayPickerModalOverlay}>
           <Pressable onPress={closeZoneDayPicker} style={styles.resultModalBackdrop} />
@@ -3481,6 +3619,157 @@ const styles = StyleSheet.create({
   actionDisabled: {
     opacity: 0.65,
   },
+  customScheduleOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: spacing.lg,
+  },
+  customScheduleCard: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 22,
+    borderWidth: 1,
+    gap: spacing.md,
+    padding: spacing.lg,
+    width: "100%",
+  },
+  customScheduleTitle: {
+    color: colors.text,
+    fontSize: 17,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  customScheduleSummary: {
+    alignItems: "center",
+    backgroundColor: "#F4F8FF",
+    borderColor: "#D0E3F8",
+    borderRadius: 14,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 10,
+    justifyContent: "center",
+    paddingVertical: 10,
+  },
+  customScheduleDayText: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  customScheduleTimeText: {
+    color: colors.primaryDark,
+    fontSize: 22,
+    fontWeight: "900",
+  },
+  customScheduleLabel: {
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 0.4,
+    marginBottom: 6,
+    textTransform: "uppercase",
+  },
+  customScheduleChipRow: {
+    gap: 6,
+    paddingVertical: 2,
+  },
+  customScheduleChip: {
+    borderColor: colors.border,
+    borderRadius: 999,
+    borderWidth: 1.5,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  customScheduleChipActive: {
+    backgroundColor: colors.primaryDark,
+    borderColor: colors.primaryDark,
+  },
+  customScheduleChipText: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  customScheduleChipTextActive: {
+    color: colors.surface,
+  },
+  customScheduleCourtRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  customScheduleCourtChip: {
+    alignItems: "center",
+    borderColor: colors.border,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    height: 44,
+    justifyContent: "center",
+    minWidth: 44,
+    paddingHorizontal: 12,
+  },
+  customScheduleCourtChipActive: {
+    backgroundColor: colors.primaryDark,
+    borderColor: colors.primaryDark,
+  },
+  customScheduleCourtText: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: "800",
+  },
+  customScheduleCourtTextActive: {
+    color: colors.surface,
+  },
+  customScheduleConflictRow: {
+    alignItems: "center",
+    backgroundColor: "#FFF4F4",
+    borderColor: "#F0BCBC",
+    borderRadius: 10,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 7,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  customScheduleConflictText: {
+    color: colors.danger,
+    flex: 1,
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  customScheduleActions: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  customScheduleCancelButton: {
+    alignItems: "center",
+    borderColor: colors.border,
+    borderRadius: 12,
+    borderWidth: 1,
+    flex: 1,
+    justifyContent: "center",
+    paddingVertical: 11,
+  },
+  customScheduleCancelText: {
+    color: colors.muted,
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  customScheduleConfirmButton: {
+    alignItems: "center",
+    backgroundColor: colors.primaryDark,
+    borderRadius: 12,
+    flex: 2,
+    justifyContent: "center",
+    paddingVertical: 11,
+  },
+  customScheduleConfirmWarning: {
+    backgroundColor: "#B95555",
+  },
+  customScheduleConfirmText: {
+    color: colors.surface,
+    fontSize: 13,
+    fontWeight: "900",
+  },
   slotPickerOverlay: {
     ...StyleSheet.absoluteFillObject,
     justifyContent: "flex-end",
@@ -3578,8 +3867,17 @@ const styles = StyleSheet.create({
   slotPickerVenueChipTextActive: {
     color: "#1B5D92",
   },
+  slotPickerSlotsLabel: {
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 0.4,
+    marginBottom: 6,
+    marginTop: spacing.sm,
+    textTransform: "uppercase",
+  },
   slotPickerSlotsScroll: {
-    maxHeight: 280,
+    maxHeight: 260,
   },
   slotPickerSlot: {
     alignItems: "center",
