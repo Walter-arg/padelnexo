@@ -2004,13 +2004,14 @@ export default function TournamentZonePlanningScreen({ navigation, route }) {
             </View>
           </ScrollView>
         )}
-        {hasUnsavedChanges ? (
-          <View style={styles.unsavedChangesBanner}>
-            <Ionicons color="#A84F00" name="alert-circle" size={15} />
-            <Text style={styles.unsavedChangesText}>Hay cambios sin guardar</Text>
-          </View>
-        ) : null}
       </View>
+
+      {hasUnsavedChanges ? (
+        <View style={styles.unsavedChangesBanner}>
+          <Ionicons color="#A84F00" name="alert-circle" size={15} />
+          <Text style={styles.unsavedChangesText}>Hay cambios sin guardar</Text>
+        </View>
+      ) : null}
 
       {zoneTimePickerTarget ? (
         <DateTimePicker
