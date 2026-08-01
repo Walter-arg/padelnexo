@@ -96,8 +96,11 @@ function buildZoneMatchSchedulingSlots(schedules = [], durationMinutes = ZONE_MA
     const startMinutes = parseMinutes(schedule.from);
     const endMinutes = parseMinutes(schedule.to);
     if (endMinutes - startMinutes < durationMinutes) return;
+    const courtIndices = Array.isArray(schedule.selectedCourtIndices) && schedule.selectedCourtIndices.length
+      ? schedule.selectedCourtIndices
+      : Array.from({ length: Number(schedule.courts || 1) }, (_, i) => i + 1);
     for (let cur = startMinutes; cur + durationMinutes <= endMinutes; cur += durationMinutes) {
-      for (let courtIndex = 1; courtIndex <= Number(schedule.courts || 1); courtIndex += 1) {
+      for (const courtIndex of courtIndices) {
         slots.push({
           id: `${schedule.id}-${courtIndex}-${cur}`,
           venueId: schedule.venueId,

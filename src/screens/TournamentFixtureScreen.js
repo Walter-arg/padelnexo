@@ -375,6 +375,12 @@ function normalizeZoneVenueSchedules(entries = [], tournamentDayOptions = [], ve
       const from = String(entry?.from || "").trim();
       const to = String(entry?.to || "").trim();
       const courts = Math.max(Number.parseInt(entry?.courts || "0", 10) || 0, 1);
+      const rawIndices = Array.isArray(entry?.selectedCourtIndices)
+        ? entry.selectedCourtIndices.filter((n) => Number.isInteger(n) && n >= 1 && n <= 50)
+        : null;
+      const selectedCourtIndices = rawIndices?.length
+        ? [...rawIndices].sort((a, b) => a - b)
+        : Array.from({ length: courts }, (_, i) => i + 1);
 
       if (!venueId || !venue || !allowedDayKeys.has(dayKey) || !isValidTimeString(from) || !isValidTimeString(to)) {
         return null;
@@ -391,7 +397,8 @@ function normalizeZoneVenueSchedules(entries = [], tournamentDayOptions = [], ve
         dayKey,
         from,
         to,
-        courts,
+        courts: selectedCourtIndices.length,
+        selectedCourtIndices,
         useForZones: Boolean(entry?.useForZones),
         useForBracket: Boolean(entry?.useForBracket),
       };
@@ -473,8 +480,11 @@ function buildZoneMatchSchedulingSlots(schedules = [], durationMinutes = ZONE_MA
       return;
     }
 
+    const courtIndices = Array.isArray(schedule.selectedCourtIndices) && schedule.selectedCourtIndices.length
+      ? schedule.selectedCourtIndices
+      : Array.from({ length: Number(schedule.courts || 1) }, (_, i) => i + 1);
     for (let currentMinutes = startMinutes; currentMinutes + durationMinutes <= endMinutes; currentMinutes += durationMinutes) {
-      for (let courtIndex = 1; courtIndex <= Number(schedule.courts || 1); courtIndex += 1) {
+      for (const courtIndex of courtIndices) {
         slots.push({
           id: `${schedule.id}-${courtIndex}-${currentMinutes}`,
           scheduleId: schedule.id,
@@ -5932,6 +5942,19 @@ export default function TournamentFixtureScreen({ navigation, route }) {
   const selectScheduleVenueDay = useCallback((venueId, dayKey) => {
     updateScheduleVenueDraft(venueId, { selectedDayKey: dayKey });
   }, [updateScheduleVenueDraft]);
+
+  const toggleCourtSelection = useCallback((venueId, courtIndex, totalCanchas) => {
+    setScheduleVenueDrafts((current) => {
+      const draft = current?.[venueId] || {};
+      const allIndices = Array.from({ length: totalCanchas }, (_, i) => i + 1);
+      const currentSelected = Array.isArray(draft.selectedCourtIndices) ? draft.selectedCourtIndices : allIndices;
+      const next = currentSelected.includes(courtIndex)
+        ? currentSelected.filter((i) => i !== courtIndex)
+        : [...currentSelected, courtIndex].sort((a, b) => a - b);
+      if (next.length === 0) return current;
+      return { ...current, [venueId]: { ...draft, selectedCourtIndices: next } };
+    });
+  }, []);
   const handleScheduleVenueTimePickerChange = useCallback(
     (_, selectedDate) => {
       if (scheduleVenueTimePickerTarget?.venueId && scheduleVenueTimePickerTarget?.field && selectedDate) {
@@ -6329,6 +6352,10 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                 return null;
               }
 
+              const vMax = Math.max(Number(venue?.totalCanchas || 0) || 0, 1);
+              const vAllIndices = Array.from({ length: vMax }, (_, i) => i + 1);
+              const vSelectedIndices = Array.isArray(venueDraft.selectedCourtIndices) && venueDraft.selectedCourtIndices.length
+                ? venueDraft.selectedCourtIndices : vAllIndices;
               return {
                 id: `bracket-display-draft-${venue.id}`,
                 venueId: venue.id,
@@ -6336,7 +6363,8 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                 dayKey: venueDraft.selectedDayKey,
                 from: venueDraft.from,
                 to: venueDraft.to,
-                courts: venueDraft.courts,
+                courts: vSelectedIndices.length,
+                selectedCourtIndices: vSelectedIndices,
                 useForZones: Boolean(venueDraft.useForZones),
                 useForBracket: true,
               };
@@ -6931,10 +6959,11 @@ export default function TournamentFixtureScreen({ navigation, route }) {
     const venueDraft = scheduleVenueDrafts?.[venueId] || {};
     const venue = tournamentVenueOptions.find((entry) => entry.id === venueId);
     const maxCourts = Math.max(Number(venue?.totalCanchas || 0) || 0, 1);
-    const selectedCourts = Math.max(
-      1,
-      Math.min(Number.parseInt(String(venueDraft.courts || maxCourts), 10) || maxCourts, maxCourts)
-    );
+    const allIndices = Array.from({ length: maxCourts }, (_, i) => i + 1);
+    const draftSelectedIndices = Array.isArray(venueDraft.selectedCourtIndices) && venueDraft.selectedCourtIndices.length
+      ? venueDraft.selectedCourtIndices
+      : allIndices;
+    const selectedCourts = draftSelectedIndices.length;
 
     if (!venueDraft.useForZones && !venueDraft.useForBracket) {
       setFeedback({
@@ -6980,6 +7009,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
           from: venueDraft.from,
           to: venueDraft.to,
           courts: selectedCourts,
+          selectedCourtIndices: draftSelectedIndices,
           useForZones: Boolean(venueDraft.useForZones),
           useForBracket: Boolean(venueDraft.useForBracket),
         }
@@ -7848,6 +7878,10 @@ export default function TournamentFixtureScreen({ navigation, route }) {
             return null;
           }
 
+          const vMax2 = Math.max(Number(venue?.totalCanchas || 0) || 0, 1);
+          const vAllIndices2 = Array.from({ length: vMax2 }, (_, i) => i + 1);
+          const vSelectedIndices2 = Array.isArray(venueDraft.selectedCourtIndices) && venueDraft.selectedCourtIndices.length
+            ? venueDraft.selectedCourtIndices : vAllIndices2;
           return {
             id: `bracket-draft-schedule-${venue.id}`,
             venueId: venue.id,
@@ -7855,7 +7889,8 @@ export default function TournamentFixtureScreen({ navigation, route }) {
             dayKey: venueDraft.selectedDayKey,
             from: venueDraft.from,
             to: venueDraft.to,
-            courts: venueDraft.courts,
+            courts: vSelectedIndices2.length,
+            selectedCourtIndices: vSelectedIndices2,
             useForZones: Boolean(venueDraft.useForZones),
             useForBracket: true,
           };
@@ -11851,6 +11886,15 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                         const venueId = venue.id;
                         const venueDraft = scheduleVenueDrafts?.[venueId] || {};
                         const venueSchedules = zoneVenueSchedules.filter((schedule) => schedule.venueId === venueId);
+                        const venueCanchas = Array.isArray(venue.canchas) && venue.canchas.length ? venue.canchas : [];
+                        const totalCanchas = Number(venue.totalCanchas || 0) || venueCanchas.length || 1;
+                        const courtOptions = venueCanchas.length > 0
+                          ? venueCanchas.map((c, i) => ({ index: i + 1, label: c.nombre || `Cancha ${i + 1}` }))
+                          : Array.from({ length: totalCanchas }, (_, i) => ({ index: i + 1, label: `Cancha ${i + 1}` }));
+                        const allCourtIndices = courtOptions.map((c) => c.index);
+                        const effectiveSelectedIndices = Array.isArray(venueDraft.selectedCourtIndices)
+                          ? venueDraft.selectedCourtIndices
+                          : allCourtIndices;
                         const colorKey =
                           VENUE_SCHEDULE_COLOR_KEYS[
                             venueIndex % VENUE_SCHEDULE_COLOR_KEYS.length
@@ -11876,23 +11920,8 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                                 </Text>
                                 <Text style={styles.venueScheduleVenueName}>{venue.name}</Text>
                                 <View style={styles.venueScheduleVenueMetaInline}>
-                                  <TextInput
-                                    keyboardType="number-pad"
-                                    maxLength={2}
-                                    onChangeText={(value) =>
-                                      updateScheduleVenueDraft(venueId, {
-                                        courts: String(value || "")
-                                          .replace(/\D/g, "")
-                                          .slice(0, 2) || "1",
-                                      })
-                                    }
-                                    placeholder={String(Math.max(Number(venue.totalCanchas || 0) || 0, 1))}
-                                    placeholderTextColor={colors.muted}
-                                    style={styles.venueScheduleVenueMetaInput}
-                                    value={String(venueDraft.courts || "")}
-                                  />
                                   <Text style={styles.venueScheduleVenueMetaValue}>
-                                    cancha{Number(venueDraft.courts || 0) === 1 ? "" : "s"} disponibles
+                                    {effectiveSelectedIndices.length}/{totalCanchas} cancha{totalCanchas !== 1 ? "s" : ""} seleccionada{effectiveSelectedIndices.length !== 1 ? "s" : ""}
                                   </Text>
                                 </View>
                               </View>
@@ -11965,6 +11994,28 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                                     </Text>
                                   </Pressable>
                                 </View>
+
+                                {courtOptions.length > 1 ? (
+                                  <>
+                                    <Text style={styles.inlineFieldLabel}>Canchas a usar</Text>
+                                    <View style={styles.inlineChipWrap}>
+                                      {courtOptions.map((court) => {
+                                        const isSelected = effectiveSelectedIndices.includes(court.index);
+                                        return (
+                                          <Pressable
+                                            key={court.index}
+                                            onPress={() => toggleCourtSelection(venueId, court.index, totalCanchas)}
+                                            style={[styles.inlineChip, isSelected ? styles.inlineChipActive : null]}
+                                          >
+                                            <Text style={[styles.inlineChipText, isSelected ? styles.inlineChipTextActive : null]}>
+                                              {court.label}
+                                            </Text>
+                                          </Pressable>
+                                        );
+                                      })}
+                                    </View>
+                                  </>
+                                ) : null}
 
                                 {isVenueEnabled ? (
                                   <>
@@ -12063,7 +12114,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                                           <View key={schedule.id} style={styles.venueScheduleListCard}>
                                             <View style={styles.venueScheduleListCopy}>
                                               <Text style={styles.venueScheduleListMeta}>
-                                                {formatScheduleDayDisplay(schedule.dayKey, tournamentDayOptions)} - {schedule.from} a {schedule.to}
+                                                {formatScheduleDayDisplay(schedule.dayKey, tournamentDayOptions)} · {schedule.from} a {schedule.to} · {(schedule.selectedCourtIndices || []).length || schedule.courts} cancha{((schedule.selectedCourtIndices || []).length || schedule.courts) !== 1 ? "s" : ""}
                                               </Text>
                                             </View>
                                             <Pressable
