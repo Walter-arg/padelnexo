@@ -1531,7 +1531,7 @@ export default function TournamentZonePlanningScreen({ navigation, route }) {
       return {
         confirmed,
         message: `No hay cambios nuevos en el armado.${unassignedMessage}\n\n¿Queres guardar de todos modos?`,
-        title: confirmed ? "Confirmar armado" : "Guardar borrador",
+        title: confirmed ? "Establecer Cambios" : "Guardar borrador",
       };
     }
 
@@ -1601,12 +1601,6 @@ export default function TournamentZonePlanningScreen({ navigation, route }) {
                 Selecciona las parejas y arma las zonas manualmente.
               </Text>
             </TournamentHeaderCard>
-            {hasUnsavedChanges ? (
-              <View style={styles.unsavedChangesBanner}>
-                <Ionicons color="#A84F00" name="alert-circle" size={15} />
-                <Text style={styles.unsavedChangesText}>Hay cambios sin guardar</Text>
-              </View>
-            ) : null}
 
             <ScrollView
               horizontal
@@ -1817,8 +1811,15 @@ export default function TournamentZonePlanningScreen({ navigation, route }) {
                     buildZoneMatchRows(zoneRegistrations.length)
                   );
                   const qualifiers = [];
+                  const hasUnscheduledMatches = zoneMatchRows.length > 0 && zoneMatchRows.some((ml) => !getZoneMatchSchedule(zone, ml).startTime);
                   return (
-                    <View key={zone.id} style={styles.zoneCard}>
+                    <View key={zone.id} style={[styles.zoneCard, hasUnscheduledMatches ? styles.zoneCardUnscheduled : null]}>
+                      {hasUnscheduledMatches ? (
+                        <View style={styles.zoneUnscheduledBanner}>
+                          <Ionicons color={colors.danger} name="warning-outline" size={13} />
+                          <Text style={styles.zoneUnscheduledBannerText}>Atención: hay partidos sin horario designado</Text>
+                        </View>
+                      ) : null}
                       <View style={styles.zoneHeader}>
                         <View style={styles.zoneHeaderMain}>
                           <Text style={styles.zoneTitle}>
@@ -1977,7 +1978,7 @@ export default function TournamentZonePlanningScreen({ navigation, route }) {
                 onPress={() => requestSaveArmado(true)}
                 style={[styles.confirmAction, saving ? styles.actionDisabled : null]}
               >
-                <Text style={styles.confirmActionText}>Confirmar armado</Text>
+                <Text style={styles.confirmActionText}>Establecer Cambios</Text>
               </Pressable>
             </View>
             <View style={styles.quickPairAddWrap}>
@@ -2003,6 +2004,12 @@ export default function TournamentZonePlanningScreen({ navigation, route }) {
             </View>
           </ScrollView>
         )}
+        {hasUnsavedChanges ? (
+          <View style={styles.unsavedChangesBanner}>
+            <Ionicons color="#A84F00" name="alert-circle" size={15} />
+            <Text style={styles.unsavedChangesText}>Hay cambios sin guardar</Text>
+          </View>
+        ) : null}
       </View>
 
       {zoneTimePickerTarget ? (
@@ -2523,7 +2530,7 @@ export default function TournamentZonePlanningScreen({ navigation, route }) {
         <View style={styles.deleteModalOverlay}>
           <Pressable onPress={() => setConfirmArmadoPrompt(null)} style={styles.resultModalBackdrop} />
           <View style={styles.deleteModalCard}>
-            <Text style={styles.deleteModalTitle}>{confirmArmadoPrompt?.title || "Confirmar armado"}</Text>
+            <Text style={styles.deleteModalTitle}>{confirmArmadoPrompt?.title || "Establecer Cambios"}</Text>
             <Text style={styles.deleteModalText}>
               {confirmArmadoPrompt?.message || "¿Queres continuar?"}
             </Text>
@@ -2592,11 +2599,22 @@ const styles = StyleSheet.create({
     borderColor: "#FFB357",
     borderRadius: 999,
     borderWidth: 1,
+    bottom: 20,
+    elevation: 6,
     flexDirection: "row",
     gap: 6,
     justifyContent: "center",
+    left: 32,
     minHeight: 32,
     paddingHorizontal: spacing.md,
+    paddingVertical: 6,
+    position: "absolute",
+    right: 32,
+    shadowColor: "#A84F00",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.18,
+    shadowRadius: 6,
+    zIndex: 20,
   },
   unsavedChangesText: {
     color: "#A84F00",
@@ -2886,6 +2904,27 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.md,
+  },
+  zoneCardUnscheduled: {
+    borderColor: colors.danger,
+    borderWidth: 2,
+  },
+  zoneUnscheduledBanner: {
+    alignItems: "center",
+    backgroundColor: "#FFF0F0",
+    borderColor: colors.danger,
+    borderRadius: 8,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 5,
+    marginBottom: spacing.sm,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  zoneUnscheduledBannerText: {
+    color: colors.danger,
+    fontSize: 11,
+    fontWeight: "600",
   },
   hiddenSection: {
     display: "none",
