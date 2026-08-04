@@ -1,3 +1,5 @@
+import "@react-native-firebase/app";
+import crashlytics from "@react-native-firebase/crashlytics";
 import React, { useEffect, useState } from "react";
 import { NavigationContainer, createNavigationContainerRef } from "@react-navigation/native";
 import * as ExpoLinking from "expo-linking";
@@ -6,7 +8,9 @@ import {
   ActivityIndicator,
   AppState,
   Linking,
+  Modal,
   Platform,
+  Pressable,
   SafeAreaView,
   ScrollView,
   StyleSheet,
@@ -14,6 +18,8 @@ import {
   View,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
+import Constants from "expo-constants";
+import { doc, getDoc } from "firebase/firestore";
 
 import AppNavigator from "./src/navigation/AppNavigator";
 import devLog from "./src/utils/devLog";
@@ -35,6 +41,7 @@ import {
 } from "./src/services/leaguesService";
 import { clearPendingTournamentMercadoPagoAttempt } from "./src/services/tournamentsService";
 import { cancelPendingMercadoPagoReservation } from "./src/services/turnosService";
+import { ensureDb } from "./services/firebaseConfig";
 
 const navigationRef = createNavigationContainerRef();
 let pendingCheckoutNavigation = null;
@@ -470,6 +477,16 @@ async function recoverPendingCheckoutResult({
   }
 }
 
+function isVersionLessThan(current, minimum) {
+  const c = String(current || "0.0.0").split(".").map(Number);
+  const m = String(minimum || "0.0.0").split(".").map(Number);
+  for (let i = 0; i < 3; i++) {
+    if ((c[i] || 0) < (m[i] || 0)) return true;
+    if ((c[i] || 0) > (m[i] || 0)) return false;
+  }
+  return false;
+}
+
 class RootErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
@@ -533,6 +550,27 @@ class RootErrorBoundary extends React.Component {
 export default function App() {
   const linkingUrl = ExpoLinking.useLinkingURL();
   const [isCheckoutBootstrapping, setIsCheckoutBootstrapping] = useState(true);
+  const [updateRequired, setUpdateRequired] = useState(false);
+
+  useEffect(() => {
+    const checkAppVersion = async () => {
+      try {
+        const db = await ensureDb();
+        if (!db) return;
+        const snap = await getDoc(doc(db, "appConfig", "versionControl"));
+        if (!snap.exists()) return;
+        const minVersion = snap.data()?.minAndroidVersion;
+        if (!minVersion) return;
+        const currentVersion = Constants.expoConfig?.version || "0.0.0";
+        if (isVersionLessThan(currentVersion, minVersion)) {
+          setUpdateRequired(true);
+        }
+      } catch (error) {
+        devLog("[versionCheck] Error al verificar version:", error?.message || error);
+      }
+    };
+    checkAppVersion();
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
@@ -627,6 +665,26 @@ export default function App() {
 
   return (
     <RootErrorBoundary>
+      <Modal animationType="fade" transparent visible={updateRequired}>
+        <View style={styles.updateOverlay}>
+          <View style={styles.updateCard}>
+            <Text style={styles.updateTitle}>Actualización requerida</Text>
+            <Text style={styles.updateMessage}>
+              Esta versión de PadelNexo ya no está soportada. Actualizá la app desde Google Play para seguir usando PadelNexo.
+            </Text>
+            <Pressable
+              onPress={() =>
+                Linking.openURL(
+                  "https://play.google.com/store/apps/details?id=com.padelnexo.app"
+                )
+              }
+              style={styles.updateButton}
+            >
+              <Text style={styles.updateButtonText}>Ir a Google Play</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
       <AuthProvider>
         <NavigationContainer
           ref={navigationRef}
@@ -726,5 +784,46 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 12,
     lineHeight: 18,
+  },
+  updateOverlay: {
+    alignItems: "center",
+    backgroundColor: "rgba(0,0,0,0.7)",
+    flex: 1,
+    justifyContent: "center",
+    padding: spacing.lg,
+  },
+  updateCard: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 20,
+    borderWidth: 1,
+    padding: spacing.lg,
+    width: "100%",
+  },
+  updateTitle: {
+    color: colors.text,
+    fontSize: 20,
+    fontWeight: "900",
+    marginBottom: spacing.sm,
+    textAlign: "center",
+  },
+  updateMessage: {
+    color: colors.muted,
+    fontSize: 15,
+    lineHeight: 22,
+    marginBottom: spacing.lg,
+    textAlign: "center",
+  },
+  updateButton: {
+    alignItems: "center",
+    backgroundColor: colors.primary,
+    borderRadius: 12,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+  },
+  updateButtonText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "800",
   },
 });

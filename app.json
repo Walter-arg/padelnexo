@@ -24,6 +24,7 @@
       "fallbackToCacheTimeout": 0
     },
     "android": {
+      "googleServicesFile": "./google-services.json",
       "package": "com.padelnexo.app",
       "permissions": [
         "INTERNET",
@@ -79,6 +80,8 @@
     },
     "owner": "waltwr",
     "plugins": [
+      "@react-native-firebase/app",
+      "@react-native-firebase/crashlytics",
       "expo-web-browser",
       [
         "expo-location",

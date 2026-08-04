@@ -1,0 +1,46 @@
+{
+  "project_info": {
+    "project_number": "553114005250",
+    "project_id": "padelnexo-7e4d5",
+    "storage_bucket": "padelnexo-7e4d5.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:553114005250:android:a15ad61de6f60fd8b1dc1b",
+        "android_client_info": {
+          "package_name": "com.padelnexo.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "553114005250-khcbjn19g7l892kaan1v5amv8mv5pns9.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC86y7nusoRtK-hsGd-NrU7RQLp8zh0S2A"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "553114005250-khcbjn19g7l892kaan1v5amv8mv5pns9.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "553114005250-9c71v4oo3imvc17hbhr2jg5r9ok0em0n.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.padelnexo.app"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
