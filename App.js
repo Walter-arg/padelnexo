@@ -551,6 +551,7 @@ export default function App() {
   const linkingUrl = ExpoLinking.useLinkingURL();
   const [isCheckoutBootstrapping, setIsCheckoutBootstrapping] = useState(true);
   const [updateRequired, setUpdateRequired] = useState(false);
+  const [updateSuggested, setUpdateSuggested] = useState(false);
 
   useEffect(() => {
     const checkAppVersion = async () => {
@@ -559,11 +560,12 @@ export default function App() {
         if (!db) return;
         const snap = await getDoc(doc(db, "appConfig", "versionControl"));
         if (!snap.exists()) return;
-        const minVersion = snap.data()?.minAndroidVersion;
-        if (!minVersion) return;
+        const data = snap.data();
         const currentVersion = Constants.expoConfig?.version || "0.0.0";
-        if (isVersionLessThan(currentVersion, minVersion)) {
+        if (data?.minAndroidVersion && isVersionLessThan(currentVersion, data.minAndroidVersion)) {
           setUpdateRequired(true);
+        } else if (data?.latestAndroidVersion && isVersionLessThan(currentVersion, data.latestAndroidVersion)) {
+          setUpdateSuggested(true);
         }
       } catch (error) {
         devLog("[versionCheck] Error al verificar version:", error?.message || error);
@@ -665,6 +667,29 @@ export default function App() {
 
   return (
     <RootErrorBoundary>
+      <Modal animationType="fade" transparent visible={updateSuggested && !updateRequired}>
+        <View style={styles.updateOverlay}>
+          <View style={styles.updateCard}>
+            <Text style={styles.updateTitle}>Hay una nueva versión</Text>
+            <Text style={styles.updateMessage}>
+              Hay una versión más reciente de PadelNexo disponible en Google Play con mejoras y correcciones.
+            </Text>
+            <Pressable
+              onPress={() =>
+                Linking.openURL(
+                  "https://play.google.com/store/apps/details?id=com.padelnexo.app"
+                )
+              }
+              style={styles.updateButton}
+            >
+              <Text style={styles.updateButtonText}>Actualizar</Text>
+            </Pressable>
+            <Pressable onPress={() => setUpdateSuggested(false)} style={styles.updateSkipButton}>
+              <Text style={styles.updateSkipButtonText}>Ahora no</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
       <Modal animationType="fade" transparent visible={updateRequired}>
         <View style={styles.updateOverlay}>
           <View style={styles.updateCard}>
@@ -825,5 +850,15 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 16,
     fontWeight: "800",
+  },
+  updateSkipButton: {
+    alignItems: "center",
+    marginTop: spacing.sm,
+    paddingVertical: spacing.sm,
+  },
+  updateSkipButtonText: {
+    color: colors.muted,
+    fontSize: 14,
+    fontWeight: "600",
   },
 });
