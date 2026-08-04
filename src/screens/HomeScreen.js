@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
+  Linking,
   Pressable,
   ScrollView,
   StatusBar,
@@ -955,6 +956,19 @@ export default function HomeScreen({ navigation, route }) {
           )}
         </View>
 
+        <Pressable
+          onPress={() => Linking.openURL("https://www.padelnexo.com.ar")}
+          style={({ pressed }) => [styles.organizerBanner, pressed && styles.organizerBannerPressed]}
+        >
+          <View style={styles.organizerBannerContent}>
+            <Text style={styles.organizerBannerTitle}>¿Organizás torneos o ligas?</Text>
+            <Text style={styles.organizerBannerSubtitle}>
+              Conocé los planes para organizadores en PadelNexo
+            </Text>
+          </View>
+          <Text style={styles.organizerBannerArrow}>→</Text>
+        </Pressable>
+
         {user && currentUser && canManageFinances ? (
           <Pressable
             onPress={() => navigation.navigate("Finanzas")}
@@ -1558,6 +1572,37 @@ const styles = StyleSheet.create({
     color: colors.muted,
     fontSize: 14,
     marginTop: 2,
+  },
+  organizerBanner: {
+    alignItems: "center",
+    backgroundColor: colors.primaryDark,
+    borderRadius: 14,
+    flexDirection: "row",
+    marginBottom: spacing.lg,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
+  },
+  organizerBannerPressed: {
+    opacity: 0.85,
+  },
+  organizerBannerContent: {
+    flex: 1,
+  },
+  organizerBannerTitle: {
+    color: "#fff",
+    fontSize: 15,
+    fontWeight: "800",
+  },
+  organizerBannerSubtitle: {
+    color: "rgba(255,255,255,0.75)",
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 3,
+  },
+  organizerBannerArrow: {
+    color: "rgba(255,255,255,0.7)",
+    fontSize: 20,
+    marginLeft: spacing.sm,
   },
   authButton: {
     backgroundColor: colors.surface,
