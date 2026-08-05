@@ -30,6 +30,7 @@ import {
 } from "../services/organizerService";
 import {
   archiveLeagueAsAdmin,
+  assignOrganizerPlan,
   blockUserAccount,
   cancelTournamentAsAdmin,
   grantAdminAccess,
@@ -40,8 +41,10 @@ import {
   restoreTournamentAsAdmin,
   revokeAdminAccess,
   revokeOrganizerAccess,
+  revokeOrganizerPlan,
   updateUserProfileAsAdmin,
 } from "../services/adminService";
+import { getPlanLabel } from "../services/planService";
 import { ADMIN_ROLE, ORGANIZER_ROLE, ORGANIZER_STATUS } from "../services/roleService";
 import { listAdminReports, updateReportStatus } from "../services/reportsService";
 import { getTournamentById } from "../services/tournamentsService";
@@ -211,6 +214,8 @@ export default function AdminScreen({ navigation, route }) {
   const [userEditForm, setUserEditForm] = useState(() => buildUserEditForm());
   const [activeTab, setActiveTab] = useState("menu");
   const [loading, setLoading] = useState(true);
+  const [planTrialDays, setPlanTrialDays] = useState("30");
+  const [planActionLoading, setPlanActionLoading] = useState(false);
 
   const canAccessAdmin = canAccessAdminPanel({
     ...userData,
@@ -310,6 +315,92 @@ export default function AdminScreen({ navigation, route }) {
   const handleSelectUser = (item) => {
     setSelectedUser(item);
     setUserEditForm(buildUserEditForm(item));
+    setPlanTrialDays("30");
+  };
+
+  const handleAssignPlan = async (plan) => {
+    if (!selectedUser?.id || planActionLoading) return;
+    Alert.alert(
+      "Asignar plan",
+      `¿Asignar ${getPlanLabel(plan)} a ${selectedUser.name}?`,
+      [
+        { text: "Cancelar", style: "cancel" },
+        {
+          text: "Confirmar",
+          onPress: async () => {
+            setPlanActionLoading(true);
+            try {
+              await assignOrganizerPlan(selectedUser.id, plan, 0);
+              setSelectedUser((prev) => ({ ...prev, plan, planStatus: "active", trialEndDate: 0 }));
+              Alert.alert("Plan asignado", `${getPlanLabel(plan)} activado para ${selectedUser.name}.`);
+            } catch (error) {
+              Alert.alert("Error", error.message);
+            } finally {
+              setPlanActionLoading(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleAssignTrial = async (plan) => {
+    if (!selectedUser?.id || planActionLoading) return;
+    const days = Number(planTrialDays);
+    if (!days || days < 1) {
+      Alert.alert("Días inválidos", "Ingresá una cantidad de días mayor a 0.");
+      return;
+    }
+    Alert.alert(
+      "Asignar trial",
+      `¿Dar ${days} días de trial de ${getPlanLabel(plan)} a ${selectedUser.name}?`,
+      [
+        { text: "Cancelar", style: "cancel" },
+        {
+          text: "Confirmar",
+          onPress: async () => {
+            setPlanActionLoading(true);
+            try {
+              await assignOrganizerPlan(selectedUser.id, plan, days);
+              const trialEndDate = Date.now() + days * 24 * 60 * 60 * 1000;
+              setSelectedUser((prev) => ({ ...prev, plan, planStatus: "trial", trialEndDate }));
+              Alert.alert("Trial asignado", `${days} días de ${getPlanLabel(plan)} activados.`);
+            } catch (error) {
+              Alert.alert("Error", error.message);
+            } finally {
+              setPlanActionLoading(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleRevokePlan = async () => {
+    if (!selectedUser?.id || planActionLoading) return;
+    Alert.alert(
+      "Revocar plan",
+      `¿Revocar el plan de ${selectedUser.name}? Perderá acceso a las funciones de organizador.`,
+      [
+        { text: "Cancelar", style: "cancel" },
+        {
+          text: "Revocar",
+          style: "destructive",
+          onPress: async () => {
+            setPlanActionLoading(true);
+            try {
+              await revokeOrganizerPlan(selectedUser.id);
+              setSelectedUser((prev) => ({ ...prev, plan: null, planStatus: "none", trialEndDate: 0 }));
+              Alert.alert("Plan revocado", `${selectedUser.name} ya no tiene plan activo.`);
+            } catch (error) {
+              Alert.alert("Error", error.message);
+            } finally {
+              setPlanActionLoading(false);
+            }
+          },
+        },
+      ]
+    );
   };
 
   const updateUserEditField = (field, value) => {
@@ -608,6 +699,12 @@ export default function AdminScreen({ navigation, route }) {
                 onPress: () => setActiveTab("reports"),
                 icon: "flag-outline",
               })}
+              {renderMenuCard({
+                title: "PLANES",
+                subtitle: `${organizerUsers.filter((u) => u.plan).length} organizadores con plan`,
+                onPress: () => setActiveTab("plans"),
+                icon: "ribbon-outline",
+              })}
             </View>
           ) : activeTab === "usersMenu" ? (
             <View style={styles.menuGrid}>
@@ -830,7 +927,41 @@ export default function AdminScreen({ navigation, route }) {
               }}
               showsVerticalScrollIndicator={false}
             />
-          )}
+          ) : activeTab === "plans" ? (
+            <FlatList
+              contentContainerStyle={styles.listContent}
+              data={organizerUsers}
+              keyExtractor={(item) => item.id}
+              ListEmptyComponent={
+                <Text style={styles.emptyText}>
+                  {loading ? "Cargando organizadores..." : "No hay organizadores aprobados."}
+                </Text>
+              }
+              renderItem={({ item }) => (
+                <Pressable
+                  onPress={() => handleSelectUser(item)}
+                  style={({ pressed }) => [styles.requestCard, pressed && styles.requestCardPressed]}
+                >
+                  <View style={styles.requestTopRow}>
+                    <Text style={styles.requestName}>{item.name}</Text>
+                    <Text style={styles.statusBadge}>
+                      {item.plan ? getPlanLabel(item.plan) : "Sin plan"}
+                    </Text>
+                  </View>
+                  <Text style={styles.requestMeta}>{item.email || "Sin email"}</Text>
+                  <Text style={styles.requestMeta}>
+                    Estado:{" "}
+                    {item.planStatus === "trial"
+                      ? `Trial — vence ${formatAdminDate(item.trialEndDate)}`
+                      : item.planStatus === "active"
+                        ? "Activo"
+                        : "Sin plan"}
+                  </Text>
+                </Pressable>
+              )}
+              showsVerticalScrollIndicator={false}
+            />
+          ) : null}
         </View>
       </ScreenWrapper>
 
@@ -983,6 +1114,81 @@ export default function AdminScreen({ navigation, route }) {
                     {formatAdminDate(selectedUser.createdAtMillis)}
                   </Text>
                 </View>
+                {selectedUser.role === ORGANIZER_ROLE &&
+                  selectedUser.organizerStatus === ORGANIZER_STATUS.APPROVED ? (
+                  <View style={styles.detailCard}>
+                    <Text style={styles.complexTitle}>Plan de acceso</Text>
+                    <Text style={styles.detailLabel}>Plan actual</Text>
+                    <Text style={styles.detailValue}>
+                      {selectedUser.plan
+                        ? `${getPlanLabel(selectedUser.plan)}${selectedUser.planStatus === "trial" ? " (Trial)" : ""}`
+                        : "Sin plan"}
+                      {selectedUser.planStatus === "trial" && selectedUser.trialEndDate
+                        ? `  —  vence ${formatAdminDate(selectedUser.trialEndDate)}`
+                        : ""}
+                    </Text>
+
+                    <Text style={styles.inputLabel}>Asignar plan permanente</Text>
+                    <View style={styles.planChipRow}>
+                      {["simple", "plus", "premium"].map((plan) => (
+                        <Pressable
+                          key={plan}
+                          onPress={() => handleAssignPlan(plan)}
+                          style={[
+                            styles.planChip,
+                            selectedUser.plan === plan && selectedUser.planStatus === "active"
+                              ? styles.planChipActive
+                              : null,
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.planChipText,
+                              selectedUser.plan === plan && selectedUser.planStatus === "active"
+                                ? styles.planChipTextActive
+                                : null,
+                            ]}
+                          >
+                            {plan.charAt(0).toUpperCase() + plan.slice(1)}
+                          </Text>
+                        </Pressable>
+                      ))}
+                    </View>
+
+                    <Text style={styles.inputLabel}>Asignar trial</Text>
+                    <View style={styles.trialRow}>
+                      <TextInput
+                        keyboardType="number-pad"
+                        onChangeText={setPlanTrialDays}
+                        placeholder="Días"
+                        placeholderTextColor={colors.muted}
+                        style={[styles.adminInput, styles.trialDaysInput]}
+                        value={planTrialDays}
+                      />
+                      {["simple", "plus", "premium"].map((plan) => (
+                        <Pressable
+                          key={plan}
+                          onPress={() => handleAssignTrial(plan)}
+                          style={styles.trialChip}
+                        >
+                          <Text style={styles.trialChipText}>
+                            {plan.charAt(0).toUpperCase() + plan.slice(1)}
+                          </Text>
+                        </Pressable>
+                      ))}
+                    </View>
+
+                    {selectedUser.plan ? (
+                      <AppButton
+                        disabled={planActionLoading}
+                        onPress={handleRevokePlan}
+                        style={styles.revokePlanButton}
+                        title="Revocar plan"
+                      />
+                    ) : null}
+                  </View>
+                ) : null}
+
                 <View style={styles.detailCard}>
                   <Text style={styles.complexTitle}>Perfil completo</Text>
                   <Text style={styles.inputLabel}>Nombre y apellido</Text>
@@ -1720,6 +1926,59 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "800",
     marginBottom: spacing.xs,
+  },
+  planChipRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginBottom: spacing.md,
+  },
+  planChip: {
+    borderColor: colors.border,
+    borderRadius: 8,
+    borderWidth: 1.5,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+  },
+  planChipActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  planChipText: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  planChipTextActive: {
+    color: "#fff",
+  },
+  trialRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginBottom: spacing.md,
+  },
+  trialDaysInput: {
+    flex: 0,
+    width: 70,
+  },
+  trialChip: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 8,
+    borderWidth: 1.5,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  trialChipText: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  revokePlanButton: {
+    backgroundColor: "#FEF4F4",
+    borderColor: "#D9A8A8",
   },
   detailMeta: {
     color: colors.text,

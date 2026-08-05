@@ -47,6 +47,10 @@ function mapAdminUser(docSnapshot) {
     role: data.role || USER_ROLE,
     organizerStatus: data.organizerStatus || ORGANIZER_STATUS.NONE,
     adminStatus: data.adminStatus || "none",
+    plan: data.plan || null,
+    planStatus: data.planStatus || "none",
+    trialEndDate: typeof data.trialEndDate === "number" ? data.trialEndDate : 0,
+    planActivatedDateMillis: resolveTimestampMillis(data.planActivatedDate),
     accountDeleted: Boolean(data.accountDeleted),
     blockStatus: data.blockStatus || "none",
     blockedAtMillis: resolveTimestampMillis(data.blockedAt),
@@ -277,6 +281,37 @@ export async function restoreUserAccount(userId) {
     role: data.preBlockRole || (data.role === "blocked" ? USER_ROLE : data.role || USER_ROLE),
     organizerStatus:
       data.preBlockOrganizerStatus || data.organizerStatus || ORGANIZER_STATUS.NONE,
+    updatedAt: serverTimestamp(),
+  });
+}
+
+export async function assignOrganizerPlan(userId, plan, trialDays = 0) {
+  if (!userId || !plan) return;
+  const isTrial = Number(trialDays) > 0;
+  const payload = {
+    plan,
+    planStatus: isTrial ? "trial" : "active",
+    planUpdatedAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  };
+  if (isTrial) {
+    payload.trialEndDate = Date.now() + Number(trialDays) * 24 * 60 * 60 * 1000;
+    payload.planActivatedDate = null;
+  } else {
+    payload.planActivatedDate = serverTimestamp();
+    payload.trialEndDate = null;
+  }
+  await updateDoc(doc(db, "users", userId), payload);
+}
+
+export async function revokeOrganizerPlan(userId) {
+  if (!userId) return;
+  await updateDoc(doc(db, "users", userId), {
+    plan: null,
+    planStatus: "none",
+    trialEndDate: null,
+    planActivatedDate: null,
+    planUpdatedAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
 }
