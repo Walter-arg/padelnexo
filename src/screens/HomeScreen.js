@@ -957,7 +957,7 @@ export default function HomeScreen({ navigation, route }) {
         </View>
 
         <Pressable
-          onPress={() => Linking.openURL("https://www.padelnexo.com.ar")}
+          onPress={() => Linking.openURL("https://www.padelnexo.com.ar/planes")}
           style={({ pressed }) => [styles.organizerBanner, pressed && styles.organizerBannerPressed]}
         >
           <View style={styles.organizerBannerContent}>
