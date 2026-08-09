@@ -886,6 +886,40 @@ export default function AdminScreen({ navigation, route }) {
                 showsVerticalScrollIndicator={false}
               />
             </View>
+          ) : activeTab === "plans" ? (
+            <FlatList
+              contentContainerStyle={styles.listContent}
+              data={organizerUsers}
+              keyExtractor={(item) => item.id}
+              ListEmptyComponent={
+                <Text style={styles.emptyText}>
+                  {loading ? "Cargando organizadores..." : "No hay organizadores aprobados."}
+                </Text>
+              }
+              renderItem={({ item }) => (
+                <Pressable
+                  onPress={() => handleSelectUser(item)}
+                  style={({ pressed }) => [styles.requestCard, pressed && styles.requestCardPressed]}
+                >
+                  <View style={styles.requestTopRow}>
+                    <Text style={styles.requestName}>{item.name}</Text>
+                    <Text style={styles.statusBadge}>
+                      {item.plan ? getPlanLabel(item.plan) : "Sin plan"}
+                    </Text>
+                  </View>
+                  <Text style={styles.requestMeta}>{item.email || "Sin email"}</Text>
+                  <Text style={styles.requestMeta}>
+                    Estado:{" "}
+                    {item.planStatus === "trial"
+                      ? `Trial — vence ${formatAdminDate(item.trialEndDate)}`
+                      : item.planStatus === "active"
+                        ? "Activo"
+                        : "Sin plan"}
+                  </Text>
+                </Pressable>
+              )}
+              showsVerticalScrollIndicator={false}
+            />
           ) : (
             <FlatList
               contentContainerStyle={styles.listContent}
@@ -927,41 +961,7 @@ export default function AdminScreen({ navigation, route }) {
               }}
               showsVerticalScrollIndicator={false}
             />
-          ) : activeTab === "plans" ? (
-            <FlatList
-              contentContainerStyle={styles.listContent}
-              data={organizerUsers}
-              keyExtractor={(item) => item.id}
-              ListEmptyComponent={
-                <Text style={styles.emptyText}>
-                  {loading ? "Cargando organizadores..." : "No hay organizadores aprobados."}
-                </Text>
-              }
-              renderItem={({ item }) => (
-                <Pressable
-                  onPress={() => handleSelectUser(item)}
-                  style={({ pressed }) => [styles.requestCard, pressed && styles.requestCardPressed]}
-                >
-                  <View style={styles.requestTopRow}>
-                    <Text style={styles.requestName}>{item.name}</Text>
-                    <Text style={styles.statusBadge}>
-                      {item.plan ? getPlanLabel(item.plan) : "Sin plan"}
-                    </Text>
-                  </View>
-                  <Text style={styles.requestMeta}>{item.email || "Sin email"}</Text>
-                  <Text style={styles.requestMeta}>
-                    Estado:{" "}
-                    {item.planStatus === "trial"
-                      ? `Trial — vence ${formatAdminDate(item.trialEndDate)}`
-                      : item.planStatus === "active"
-                        ? "Activo"
-                        : "Sin plan"}
-                  </Text>
-                </Pressable>
-              )}
-              showsVerticalScrollIndicator={false}
-            />
-          ) : null}
+          )}
         </View>
       </ScreenWrapper>
 
