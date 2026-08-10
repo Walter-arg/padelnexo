@@ -18,6 +18,14 @@ service cloud.firestore {
       );
     }
 
+    function esAdmin() {
+      return isAuth() && (
+        request.auth.token.email.lower() == "wramirez.arg@gmail.com" ||
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "admin" ||
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.adminStatus == "active"
+      );
+    }
+
     // Campos sensibles del perfil que un usuario NO puede tocar libremente
     // (rol, aprobacion de organizador, plan pago, estado admin, bloqueo, email).
     function unchangedField(field, defaultValue) {
@@ -203,14 +211,14 @@ service cloud.firestore {
 
     // Solicitudes de complejo
     match /complexRequests/{requestId} {
-      allow read: if isAuth() && resource.data.userId == request.auth.uid;
+      allow read: if isAuth() && (resource.data.userId == request.auth.uid || esAdmin());
       allow create: if isAuth();
       allow update, delete: if isAuth() && resource.data.userId == request.auth.uid;
     }
 
     // Solicitudes de organizador
     match /organizerRequests/{requestId} {
-      allow read: if isAuth() && resource.data.userId == request.auth.uid;
+      allow read: if isAuth() && (resource.data.userId == request.auth.uid || esAdmin());
       allow create: if isAuth();
       allow update, delete: if isAuth() && resource.data.userId == request.auth.uid;
     }
@@ -218,7 +226,8 @@ service cloud.firestore {
     // Reportes
     match /reports/{reportId} {
       allow create: if isAuth();
-      allow read, update, delete: if isAuth() && resource.data.reporterId == request.auth.uid;
+      allow read, update, delete: if isAuth() &&
+        (resource.data.reporterId == request.auth.uid || esAdmin());
     }
 
     // Bloqueos entre usuarios
