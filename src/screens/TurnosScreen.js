@@ -1,6 +1,7 @@
 ﻿import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Image,
   KeyboardAvoidingView,
   Linking,
@@ -336,16 +337,10 @@ function getReservationStatusLabel(reservation = {}) {
   return "CONFIRMADA";
 }
 
-function getCourtSlots(court = {}, dayKey = "") {
-  const slots = court?.slotsByDay?.[dayKey] || [];
-
-  return Array.isArray(slots) ? slots : [];
-}
-
 function getCourtSlotsForDate(court = {}, day = {}) {
   const dateSlots = court?.slotsByDate?.[String(day.dateMillis)] || null;
 
-  return Array.isArray(dateSlots) ? dateSlots : getCourtSlots(court, day.dayKey);
+  return Array.isArray(dateSlots) ? dateSlots : [];
 }
 
 function isPastSlotForDay(day = {}, slot = "") {
@@ -863,6 +858,30 @@ export default function TurnosScreen({ navigation, route }) {
       (Boolean(savedOrganizerConfigSignature) &&
         organizerConfigSignature !== savedOrganizerConfigSignature));
 
+  useEffect(() => {
+    const unsubscribe = navigation.addListener("beforeRemove", (event) => {
+      if (!hasUnsavedConfigChanges) {
+        return;
+      }
+
+      event.preventDefault();
+      Alert.alert(
+        "Tenes cambios sin guardar",
+        "Si salis ahora vas a perder los cambios en la disponibilidad de esta cancha.",
+        [
+          { text: "Seguir editando", style: "cancel" },
+          {
+            text: "Salir sin guardar",
+            style: "destructive",
+            onPress: () => navigation.dispatch(event.data.action),
+          },
+        ]
+      );
+    });
+
+    return unsubscribe;
+  }, [navigation, hasUnsavedConfigChanges]);
+
   const showFeedback = (title, message, tone = "default") => {
     setFeedback({
       visible: true,
@@ -1209,7 +1228,7 @@ export default function TurnosScreen({ navigation, route }) {
     if (!complex || !sourceCourt || !selectedCourtIds.length) {
       showFeedback(
         "Selecciona canchas",
-        "Marca al menos una cancha para aplicar el precio.",
+        "Marca al menos una cancha para aplicar el precio y el horario.",
         "danger"
       );
       return;
@@ -1229,6 +1248,10 @@ export default function TurnosScreen({ navigation, route }) {
                       ...court,
                       price60: sourceCourt.price60,
                       price90: sourceCourt.price90,
+                      slotsByDate: { ...(sourceCourt.slotsByDate || {}) },
+                      selectedDateIds: Array.isArray(sourceCourt.selectedDateIds)
+                        ? [...sourceCourt.selectedDateIds]
+                        : [],
                     }
                   : court
               ),
@@ -1237,8 +1260,8 @@ export default function TurnosScreen({ navigation, route }) {
     }));
 
     showFeedback(
-      "Precios aplicados",
-      "Los precios se copiaron a las canchas seleccionadas. Guarda para confirmarlos.",
+      "Configuracion aplicada",
+      "El precio y el horario se copiaron a las canchas seleccionadas. Guarda para confirmarlos.",
       "success"
     );
     setPriceApplyContext(null);
@@ -3648,10 +3671,10 @@ export default function TurnosScreen({ navigation, route }) {
         <View style={styles.modalOverlay}>
           <Pressable style={styles.modalBackdrop} onPress={() => setPriceApplyContext(null)} />
           <View style={styles.priceApplyCard}>
-            <Text style={styles.summaryTitle}>Aplicar precio</Text>
+            <Text style={styles.summaryTitle}>Aplicar precio y horario</Text>
             <Text style={styles.priceApplySubtitle}>
               {priceApplyCourt
-                ? `Copiar precio de ${priceApplyCourt.name}`
+                ? `Copiar precio y horario de ${priceApplyCourt.name}`
                 : "Selecciona las canchas destino"}
             </Text>
             <View style={styles.priceApplyList}>
@@ -3692,7 +3715,7 @@ export default function TurnosScreen({ navigation, route }) {
               })}
             </View>
             <Pressable onPress={applyPriceToSelectedCourts} style={styles.primaryButton}>
-              <Text style={styles.primaryButtonText}>APLICAR PRECIO</Text>
+              <Text style={styles.primaryButtonText}>APLICAR PRECIO Y HORARIO</Text>
             </Pressable>
           </View>
         </View>

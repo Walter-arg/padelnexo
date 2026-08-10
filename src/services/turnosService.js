@@ -486,7 +486,13 @@ export async function listBookableComplexes() {
       const organizer = mapUserDocToOrganizer(docSnapshot, configsByOrganizer.get(docSnapshot.id));
 
       return organizer.complexes.map((complex) => {
-        const availableCourts = complex.courts.filter((court) => court.enabled).map((court) => ({
+        const availableCourts = complex.courts.filter(
+          (court) =>
+            court.enabled &&
+            Object.values(court.slotsByDate || {}).some(
+              (slots) => Array.isArray(slots) && slots.length > 0
+            )
+        ).map((court) => ({
           ...court,
           reservedSlotsByDate: Object.fromEntries(
             [...reservedSlots.entries()]
