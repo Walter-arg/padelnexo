@@ -216,6 +216,7 @@ export default function AdminScreen({ navigation, route }) {
   const [loading, setLoading] = useState(true);
   const [planTrialDays, setPlanTrialDays] = useState("30");
   const [planActionLoading, setPlanActionLoading] = useState(false);
+  const [userSearchQuery, setUserSearchQuery] = useState("");
 
   const canAccessAdmin = canAccessAdminPanel({
     ...userData,
@@ -247,6 +248,15 @@ export default function AdminScreen({ navigation, route }) {
       item.blockStatus === "temporary" ||
       item.blockStatus === "indefinite"
   );
+  const normalizedUserSearchQuery = userSearchQuery.trim().toLowerCase();
+  const filterBySearch = (list) =>
+    normalizedUserSearchQuery
+      ? list.filter((item) =>
+          [item.name, item.email, item.phone, item.city]
+            .filter(Boolean)
+            .some((field) => field.toLowerCase().includes(normalizedUserSearchQuery))
+        )
+      : list;
   const contentFiltered = contentItems.filter((item) => {
     if (activeTab === "leagues") {
       return item.type === "league";
@@ -788,23 +798,42 @@ export default function AdminScreen({ navigation, route }) {
           ) : activeTab === "players" || activeTab === "organizers" || activeTab === "blockedUsers" ? (
             <FlatList
               contentContainerStyle={styles.listContent}
-              data={
+              data={filterBySearch(
                 activeTab === "players"
                   ? playerUsers
                   : activeTab === "organizers"
                     ? organizerUsers
                     : blockedUsers
-              }
+              )}
               keyExtractor={(item) => item.id}
+              ListHeaderComponent={
+                <View style={styles.userSearchWrap}>
+                  <Ionicons color={colors.muted} name="search-outline" size={16} />
+                  <TextInput
+                    onChangeText={setUserSearchQuery}
+                    placeholder="Buscar por nombre, email, telefono o ciudad"
+                    placeholderTextColor={colors.muted}
+                    style={styles.userSearchInput}
+                    value={userSearchQuery}
+                  />
+                  {userSearchQuery ? (
+                    <Pressable onPress={() => setUserSearchQuery("")}>
+                      <Ionicons color={colors.muted} name="close-circle" size={18} />
+                    </Pressable>
+                  ) : null}
+                </View>
+              }
               ListEmptyComponent={
                 <Text style={styles.emptyText}>
                   {loading
                     ? "Cargando usuarios..."
-                    : activeTab === "players"
-                      ? "No hay jugadores para revisar."
-                      : activeTab === "organizers"
-                        ? "No hay organizadores para revisar."
-                        : "No hay usuarios bloqueados."}
+                    : normalizedUserSearchQuery
+                      ? "No encontramos usuarios que coincidan con la busqueda."
+                      : activeTab === "players"
+                        ? "No hay jugadores para revisar."
+                        : activeTab === "organizers"
+                          ? "No hay organizadores para revisar."
+                          : "No hay usuarios bloqueados."}
                 </Text>
               }
               renderItem={({ item }) => {
@@ -1667,6 +1696,23 @@ const styles = StyleSheet.create({
   },
   listContent: {
     paddingBottom: spacing.sm,
+  },
+  userSearchWrap: {
+    alignItems: "center",
+    backgroundColor: colors.surfaceAlt,
+    borderColor: colors.border,
+    borderRadius: 14,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: spacing.xs,
+    marginBottom: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  userSearchInput: {
+    color: colors.text,
+    flex: 1,
+    fontSize: 14,
   },
   backButton: {
     alignItems: "center",
