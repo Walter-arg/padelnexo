@@ -121,7 +121,11 @@ service cloud.firestore {
     }
 
     match /turnoReservations/{reservationId} {
-      allow read, update, delete: if isAuth() && esDuenioDeReserva(resource.data);
+      // La lectura queda abierta a cualquier autenticado porque la app necesita
+      // ver TODAS las reservas proximas (de cualquier jugador/organizador) para
+      // calcular que horarios estan libres al mostrar turnos disponibles.
+      allow read: if isAuth();
+      allow update, delete: if isAuth() && esDuenioDeReserva(resource.data);
       allow create: if isAuth() && esDuenioDeReserva(request.resource.data);
     }
 
