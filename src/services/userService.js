@@ -331,6 +331,7 @@ export async function deleteUserProfileData(uid) {
 
   const userRef = doc(activeDb, "users", uid);
   const organizerRequestRef = doc(activeDb, "organizerRequests", uid);
+  const privateRef = doc(activeDb, "users", uid, "private", "contact");
   const imageRef = activeStorage ? ref(activeStorage, `profileImages/${uid}`) : null;
 
   try {
@@ -347,6 +348,12 @@ export async function deleteUserProfileData(uid) {
     await deleteDoc(organizerRequestRef);
   } catch (error) {
     devLog("[userService] No se pudo eliminar organizerRequest:", error);
+  }
+
+  try {
+    await deleteDoc(privateRef);
+  } catch (error) {
+    devLog("[userService] No se pudo eliminar datos privados de contacto:", error);
   }
 
   try {
@@ -456,6 +463,7 @@ export async function createUserProfile(uid, payload) {
   }
 
   const userRef = doc(activeDb, "users", uid);
+  const privateRef = doc(activeDb, "users", uid, "private", "contact");
   const localidad =
     normalizeLocalidadPayload(payload.localidad) ||
     normalizeLocalidadPayload(
@@ -470,17 +478,23 @@ export async function createUserProfile(uid, payload) {
   const location = buildLocation(localidad.nombre, localidad.provincia, localidad.pais);
   const roleData = getDefaultRoleData(false);
   const availability = availabilityToFirestore(payload.availability);
+  const isPhonePublic = Boolean(payload.isPhonePublic);
+  const phone = payload.phone || "";
+  const countryCode = payload.countryCode || "+54";
+  const phoneCountry = payload.phoneCountry || "Argentina";
 
+  // El email y el telefono real quedan solo en el subdocumento privado
+  // (legible unicamente por el propio dueño); el doc publico solo guarda el
+  // telefono cuando el usuario elige mostrarlo.
   await setDoc(userRef, {
     nombre: payload.name,
     firstName: payload.firstName || "",
     lastName: payload.lastName || "",
     apellido: payload.lastName || "",
-    email: payload.email,
-    telefono: payload.phone || "",
-    countryCode: payload.countryCode || "+54",
-    phoneCountry: payload.phoneCountry || "Argentina",
-    mostrarTelefono: Boolean(payload.isPhonePublic),
+    telefono: isPhonePublic ? phone : "",
+    countryCode,
+    phoneCountry,
+    mostrarTelefono: isPhonePublic,
     categoria: payload.category || "9na (Iniciantes)",
     sexo: payload.sex || "Masculino",
     ladoJuego: payload.ladoJuego || "ambos",
@@ -500,16 +514,23 @@ export async function createUserProfile(uid, payload) {
     createdAt: serverTimestamp(),
   });
 
+  await setDoc(privateRef, {
+    email: payload.email || "",
+    telefono: phone,
+    countryCode,
+    phoneCountry,
+  });
+
   return mapDocToUserData(uid, {
     nombre: payload.name,
     firstName: payload.firstName || "",
     lastName: payload.lastName || "",
     apellido: payload.lastName || "",
     email: payload.email,
-    telefono: payload.phone || "",
-    countryCode: payload.countryCode || "+54",
-    phoneCountry: payload.phoneCountry || "Argentina",
-    mostrarTelefono: Boolean(payload.isPhonePublic),
+    telefono: phone,
+    countryCode,
+    phoneCountry,
+    mostrarTelefono: isPhonePublic,
     categoria: payload.category || "9na (Iniciantes)",
     sexo: payload.sex || "Masculino",
     ladoJuego: payload.ladoJuego || "ambos",
@@ -544,8 +565,20 @@ export async function getUserProfile(uid, fallbackEmail = "") {
 
   const profileWithImage = await normalizeProfileImage(uid, snapshot.data());
   const normalizedProfile = await syncOrganizerApproval(uid, profileWithImage);
+  const privateSnapshot = await getDoc(doc(activeDb, "users", uid, "private", "contact"));
+  const privateData = privateSnapshot.exists() ? privateSnapshot.data() || {} : {};
 
-  return mapDocToUserData(uid, normalizedProfile, fallbackEmail);
+  return mapDocToUserData(
+    uid,
+    {
+      ...normalizedProfile,
+      email: privateData.email ?? normalizedProfile.email,
+      telefono: privateData.telefono ?? normalizedProfile.telefono,
+      countryCode: privateData.countryCode ?? normalizedProfile.countryCode,
+      phoneCountry: privateData.phoneCountry ?? normalizedProfile.phoneCountry,
+    },
+    fallbackEmail
+  );
 }
 
 export async function recordUserLogin(uid) {
@@ -574,20 +607,55 @@ export async function updateUserProfile(uid, updates) {
     payload.nombre = updates.name.trim();
   }
 
-  if (typeof updates.phone === "string") {
-    payload.telefono = updates.phone.trim();
-  }
+  const phoneChanged = typeof updates.phone === "string";
+  const visibilityChanged = typeof updates.isPhonePublic === "boolean";
+  const countryCodeChanged = typeof updates.countryCode === "string" && updates.countryCode.trim();
+  const phoneCountryChanged =
+    typeof updates.phoneCountry === "string" && updates.phoneCountry.trim();
 
-  if (typeof updates.countryCode === "string" && updates.countryCode.trim()) {
-    payload.countryCode = updates.countryCode.trim();
-  }
-
-  if (typeof updates.phoneCountry === "string" && updates.phoneCountry.trim()) {
-    payload.phoneCountry = updates.phoneCountry.trim();
-  }
-
-  if (typeof updates.isPhonePublic === "boolean") {
+  if (visibilityChanged) {
     payload.mostrarTelefono = updates.isPhonePublic;
+  }
+
+  // El telefono real siempre se guarda en el subdocumento privado. El doc
+  // publico solo refleja el numero cuando el usuario eligio mostrarlo.
+  if (phoneChanged || visibilityChanged || countryCodeChanged || phoneCountryChanged) {
+    const privateRef = doc(activeDb, "users", uid, "private", "contact");
+    const privatePayload = {};
+
+    if (phoneChanged) {
+      privatePayload.telefono = updates.phone.trim();
+    }
+
+    if (countryCodeChanged) {
+      privatePayload.countryCode = updates.countryCode.trim();
+    }
+
+    if (phoneCountryChanged) {
+      privatePayload.phoneCountry = updates.phoneCountry.trim();
+    }
+
+    if (Object.keys(privatePayload).length) {
+      await setDoc(privateRef, privatePayload, { merge: true });
+    }
+
+    let effectivePublic = visibilityChanged ? updates.isPhonePublic : undefined;
+
+    if (typeof effectivePublic !== "boolean") {
+      const currentSnapshot = await getDoc(userRef);
+      effectivePublic = Boolean(currentSnapshot.data()?.mostrarTelefono);
+    }
+
+    if (effectivePublic) {
+      const privateSnapshot = await getDoc(privateRef);
+      const privateData = privateSnapshot.exists() ? privateSnapshot.data() || {} : {};
+
+      payload.telefono = String(privateData.telefono || "").trim();
+      payload.countryCode = String(privateData.countryCode || "+54").trim();
+      payload.phoneCountry = String(privateData.phoneCountry || "Argentina").trim();
+    } else {
+      payload.telefono = "";
+    }
   }
 
   if (typeof updates.accountDeleted === "boolean") {

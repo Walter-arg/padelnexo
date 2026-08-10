@@ -82,6 +82,10 @@ exports.deleteComplexRequestAsAdmin = lazyOnRequest(
   "./adminActions",
   "deleteComplexRequestAsAdmin"
 );
+exports.listAdminUsersData = lazyOnRequest("./adminActions", "listAdminUsersData");
+// Funcion temporal de migracion (Paso 3 privacidad): correrla una vez y
+// despues se puede quitar de aca, no hace falta mantenerla desplegada.
+exports.migrateUserContactData = lazyOnRequest("./adminActions", "migrateUserContactData");
 
 exports.sendWelcomeEmail = v1
   .runWith({ secrets: ["RESEND_API_KEY"] })

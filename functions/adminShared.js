@@ -58,6 +58,10 @@ async function requireAdmin(req) {
     throw new HttpError(401, "missing_id_token");
   }
 
+  // admin.auth() usa la app por defecto de Admin SDK, que getDb() es quien
+  // la inicializa (lazy). Hay que asegurarla antes de tocar admin.auth().
+  getDb();
+
   let decodedToken;
 
   try {

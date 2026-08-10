@@ -1,63 +1,7 @@
 import { collection, getDocs } from "../../services/firebaseFirestore";
 
 import { db } from "../../services/firebaseConfig";
-import { ORGANIZER_STATUS, USER_ROLE } from "./roleService";
 import { callAdminAction } from "./adminActionsClient";
-
-function normalizeDate(value) {
-  if (typeof value?.toDate === "function") {
-    return value.toDate();
-  }
-
-  if (value instanceof Date) {
-    return value;
-  }
-
-  return null;
-}
-
-function mapAdminUser(docSnapshot) {
-  const data = docSnapshot.data() || {};
-  const localidad = data.localidad || {};
-  const location = data.location || {};
-
-  return {
-    id: docSnapshot.id,
-    uid: docSnapshot.id,
-    name: data.nombre || data.name || "Usuario",
-    email: data.email || "",
-    phone: data.telefono || data.phone || "",
-    avatarUrl: data.fotoURL || data.avatarUrl || "",
-    avatarColor: data.avatarColor || "#0F8B5F",
-    organizerLogoUrl: data.organizerLogoURL || data.organizerLogoUrl || "",
-    category: data.categoria || data.category || "",
-    sex: data.sexo || data.sex || "",
-    side: data.ladoJuego || data.side || "",
-    hand: data.manoHabil || data.hand || "",
-    description: data.descripcion || data.description || "",
-    city: localidad.nombre || location.ciudad || data.city || "",
-    province: localidad.provincia || location.provincia || data.province || "",
-    country: localidad.pais || location.pais || data.country || "Argentina",
-    role: data.role || USER_ROLE,
-    organizerStatus: data.organizerStatus || ORGANIZER_STATUS.NONE,
-    adminStatus: data.adminStatus || "none",
-    plan: data.plan || null,
-    planStatus: data.planStatus || "none",
-    trialEndDate: typeof data.trialEndDate === "number" ? data.trialEndDate : 0,
-    planActivatedDateMillis: resolveTimestampMillis(data.planActivatedDate),
-    accountDeleted: Boolean(data.accountDeleted),
-    blockStatus: data.blockStatus || "none",
-    blockedAtMillis: resolveTimestampMillis(data.blockedAt),
-    blockedUntilMillis: Number(data.blockedUntilMillis || 0),
-    blockReason: data.blockReason || "",
-    createdAt: normalizeDate(data.createdAt),
-    createdAtMillis: resolveTimestampMillis(data.createdAt),
-    lastLoginAt: normalizeDate(data.lastLoginAt),
-    lastLoginAtMillis: resolveTimestampMillis(data.lastLoginAt),
-    updatedAt: normalizeDate(data.updatedAt),
-    updatedAtMillis: resolveTimestampMillis(data.updatedAt),
-  };
-}
 
 function resolveTimestampMillis(value) {
   if (typeof value?.toMillis === "function") {
@@ -108,16 +52,14 @@ function mapAdminTournament(docSnapshot) {
 }
 
 export async function listAdminUsers() {
-  const snapshot = await getDocs(collection(db, "users"));
+  // El email y el telefono real viven en users/{uid}/private/contact (solo
+  // legible por el dueño), asi que el panel de admin los pide via Cloud
+  // Function en vez de leer Firestore directo.
+  const { users } = await callAdminAction("listAdminUsersData");
 
-  return snapshot.docs
-    .map(mapAdminUser)
-    .sort((first, second) => {
-      const firstTime = first.createdAt instanceof Date ? first.createdAt.getTime() : 0;
-      const secondTime = second.createdAt instanceof Date ? second.createdAt.getTime() : 0;
-
-      return secondTime - firstTime;
-    });
+  return (Array.isArray(users) ? users : []).sort(
+    (first, second) => (second.createdAtMillis || 0) - (first.createdAtMillis || 0)
+  );
 }
 
 export async function listAdminContent() {
@@ -219,6 +161,13 @@ export async function revokeOrganizerPlan(userId) {
   if (!userId) return;
 
   await callAdminAction("revokeOrganizerPlan", { userId });
+}
+
+// Temporal: correr una sola vez para migrar email/telefono de los usuarios
+// existentes al subdocumento privado (Paso 3 de privacidad). Sacar este
+// export y el boton del panel de admin despues de usarlo.
+export async function migrateUserContactData() {
+  return callAdminAction("migrateUserContactData");
 }
 
 export async function updateUserProfileAsAdmin(userId, updates = {}) {

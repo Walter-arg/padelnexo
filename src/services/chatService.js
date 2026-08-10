@@ -17,7 +17,7 @@ import {
 } from "../../services/firebaseFirestore";
 
 import { db } from "../../services/firebaseConfig";
-import { ADMIN_EMAIL, canAccessAdminPanel } from "../config/admin";
+import { ADMIN_EMAIL } from "../config/admin";
 import { getConversationBlockStatus } from "./blockingService";
 
 export const SYSTEM_NOTIFICATION_USER_ID = "padelnexo-system";
@@ -204,21 +204,25 @@ export function subscribeToUserConversations({ currentUserId, onData, onError })
 }
 
 async function listAdminNotificationRecipients() {
-  const snapshot = await getDocs(collection(db, "users"));
+  // El email ya no vive en el doc publico de users/{uid}, asi que los admins
+  // se detectan por role/adminStatus (ambos siguen siendo publicos). Para
+  // que un admin recien promovido reciba estos avisos, alguien tiene que
+  // haberle dado "Hacer admin" al menos una vez desde el panel.
+  const [byRoleSnapshot, byStatusSnapshot] = await Promise.all([
+    getDocs(query(collection(db, "users"), where("role", "==", "admin"))),
+    getDocs(query(collection(db, "users"), where("adminStatus", "==", "active"))),
+  ]);
 
-  return snapshot.docs
-    .map((docSnapshot) => ({
+  const recipientsById = new Map();
+
+  [...byRoleSnapshot.docs, ...byStatusSnapshot.docs].forEach((docSnapshot) => {
+    recipientsById.set(docSnapshot.id, {
       uid: docSnapshot.id,
       ...(docSnapshot.data() || {}),
-    }))
-    .filter((profile) =>
-      canAccessAdminPanel({
-        uid: profile.uid,
-        email: profile.email || "",
-        role: profile.role || "",
-        adminStatus: profile.adminStatus || "",
-      })
-    );
+    });
+  });
+
+  return [...recipientsById.values()];
 }
 
 export async function sendOrganizerRequestNotificationToAdmins(request = {}) {

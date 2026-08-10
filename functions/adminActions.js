@@ -376,6 +376,75 @@ const deleteOrganizerRequest = onRequest(
   })
 );
 
+function resolveTimestampMillis(value) {
+  if (value && typeof value.toMillis === "function") {
+    return value.toMillis();
+  }
+
+  if (typeof value === "number") {
+    return value;
+  }
+
+  return 0;
+}
+
+// El email y el telefono real de cada usuario viven en users/{uid}/private/contact
+// (solo legible por el propio dueño), asi que el panel de admin los pide via
+// esta funcion en vez de leer Firestore directo desde el cliente.
+const listAdminUsersData = onRequest(
+  { invoker: "public" },
+  withAdminHandler(async (req, res) => {
+    const db = getDb();
+    const usersSnapshot = await db.collection("users").get();
+
+    const users = await Promise.all(
+      usersSnapshot.docs.map(async (docSnapshot) => {
+        const data = docSnapshot.data() || {};
+        const privateSnapshot = await docSnapshot.ref.collection("private").doc("contact").get();
+        const privateData = privateSnapshot.exists ? privateSnapshot.data() || {} : {};
+        const localidad = data.localidad || {};
+        const location = data.location || {};
+
+        return {
+          id: docSnapshot.id,
+          uid: docSnapshot.id,
+          name: data.nombre || data.name || "Usuario",
+          email: privateData.email || "",
+          phone: privateData.telefono || data.telefono || "",
+          avatarUrl: data.fotoURL || data.avatarUrl || "",
+          avatarColor: data.avatarColor || "#0F8B5F",
+          organizerLogoUrl: data.organizerLogoURL || data.organizerLogoUrl || "",
+          category: data.categoria || data.category || "",
+          sex: data.sexo || data.sex || "",
+          side: data.ladoJuego || data.side || "",
+          hand: data.manoHabil || data.hand || "",
+          description: data.descripcion || data.description || "",
+          city: localidad.nombre || location.ciudad || data.city || "",
+          province: localidad.provincia || location.provincia || data.province || "",
+          country: localidad.pais || location.pais || data.country || "Argentina",
+          role: data.role || USER_ROLE,
+          organizerStatus: data.organizerStatus || ORGANIZER_STATUS.NONE,
+          adminStatus: data.adminStatus || "none",
+          plan: data.plan || null,
+          planStatus: data.planStatus || "none",
+          trialEndDate: typeof data.trialEndDate === "number" ? data.trialEndDate : 0,
+          planActivatedDateMillis: resolveTimestampMillis(data.planActivatedDate),
+          accountDeleted: Boolean(data.accountDeleted),
+          blockStatus: data.blockStatus || "none",
+          blockedAtMillis: resolveTimestampMillis(data.blockedAt),
+          blockedUntilMillis: Number(data.blockedUntilMillis || 0),
+          blockReason: data.blockReason || "",
+          createdAtMillis: resolveTimestampMillis(data.createdAt),
+          lastLoginAtMillis: resolveTimestampMillis(data.lastLoginAt),
+          updatedAtMillis: resolveTimestampMillis(data.updatedAt),
+        };
+      })
+    );
+
+    res.status(200).json({ users });
+  })
+);
+
 const approveComplexRequest = onRequest(
   { invoker: "public" },
   withAdminHandler(async (req, res) => {
@@ -461,6 +530,52 @@ const deleteComplexRequestAsAdmin = onRequest(
   })
 );
 
+// Migracion unica: copia email/telefono de cada usuario existente al
+// subdocumento privado, y limpia el email del doc publico (el telefono
+// publico queda solo si mostrarTelefono ya era true). Idempotente: los
+// usuarios que ya no tengan "email" en el doc publico se saltean.
+const migrateUserContactData = onRequest(
+  { invoker: "public" },
+  withAdminHandler(async (req, res) => {
+    const db = getDb();
+    const usersSnapshot = await db.collection("users").get();
+
+    let migrated = 0;
+    let skipped = 0;
+
+    for (const docSnapshot of usersSnapshot.docs) {
+      const data = docSnapshot.data() || {};
+
+      if (typeof data.email !== "string") {
+        skipped += 1;
+        continue;
+      }
+
+      const isPhonePublic = data.mostrarTelefono === true;
+      const privateRef = docSnapshot.ref.collection("private").doc("contact");
+
+      await privateRef.set(
+        {
+          email: data.email || "",
+          telefono: data.telefono || "",
+          countryCode: data.countryCode || "+54",
+          phoneCountry: data.phoneCountry || "Argentina",
+        },
+        { merge: true }
+      );
+
+      await docSnapshot.ref.update({
+        email: admin.firestore.FieldValue.delete(),
+        telefono: isPhonePublic ? data.telefono || "" : "",
+      });
+
+      migrated += 1;
+    }
+
+    res.status(200).json({ ok: true, migrated, skipped });
+  })
+);
+
 module.exports = {
   grantAdminAccess,
   revokeAdminAccess,
@@ -479,4 +594,6 @@ module.exports = {
   deleteOrganizerRequest,
   approveComplexRequest,
   deleteComplexRequestAsAdmin,
+  listAdminUsersData,
+  migrateUserContactData,
 };
