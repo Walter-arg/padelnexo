@@ -530,52 +530,6 @@ const deleteComplexRequestAsAdmin = onRequest(
   })
 );
 
-// Migracion unica: copia email/telefono de cada usuario existente al
-// subdocumento privado, y limpia el email del doc publico (el telefono
-// publico queda solo si mostrarTelefono ya era true). Idempotente: los
-// usuarios que ya no tengan "email" en el doc publico se saltean.
-const migrateUserContactData = onRequest(
-  { invoker: "public" },
-  withAdminHandler(async (req, res) => {
-    const db = getDb();
-    const usersSnapshot = await db.collection("users").get();
-
-    let migrated = 0;
-    let skipped = 0;
-
-    for (const docSnapshot of usersSnapshot.docs) {
-      const data = docSnapshot.data() || {};
-
-      if (typeof data.email !== "string") {
-        skipped += 1;
-        continue;
-      }
-
-      const isPhonePublic = data.mostrarTelefono === true;
-      const privateRef = docSnapshot.ref.collection("private").doc("contact");
-
-      await privateRef.set(
-        {
-          email: data.email || "",
-          telefono: data.telefono || "",
-          countryCode: data.countryCode || "+54",
-          phoneCountry: data.phoneCountry || "Argentina",
-        },
-        { merge: true }
-      );
-
-      await docSnapshot.ref.update({
-        email: admin.firestore.FieldValue.delete(),
-        telefono: isPhonePublic ? data.telefono || "" : "",
-      });
-
-      migrated += 1;
-    }
-
-    res.status(200).json({ ok: true, migrated, skipped });
-  })
-);
-
 module.exports = {
   grantAdminAccess,
   revokeAdminAccess,
@@ -595,5 +549,4 @@ module.exports = {
   approveComplexRequest,
   deleteComplexRequestAsAdmin,
   listAdminUsersData,
-  migrateUserContactData,
 };

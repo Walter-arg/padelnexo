@@ -163,13 +163,6 @@ export async function revokeOrganizerPlan(userId) {
   await callAdminAction("revokeOrganizerPlan", { userId });
 }
 
-// Temporal: correr una sola vez para migrar email/telefono de los usuarios
-// existentes al subdocumento privado (Paso 3 de privacidad). Sacar este
-// export y el boton del panel de admin despues de usarlo.
-export async function migrateUserContactData() {
-  return callAdminAction("migrateUserContactData");
-}
-
 export async function updateUserProfileAsAdmin(userId, updates = {}) {
   if (!userId) {
     throw new Error("No encontramos el usuario que queres editar.");

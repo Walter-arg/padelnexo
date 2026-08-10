@@ -36,7 +36,6 @@ import {
   grantAdminAccess,
   listAdminContent,
   listAdminUsers,
-  migrateUserContactData,
   restoreUserAccount,
   restoreLeagueAsAdmin,
   restoreTournamentAsAdmin,
@@ -311,21 +310,6 @@ export default function AdminScreen({ navigation, route }) {
 
   const refreshAdminData = () => {
     loadRequests();
-  };
-
-  // Temporal (Paso 3 de privacidad): correr una sola vez para migrar
-  // email/telefono de los usuarios existentes. Sacar despues de usarlo.
-  const handleMigrateContactData = async () => {
-    try {
-      const result = await migrateUserContactData();
-      Alert.alert(
-        "Migracion completa",
-        `Migrados: ${result?.migrated ?? 0}. Ya estaban migrados: ${result?.skipped ?? 0}.`
-      );
-      refreshAdminData();
-    } catch (error) {
-      Alert.alert("No pudimos migrar", error.message);
-    }
   };
 
   const handleSelectUser = (item) => {
@@ -722,14 +706,6 @@ export default function AdminScreen({ navigation, route }) {
                 icon: "ribbon-outline",
               })}
             </View>
-          ) : null}
-          {activeTab === "menu" ? (
-            <AppButton
-              title="Migrar datos de contacto (una vez)"
-              onPress={handleMigrateContactData}
-              style={styles.compactButton}
-              variant="secondary"
-            />
           ) : activeTab === "usersMenu" ? (
             <View style={styles.menuGrid}>
               {renderMenuCard({
