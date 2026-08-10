@@ -59,6 +59,30 @@ exports.sendPasswordReset = lazyOnRequest("./sendPasswordReset", "sendPasswordRe
   secrets: ["RESEND_API_KEY"],
 });
 
+// Acciones administrativas: requieren token de Firebase Auth verificado en el
+// servidor (Authorization: Bearer <idToken>) y que quien llama sea admin.
+// El cliente ya no puede escribir estos campos directamente via Firestore.
+exports.grantAdminAccess = lazyOnRequest("./adminActions", "grantAdminAccess");
+exports.revokeAdminAccess = lazyOnRequest("./adminActions", "revokeAdminAccess");
+exports.revokeOrganizerAccess = lazyOnRequest("./adminActions", "revokeOrganizerAccess");
+exports.blockUserAccount = lazyOnRequest("./adminActions", "blockUserAccount");
+exports.restoreUserAccount = lazyOnRequest("./adminActions", "restoreUserAccount");
+exports.assignOrganizerPlan = lazyOnRequest("./adminActions", "assignOrganizerPlan");
+exports.revokeOrganizerPlan = lazyOnRequest("./adminActions", "revokeOrganizerPlan");
+exports.updateUserProfileAsAdmin = lazyOnRequest("./adminActions", "updateUserProfileAsAdmin");
+exports.archiveLeagueAsAdmin = lazyOnRequest("./adminActions", "archiveLeagueAsAdmin");
+exports.restoreLeagueAsAdmin = lazyOnRequest("./adminActions", "restoreLeagueAsAdmin");
+exports.cancelTournamentAsAdmin = lazyOnRequest("./adminActions", "cancelTournamentAsAdmin");
+exports.restoreTournamentAsAdmin = lazyOnRequest("./adminActions", "restoreTournamentAsAdmin");
+exports.approveOrganizerRequest = lazyOnRequest("./adminActions", "approveOrganizerRequest");
+exports.rejectOrganizerRequest = lazyOnRequest("./adminActions", "rejectOrganizerRequest");
+exports.deleteOrganizerRequest = lazyOnRequest("./adminActions", "deleteOrganizerRequest");
+exports.approveComplexRequest = lazyOnRequest("./adminActions", "approveComplexRequest");
+exports.deleteComplexRequestAsAdmin = lazyOnRequest(
+  "./adminActions",
+  "deleteComplexRequestAsAdmin"
+);
+
 exports.sendWelcomeEmail = v1
   .runWith({ secrets: ["RESEND_API_KEY"] })
   .auth.user()

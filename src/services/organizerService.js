@@ -1,7 +1,6 @@
 import {
   addDoc,
   collection,
-  deleteDoc,
   doc,
   getDoc,
   getDocs,
@@ -10,13 +9,13 @@ import {
   serverTimestamp,
   setDoc,
   updateDoc,
-  writeBatch,
 } from "../../services/firebaseFirestore";
 
 import { db } from "../../services/firebaseConfig";
 import { sendOrganizerRequestNotificationToAdmins } from "./chatService";
 import devLog from "../utils/devLog";
-import { ORGANIZER_ROLE, ORGANIZER_STATUS, USER_ROLE } from "./roleService";
+import { ORGANIZER_ROLE, ORGANIZER_STATUS } from "./roleService";
+import { callAdminAction } from "./adminActionsClient";
 
 export function createEmptyComplex() {
   return {
@@ -283,49 +282,19 @@ export async function listComplexRequests() {
 }
 
 export async function approveOrganizerRequest(userId) {
-  const requestRef = doc(db, "organizerRequests", userId);
-  const userRef = doc(db, "users", userId);
-  const requestSnapshot = await getDoc(requestRef);
-
-  if (!requestSnapshot.exists()) {
+  if (!userId) {
     throw new Error("No encontramos la solicitud seleccionada.");
   }
 
-  const requestData = requestSnapshot.data();
-  const complejos = Array.isArray(requestData.complejos)
-    ? requestData.complejos.map(normalizeComplex)
-    : [];
-  const batch = writeBatch(db);
-
-  batch.update(userRef, {
-    organizerStatus: ORGANIZER_STATUS.APPROVED,
-    role: ORGANIZER_ROLE,
-    complejos,
-  });
-
-  batch.update(requestRef, {
-    status: ORGANIZER_STATUS.APPROVED,
-  });
-
-  await batch.commit();
+  await callAdminAction("approveOrganizerRequest", { userId });
 }
 
 export async function rejectOrganizerRequest(userId) {
-  const requestRef = doc(db, "organizerRequests", userId);
-  const userRef = doc(db, "users", userId);
-  const batch = writeBatch(db);
+  if (!userId) {
+    throw new Error("No encontramos la solicitud seleccionada.");
+  }
 
-  batch.update(requestRef, {
-    status: ORGANIZER_STATUS.REJECTED,
-  });
-
-  batch.update(userRef, {
-    role: USER_ROLE,
-    organizerStatus: ORGANIZER_STATUS.REJECTED,
-    complejos: [],
-  });
-
-  await batch.commit();
+  await callAdminAction("rejectOrganizerRequest", { userId });
 }
 
 export async function deleteOrganizerRequest(userId) {
@@ -333,18 +302,7 @@ export async function deleteOrganizerRequest(userId) {
     throw new Error("No encontramos la solicitud seleccionada.");
   }
 
-  const requestRef = doc(db, "organizerRequests", userId);
-  const userRef = doc(db, "users", userId);
-  const batch = writeBatch(db);
-
-  batch.delete(requestRef);
-  batch.update(userRef, {
-    role: USER_ROLE,
-    organizerStatus: ORGANIZER_STATUS.NONE,
-    complejos: [],
-  });
-
-  await batch.commit();
+  await callAdminAction("deleteOrganizerRequest", { userId });
 }
 
 export async function deleteComplexRequest(requestId) {
@@ -352,64 +310,15 @@ export async function deleteComplexRequest(requestId) {
     throw new Error("No encontramos la solicitud seleccionada.");
   }
 
-  await deleteDoc(doc(db, "complexRequests", requestId));
+  await callAdminAction("deleteComplexRequestAsAdmin", { requestId });
 }
 
 export async function approveComplexRequest(requestId) {
-  const requestRef = doc(db, "complexRequests", requestId);
-  const requestSnapshot = await getDoc(requestRef);
-
-  if (!requestSnapshot.exists()) {
+  if (!requestId) {
     throw new Error("No encontramos la solicitud de complejo.");
   }
 
-  const requestData = requestSnapshot.data();
-  const userId = String(requestData.userId || "").trim();
-
-  if (!userId) {
-    throw new Error("La solicitud no tiene un organizador asociado.");
-  }
-
-  const userRef = doc(db, "users", userId);
-  const userSnapshot = await getDoc(userRef);
-
-  if (!userSnapshot.exists()) {
-    throw new Error("No encontramos el perfil del organizador.");
-  }
-
-  const currentComplexes = Array.isArray(userSnapshot.data()?.complejos)
-    ? userSnapshot.data().complejos.map(normalizeComplex)
-    : [];
-  const requestedComplexes = Array.isArray(requestData.complejos)
-    ? requestData.complejos.map(normalizeComplex)
-    : [];
-
-  const mergedComplexes = [...currentComplexes];
-
-  requestedComplexes.forEach((complex) => {
-    const alreadyExists = mergedComplexes.some(
-      (item) =>
-        item.nombre.trim().toLowerCase() === complex.nombre.trim().toLowerCase() &&
-        item.direccion.trim().toLowerCase() === complex.direccion.trim().toLowerCase()
-    );
-
-    if (!alreadyExists) {
-      mergedComplexes.push(complex);
-    }
-  });
-
-  const batch = writeBatch(db);
-
-  batch.update(userRef, {
-    complejos: mergedComplexes,
-  });
-
-  batch.update(requestRef, {
-    status: ORGANIZER_STATUS.APPROVED,
-    approvedAt: serverTimestamp(),
-  });
-
-  await batch.commit();
+  await callAdminAction("approveComplexRequest", { requestId });
 }
 
 export async function rejectComplexRequest(requestId) {

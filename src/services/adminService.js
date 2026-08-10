@@ -1,14 +1,8 @@
-import {
-  collection,
-  doc,
-  getDoc,
-  getDocs,
-  serverTimestamp,
-  updateDoc,
-} from "../../services/firebaseFirestore";
+import { collection, getDocs } from "../../services/firebaseFirestore";
 
 import { db } from "../../services/firebaseConfig";
-import { ADMIN_ROLE, ORGANIZER_STATUS, USER_ROLE } from "./roleService";
+import { ORGANIZER_STATUS, USER_ROLE } from "./roleService";
+import { callAdminAction } from "./adminActionsClient";
 
 function normalizeDate(value) {
   if (typeof value?.toDate === "function") {
@@ -148,11 +142,7 @@ export async function archiveLeagueAsAdmin(leagueId) {
     return;
   }
 
-  await updateDoc(doc(db, "leagues", leagueId), {
-    status: "archived",
-    archivedAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  });
+  await callAdminAction("archiveLeagueAsAdmin", { leagueId });
 }
 
 export async function restoreLeagueAsAdmin(leagueId) {
@@ -160,11 +150,7 @@ export async function restoreLeagueAsAdmin(leagueId) {
     return;
   }
 
-  await updateDoc(doc(db, "leagues", leagueId), {
-    status: "active",
-    restoredAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  });
+  await callAdminAction("restoreLeagueAsAdmin", { leagueId });
 }
 
 export async function cancelTournamentAsAdmin(tournamentId) {
@@ -172,13 +158,7 @@ export async function cancelTournamentAsAdmin(tournamentId) {
     return;
   }
 
-  await updateDoc(doc(db, "tournaments", tournamentId), {
-    status: "cancelled",
-    registrationStatus: "closed",
-    cancellationReason: "Accion administrativa",
-    cancelledAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  });
+  await callAdminAction("cancelTournamentAsAdmin", { tournamentId });
 }
 
 export async function restoreTournamentAsAdmin(tournamentId) {
@@ -186,11 +166,7 @@ export async function restoreTournamentAsAdmin(tournamentId) {
     return;
   }
 
-  await updateDoc(doc(db, "tournaments", tournamentId), {
-    status: "published",
-    restoredAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  });
+  await callAdminAction("restoreTournamentAsAdmin", { tournamentId });
 }
 
 export async function grantAdminAccess(userId) {
@@ -198,10 +174,7 @@ export async function grantAdminAccess(userId) {
     return;
   }
 
-  await updateDoc(doc(db, "users", userId), {
-    adminStatus: "active",
-    updatedAt: serverTimestamp(),
-  });
+  await callAdminAction("grantAdminAccess", { userId });
 }
 
 export async function revokeAdminAccess(userId, currentRole = "") {
@@ -209,16 +182,7 @@ export async function revokeAdminAccess(userId, currentRole = "") {
     return;
   }
 
-  const payload = {
-    adminStatus: "revoked",
-    updatedAt: serverTimestamp(),
-  };
-
-  if (currentRole === ADMIN_ROLE) {
-    payload.role = USER_ROLE;
-  }
-
-  await updateDoc(doc(db, "users", userId), payload);
+  await callAdminAction("revokeAdminAccess", { userId, currentRole });
 }
 
 export async function revokeOrganizerAccess(userId) {
@@ -226,40 +190,15 @@ export async function revokeOrganizerAccess(userId) {
     return;
   }
 
-  await updateDoc(doc(db, "users", userId), {
-    role: USER_ROLE,
-    organizerStatus: ORGANIZER_STATUS.REJECTED,
-    updatedAt: serverTimestamp(),
-  });
+  await callAdminAction("revokeOrganizerAccess", { userId });
 }
 
-export async function blockUserAccount(userId, mode = "indefinite", currentProfile = {}) {
+export async function blockUserAccount(userId, mode = "indefinite") {
   if (!userId) {
     return;
   }
 
-  const isTemporary = mode === "temporary_7_days";
-  const blockedUntilMillis = isTemporary ? Date.now() + 1000 * 60 * 60 * 24 * 7 : 0;
-  const payload = {
-    adminStatus: "revoked",
-    accountDeleted: false,
-    blockStatus: isTemporary ? "temporary" : "indefinite",
-    blockedAt: serverTimestamp(),
-    blockedUntilMillis,
-    blockReason: isTemporary
-      ? "Bloqueo temporal por acciones impropias"
-      : "Bloqueo indefinido por acciones impropias",
-    preBlockRole:
-      currentProfile.role && currentProfile.role !== "blocked" ? currentProfile.role : USER_ROLE,
-    preBlockOrganizerStatus: currentProfile.organizerStatus || ORGANIZER_STATUS.NONE,
-    updatedAt: serverTimestamp(),
-  };
-
-  if (!isTemporary) {
-    payload.role = "blocked";
-  }
-
-  await updateDoc(doc(db, "users", userId), payload);
+  await callAdminAction("blockUserAccount", { userId, mode });
 }
 
 export async function restoreUserAccount(userId) {
@@ -267,53 +206,19 @@ export async function restoreUserAccount(userId) {
     return;
   }
 
-  const userRef = doc(db, "users", userId);
-  const snapshot = await getDoc(userRef);
-  const data = snapshot.exists() ? snapshot.data() || {} : {};
-
-  await updateDoc(userRef, {
-    accountDeleted: false,
-    blockStatus: "none",
-    blockedUntilMillis: 0,
-    blockReason: "",
-    preBlockRole: "",
-    preBlockOrganizerStatus: "",
-    role: data.preBlockRole || (data.role === "blocked" ? USER_ROLE : data.role || USER_ROLE),
-    organizerStatus:
-      data.preBlockOrganizerStatus || data.organizerStatus || ORGANIZER_STATUS.NONE,
-    updatedAt: serverTimestamp(),
-  });
+  await callAdminAction("restoreUserAccount", { userId });
 }
 
 export async function assignOrganizerPlan(userId, plan, trialDays = 0) {
   if (!userId || !plan) return;
-  const isTrial = Number(trialDays) > 0;
-  const payload = {
-    plan,
-    planStatus: isTrial ? "trial" : "active",
-    planUpdatedAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  };
-  if (isTrial) {
-    payload.trialEndDate = Date.now() + Number(trialDays) * 24 * 60 * 60 * 1000;
-    payload.planActivatedDate = null;
-  } else {
-    payload.planActivatedDate = serverTimestamp();
-    payload.trialEndDate = null;
-  }
-  await updateDoc(doc(db, "users", userId), payload);
+
+  await callAdminAction("assignOrganizerPlan", { userId, plan, trialDays: Number(trialDays) });
 }
 
 export async function revokeOrganizerPlan(userId) {
   if (!userId) return;
-  await updateDoc(doc(db, "users", userId), {
-    plan: null,
-    planStatus: "none",
-    trialEndDate: null,
-    planActivatedDate: null,
-    planUpdatedAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  });
+
+  await callAdminAction("revokeOrganizerPlan", { userId });
 }
 
 export async function updateUserProfileAsAdmin(userId, updates = {}) {
@@ -321,28 +226,5 @@ export async function updateUserProfileAsAdmin(userId, updates = {}) {
     throw new Error("No encontramos el usuario que queres editar.");
   }
 
-  const city = String(updates.city || "").trim();
-  const province = String(updates.province || "").trim();
-  const country = String(updates.country || "Argentina").trim() || "Argentina";
-
-  await updateDoc(doc(db, "users", userId), {
-    nombre: String(updates.name || "").trim(),
-    telefono: String(updates.phone || "").trim(),
-    categoria: String(updates.category || "").trim(),
-    sexo: String(updates.sex || "").trim(),
-    ladoJuego: String(updates.side || "").trim(),
-    manoHabil: String(updates.hand || "").trim(),
-    descripcion: String(updates.description || "").trim(),
-    localidad: {
-      nombre: city,
-      provincia: province,
-      pais: country,
-    },
-    location: {
-      ciudad: city,
-      provincia: province,
-      pais: country,
-    },
-    updatedAt: serverTimestamp(),
-  });
+  await callAdminAction("updateUserProfileAsAdmin", { userId, updates });
 }
