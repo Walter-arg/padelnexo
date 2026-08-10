@@ -18,10 +18,50 @@ service cloud.firestore {
       );
     }
 
+    // Campos sensibles del perfil que un usuario NO puede tocar libremente
+    // (rol, aprobacion de organizador, plan pago, estado admin, bloqueo, email).
+    function unchangedField(field, defaultValue) {
+      return request.resource.data.get(field, defaultValue) ==
+        resource.data.get(field, defaultValue);
+    }
+
+    function isSafeUserSelfUpdate() {
+      return
+        unchangedField('adminStatus', 'none') &&
+        unchangedField('plan', null) &&
+        unchangedField('planStatus', 'none') &&
+        unchangedField('blockStatus', 'none') &&
+        (
+          (unchangedField('role', 'user') && unchangedField('organizerStatus', 'none')) ||
+          (
+            // Unica transicion permitida por el propio usuario: pedir ser organizador.
+            request.resource.data.get('role', 'user') == 'organizer' &&
+            request.resource.data.get('organizerStatus', 'none') == 'pending' &&
+            resource.data.get('role', 'user') == 'user'
+          )
+        ) &&
+        (
+          unchangedField('email', '') ||
+          request.resource.data.email == request.auth.token.email
+        );
+    }
+
+    function isSafeUserCreate() {
+      return
+        request.resource.data.get('role', 'user') == 'user' &&
+        request.resource.data.get('organizerStatus', 'none') == 'none' &&
+        request.resource.data.get('adminStatus', 'none') == 'none' &&
+        request.resource.data.get('plan', null) == null &&
+        request.resource.data.get('planStatus', 'none') == 'none' &&
+        request.resource.data.get('blockStatus', 'none') == 'none';
+    }
+
     // Perfiles de usuario
     match /users/{userId} {
       allow read: if isAuth();
-      allow write: if isUser(userId);
+      allow create: if isUser(userId) && isSafeUserCreate();
+      allow update: if isUser(userId) && isSafeUserSelfUpdate();
+      allow delete: if isUser(userId);
     }
 
     // Ligas
@@ -76,13 +116,18 @@ service cloud.firestore {
     }
 
     // Reservas y configuraciones de turnos
+    function esDuenioDeReserva(data) {
+      return data.playerId == request.auth.uid || data.organizerId == request.auth.uid;
+    }
+
     match /turnoReservations/{reservationId} {
-      allow read, write: if isAuth();
+      allow read, update, delete: if isAuth() && esDuenioDeReserva(resource.data);
+      allow create: if isAuth() && esDuenioDeReserva(request.resource.data);
     }
 
     match /turnosConfigs/{configId} {
       allow read: if isAuth();
-      allow write: if isAuth();
+      allow write: if isAuth() && request.auth.uid == configId;
     }
 
     // Solicitudes de inscripción a ligas
@@ -176,6 +221,11 @@ service cloud.firestore {
     match /userBlocks/{blockId} {
       allow read, write: if isAuth() && resource.data.userId == request.auth.uid;
       allow create: if isAuth();
+    }
+
+    // Configuracion de la app (version minima, etc.)
+    match /appConfig/{document} {
+      allow read: if true;
     }
   }
 }
