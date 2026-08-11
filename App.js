@@ -43,6 +43,36 @@ import { clearPendingTournamentMercadoPagoAttempt } from "./src/services/tournam
 import { cancelPendingMercadoPagoReservation } from "./src/services/turnosService";
 import { ensureDb } from "./services/firebaseConfig";
 
+// Manda a Crashlytics los errores de JS que no pasan por React (event
+// handlers, timers, codigo fuera del render) y las promesas rechazadas sin
+// catch, que son la mayoria de los crashes reales en una app RN. Envuelve
+// el handler default de RN en vez de reemplazarlo, para no perder el
+// redbox de desarrollo ni ningun otro comportamiento nativo esperado.
+crashlytics()
+  .setCrashlyticsCollectionEnabled(true)
+  .catch(() => {});
+
+if (typeof ErrorUtils !== "undefined") {
+  const defaultErrorHandler = ErrorUtils.getGlobalHandler();
+
+  ErrorUtils.setGlobalHandler((error, isFatal) => {
+    crashlytics()
+      .recordError(error)
+      .catch(() => {});
+    defaultErrorHandler(error, isFatal);
+  });
+}
+
+require("promise/setimmediate/rejection-tracking").enable({
+  allRejections: true,
+  onUnhandled: (id, error) => {
+    const normalizedError = error instanceof Error ? error : new Error(String(error));
+    crashlytics()
+      .recordError(normalizedError)
+      .catch(() => {});
+  },
+});
+
 const navigationRef = createNavigationContainerRef();
 let pendingCheckoutNavigation = null;
 let lastCheckoutReturnHandledAt = 0;
@@ -503,6 +533,9 @@ class RootErrorBoundary extends React.Component {
   componentDidCatch(error, info) {
     this.setState({ info });
     devLog("[RootErrorBoundary]", error, info);
+    crashlytics()
+      .recordError(error)
+      .catch(() => {});
   }
 
   render() {
