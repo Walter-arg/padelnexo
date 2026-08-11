@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import {
-  Alert,
   FlatList,
   Image,
   Modal,
@@ -282,6 +281,7 @@ export default function AdminScreen({ navigation, route }) {
   const [userHistoryLoading, setUserHistoryLoading] = useState(false);
   const [userToDelete, setUserToDelete] = useState(null);
   const [deletingUser, setDeletingUser] = useState(false);
+  const [appAlert, setAppAlert] = useState(null);
   const [auditLog, setAuditLog] = useState([]);
   const [auditLogLoading, setAuditLogLoading] = useState(false);
   const [auditLogLoaded, setAuditLogLoaded] = useState(false);
@@ -292,6 +292,13 @@ export default function AdminScreen({ navigation, route }) {
   useEffect(() => {
     setVisibleUserCount(20);
   }, [activeTab, userSearchQuery]);
+
+  // Reemplaza Alert.alert nativo por un modal con el estilo de la app.
+  // Misma firma que showAppAlert(title, message, buttons) para poder
+  // cambiar los llamados existentes sin reescribirlos.
+  const showAppAlert = (title, message, buttons = [{ text: "Aceptar" }]) => {
+    setAppAlert({ title, message: message || "", buttons });
+  };
 
   const canAccessAdmin = canAccessAdminPanel({
     ...userData,
@@ -439,7 +446,7 @@ export default function AdminScreen({ navigation, route }) {
       setContentItems(nextContentItems);
       setReports(nextReports);
     } catch (error) {
-      Alert.alert("No pudimos cargar solicitudes", error.message);
+      showAppAlert("No pudimos cargar solicitudes", error.message);
     } finally {
       setLoading(false);
     }
@@ -459,10 +466,10 @@ export default function AdminScreen({ navigation, route }) {
     if (!selectedUser?.id || planActionLoading) return;
     const days = Number(planTrialDays);
     if (!days || days < 1) {
-      Alert.alert("Días inválidos", "Ingresá una cantidad de días de vigencia mayor a 0.");
+      showAppAlert("Días inválidos", "Ingresá una cantidad de días de vigencia mayor a 0.");
       return;
     }
-    Alert.alert(
+    showAppAlert(
       "Asignar plan",
       `¿Asignar ${getPlanLabel(plan)} a ${selectedUser.name} por ${days} días?`,
       [
@@ -475,9 +482,9 @@ export default function AdminScreen({ navigation, route }) {
               await assignOrganizerPlan(selectedUser.id, plan, days, false);
               const planExpiresAt = Date.now() + days * 24 * 60 * 60 * 1000;
               setSelectedUser((prev) => ({ ...prev, plan, planStatus: "active", planExpiresAt }));
-              Alert.alert("Plan asignado", `${getPlanLabel(plan)} activado para ${selectedUser.name}.`);
+              showAppAlert("Plan asignado", `${getPlanLabel(plan)} activado para ${selectedUser.name}.`);
             } catch (error) {
-              Alert.alert("Error", error.message);
+              showAppAlert("Error", error.message);
             } finally {
               setPlanActionLoading(false);
             }
@@ -491,10 +498,10 @@ export default function AdminScreen({ navigation, route }) {
     if (!selectedUser?.id || planActionLoading) return;
     const days = Number(planTrialDays);
     if (!days || days < 1) {
-      Alert.alert("Días inválidos", "Ingresá una cantidad de días mayor a 0.");
+      showAppAlert("Días inválidos", "Ingresá una cantidad de días mayor a 0.");
       return;
     }
-    Alert.alert(
+    showAppAlert(
       "Asignar trial",
       `¿Dar ${days} días de trial de ${getPlanLabel(plan)} a ${selectedUser.name}?`,
       [
@@ -513,9 +520,9 @@ export default function AdminScreen({ navigation, route }) {
                 trialEndDate: planExpiresAt,
                 planExpiresAt,
               }));
-              Alert.alert("Trial asignado", `${days} días de ${getPlanLabel(plan)} activados.`);
+              showAppAlert("Trial asignado", `${days} días de ${getPlanLabel(plan)} activados.`);
             } catch (error) {
-              Alert.alert("Error", error.message);
+              showAppAlert("Error", error.message);
             } finally {
               setPlanActionLoading(false);
             }
@@ -527,7 +534,7 @@ export default function AdminScreen({ navigation, route }) {
 
   const handleRevokePlan = async () => {
     if (!selectedUser?.id || planActionLoading) return;
-    Alert.alert(
+    showAppAlert(
       "Revocar plan",
       `¿Revocar el plan de ${selectedUser.name}? Perderá acceso a las funciones de organizador.`,
       [
@@ -546,9 +553,9 @@ export default function AdminScreen({ navigation, route }) {
                 trialEndDate: 0,
                 planExpiresAt: 0,
               }));
-              Alert.alert("Plan revocado", `${selectedUser.name} ya no tiene plan activo.`);
+              showAppAlert("Plan revocado", `${selectedUser.name} ya no tiene plan activo.`);
             } catch (error) {
-              Alert.alert("Error", error.message);
+              showAppAlert("Error", error.message);
             } finally {
               setPlanActionLoading(false);
             }
@@ -574,9 +581,9 @@ export default function AdminScreen({ navigation, route }) {
       await updateUserProfileAsAdmin(selectedUser.id, userEditForm);
       setSelectedUser(null);
       refreshAdminData();
-      Alert.alert("Perfil actualizado", "Los datos del usuario fueron guardados.");
+      showAppAlert("Perfil actualizado", "Los datos del usuario fueron guardados.");
     } catch (error) {
-      Alert.alert("No pudimos guardar el perfil", error.message);
+      showAppAlert("No pudimos guardar el perfil", error.message);
     }
   };
 
@@ -596,7 +603,7 @@ export default function AdminScreen({ navigation, route }) {
       const tournament = await getTournamentById(selectedContent.id);
 
       if (!tournament) {
-        Alert.alert("No encontramos el torneo", "El torneo ya no esta disponible.");
+        showAppAlert("No encontramos el torneo", "El torneo ya no esta disponible.");
         return;
       }
 
@@ -606,20 +613,20 @@ export default function AdminScreen({ navigation, route }) {
         tournament,
       });
     } catch (error) {
-      Alert.alert("No pudimos abrir la edicion", error.message);
+      showAppAlert("No pudimos abrir la edicion", error.message);
     }
   };
 
   const handleOpenContentOrganizer = () => {
     if (!selectedContent?.organizerId) {
-      Alert.alert("Sin organizador", "No encontramos un organizador asociado a este contenido.");
+      showAppAlert("Sin organizador", "No encontramos un organizador asociado a este contenido.");
       return;
     }
 
     const organizer = users.find((item) => item.id === selectedContent.organizerId);
 
     if (!organizer) {
-      Alert.alert(
+      showAppAlert(
         "No encontramos el perfil",
         "El organizador no aparece en la lista de usuarios cargada."
       );
@@ -634,7 +641,7 @@ export default function AdminScreen({ navigation, route }) {
     const selected = users.find((item) => item.id === userId || item.uid === userId);
 
     if (!selected) {
-      Alert.alert(
+      showAppAlert(
         "No encontramos el perfil",
         fallbackName
           ? `${fallbackName} no aparece en la lista de usuarios cargada.`
@@ -654,13 +661,13 @@ export default function AdminScreen({ navigation, route }) {
 
     try {
       await blockUserAccount(userId, "indefinite");
-      Alert.alert(
+      showAppAlert(
         "Usuario bloqueado",
         `${fallbackName || "El usuario reportado"} fue bloqueado.`
       );
       refreshAdminData();
     } catch (error) {
-      Alert.alert("No pudimos bloquear al usuario", error.message);
+      showAppAlert("No pudimos bloquear al usuario", error.message);
     }
   };
 
@@ -678,7 +685,7 @@ export default function AdminScreen({ navigation, route }) {
       setAuditLog(entries);
       setAuditLogLoaded(true);
     } catch (error) {
-      Alert.alert("No pudimos cargar el registro", error.message);
+      showAppAlert("No pudimos cargar el registro", error.message);
     } finally {
       setAuditLogLoading(false);
     }
@@ -726,9 +733,9 @@ export default function AdminScreen({ navigation, route }) {
       setUserToDelete(null);
       setSelectedUser(null);
       refreshAdminData();
-      Alert.alert("Cuenta eliminada", "El jugador fue eliminado de PadelNexo.");
+      showAppAlert("Cuenta eliminada", "El jugador fue eliminado de PadelNexo.");
     } catch (error) {
-      Alert.alert("No pudimos eliminar la cuenta", error.message);
+      showAppAlert("No pudimos eliminar la cuenta", error.message);
     } finally {
       setDeletingUser(false);
     }
@@ -761,15 +768,15 @@ export default function AdminScreen({ navigation, route }) {
     try {
       if (selectedRequest.requestType === "complex") {
         await approveComplexRequest(selectedRequest.id);
-        Alert.alert("Complejo aprobado", "El complejo ya quedo disponible para el organizador.");
+        showAppAlert("Complejo aprobado", "El complejo ya quedo disponible para el organizador.");
       } else {
         await approveOrganizerRequest(selectedRequest.userId);
-        Alert.alert("Solicitud aprobada", "El organizador ya quedo habilitado.");
+        showAppAlert("Solicitud aprobada", "El organizador ya quedo habilitado.");
       }
       setSelectedRequest(null);
       loadRequests();
     } catch (error) {
-      Alert.alert("No pudimos aprobar", error.message);
+      showAppAlert("No pudimos aprobar", error.message);
     }
   };
 
@@ -781,15 +788,15 @@ export default function AdminScreen({ navigation, route }) {
     try {
       if (selectedRequest.requestType === "complex") {
         await rejectComplexRequest(selectedRequest.id);
-        Alert.alert("Solicitud rechazada", "El complejo no fue aprobado.");
+        showAppAlert("Solicitud rechazada", "El complejo no fue aprobado.");
       } else {
         await rejectOrganizerRequest(selectedRequest.userId);
-        Alert.alert("Solicitud rechazada", "La solicitud fue marcada como rechazada.");
+        showAppAlert("Solicitud rechazada", "La solicitud fue marcada como rechazada.");
       }
       setSelectedRequest(null);
       loadRequests();
     } catch (error) {
-      Alert.alert("No pudimos rechazar", error.message);
+      showAppAlert("No pudimos rechazar", error.message);
     }
   };
 
@@ -808,7 +815,7 @@ export default function AdminScreen({ navigation, route }) {
       setSelectedRequest(null);
       loadRequests();
     } catch (error) {
-      Alert.alert("No pudimos eliminar", error.message);
+      showAppAlert("No pudimos eliminar", error.message);
     }
   };
 
@@ -1947,6 +1954,51 @@ export default function AdminScreen({ navigation, route }) {
           </View>
         </View>
       </Modal>
+      <Modal
+        animationType="fade"
+        onRequestClose={() => setAppAlert(null)}
+        transparent
+        visible={Boolean(appAlert)}
+      >
+        <View style={styles.confirmOverlay}>
+          <Pressable onPress={() => setAppAlert(null)} style={styles.confirmBackdrop} />
+          <View style={styles.confirmCard}>
+            <Text style={styles.confirmTitle}>{appAlert?.title}</Text>
+            {appAlert?.message ? (
+              <Text style={styles.confirmText}>{appAlert.message}</Text>
+            ) : null}
+            <View style={styles.confirmActions}>
+              {(appAlert?.buttons || []).map((button, index) => (
+                <Pressable
+                  key={`${button.text}-${index}`}
+                  onPress={() => {
+                    setAppAlert(null);
+                    button.onPress?.();
+                  }}
+                  style={({ pressed }) => [
+                    button.style === "cancel"
+                      ? styles.confirmSecondaryButton
+                      : button.style === "destructive"
+                        ? styles.confirmPrimaryButton
+                        : styles.confirmNeutralButton,
+                    pressed && styles.confirmButtonPressed,
+                  ]}
+                >
+                  <Text
+                    style={
+                      button.style === "cancel"
+                        ? styles.confirmSecondaryButtonText
+                        : styles.confirmPrimaryButtonText
+                    }
+                  >
+                    {button.text}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+        </View>
+      </Modal>
       <Modal animationType="slide" transparent visible={Boolean(selectedContent)}>
         <View style={styles.modalOverlay}>
           <Pressable onPress={() => setSelectedContent(null)} style={styles.modalBackdrop} />
@@ -2462,6 +2514,15 @@ const styles = StyleSheet.create({
   confirmPrimaryButton: {
     alignItems: "center",
     backgroundColor: "#C53B3B",
+    borderRadius: 16,
+    flex: 1,
+    justifyContent: "center",
+    minHeight: 46,
+    paddingHorizontal: spacing.md,
+  },
+  confirmNeutralButton: {
+    alignItems: "center",
+    backgroundColor: colors.primary,
     borderRadius: 16,
     flex: 1,
     justifyContent: "center",
