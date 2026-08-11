@@ -195,6 +195,18 @@ function formatAuditDetails(entry = {}, usersList = []) {
   return parts.join(" - ") || "Sin detalle adicional";
 }
 
+function formatRequestStatusLabel(status = "") {
+  if (status === "approved") {
+    return "Aprobado";
+  }
+
+  if (status === "rejected") {
+    return "Rechazado";
+  }
+
+  return "Pendiente";
+}
+
 function formatReportTypeLabel(type = "") {
   if (type === "conversation") {
     return "Conversacion";
@@ -274,6 +286,8 @@ export default function AdminScreen({ navigation, route }) {
   const [auditLogLoading, setAuditLogLoading] = useState(false);
   const [auditLogLoaded, setAuditLogLoaded] = useState(false);
   const [visibleUserCount, setVisibleUserCount] = useState(20);
+  const [requestsStatusFilter, setRequestsStatusFilter] = useState("pending");
+  const [requestsPlanFilter, setRequestsPlanFilter] = useState("all");
 
   useEffect(() => {
     setVisibleUserCount(20);
@@ -326,6 +340,25 @@ export default function AdminScreen({ navigation, route }) {
         : blockedUsers
   );
   const visibleUserTabList = activeUserTabList.slice(0, visibleUserCount);
+  const requestsByStatus = requests.filter(
+    (item) => (item.status || "pending") === requestsStatusFilter
+  );
+  const visibleRequests =
+    requestsStatusFilter === "approved" && requestsPlanFilter !== "all"
+      ? requestsByStatus.filter((item) => {
+          const requestUser = users.find((user) => user.id === item.userId);
+
+          if (!requestUser) {
+            return false;
+          }
+
+          if (requestsPlanFilter === "trial") {
+            return requestUser.planStatus === "trial";
+          }
+
+          return requestUser.plan === requestsPlanFilter && requestUser.planStatus !== "trial";
+        })
+      : requestsByStatus;
   const contentFiltered = contentItems.filter((item) => {
     if (activeTab === "leagues") {
       return item.type === "league";
@@ -792,32 +825,42 @@ export default function AdminScreen({ navigation, route }) {
     );
   }
 
-  const renderRequestItem = ({ item }) => (
-    <Pressable
-      onPress={() => setSelectedRequest(item)}
-      style={({ pressed }) => [
-        styles.requestCard,
-        pressed && styles.requestCardPressed,
-      ]}
-    >
-      <View style={styles.requestTopRow}>
-        <Text style={styles.requestName}>{item.nombre || item.organizerName || "Solicitud"}</Text>
-        <Text style={styles.statusBadge}>{item.status}</Text>
-      </View>
-      <Text style={styles.requestMeta}>
-        Tipo: {item.requestType === "complex" ? "Nuevo complejo" : "Organizador"}
-      </Text>
-      {item.requestType === "organizer" ? (
-        <>
-          <Text style={styles.requestMeta}>DNI: {item.dni}</Text>
-          <Text style={styles.requestMeta}>Telefono: {item.telefono}</Text>
-        </>
-      ) : (
-        <Text style={styles.requestMeta}>Email: {item.organizerEmail || "-"}</Text>
-      )}
-      <Text style={styles.requestMeta}>Complejos: {item.complejos?.length || 0}</Text>
-    </Pressable>
-  );
+  const renderRequestItem = ({ item }) => {
+    const requestUser = users.find((user) => user.id === item.userId);
+
+    return (
+      <Pressable
+        onPress={() => setSelectedRequest(item)}
+        style={({ pressed }) => [
+          styles.requestCard,
+          pressed && styles.requestCardPressed,
+        ]}
+      >
+        <View style={styles.requestTopRow}>
+          <Text style={styles.requestName}>{item.nombre || item.organizerName || "Solicitud"}</Text>
+          <Text style={styles.statusBadge}>{formatRequestStatusLabel(item.status)}</Text>
+        </View>
+        <Text style={styles.requestMeta}>
+          Tipo: {item.requestType === "complex" ? "Nuevo complejo" : "Organizador"}
+        </Text>
+        {item.requestType === "organizer" ? (
+          <>
+            <Text style={styles.requestMeta}>DNI: {item.dni}</Text>
+            <Text style={styles.requestMeta}>Telefono: {item.telefono}</Text>
+          </>
+        ) : (
+          <Text style={styles.requestMeta}>Email: {item.organizerEmail || "-"}</Text>
+        )}
+        <Text style={styles.requestMeta}>Complejos: {item.complejos?.length || 0}</Text>
+        {item.status === "approved" && requestUser?.plan ? (
+          <Text style={styles.requestMeta}>
+            Plan: {getPlanLabel(requestUser.plan)}
+            {requestUser.planStatus === "trial" ? " (En prueba)" : ""}
+          </Text>
+        ) : null}
+      </Pressable>
+    );
+  };
 
   const handleHeaderBack = () => {
     if (activeTab === "menu") {
@@ -887,8 +930,11 @@ export default function AdminScreen({ navigation, route }) {
             <View style={styles.menuGrid}>
               {renderMenuCard({
                 title: "SOLICITUD ORGANIZADOR",
-                subtitle: `${requests.length} solicitudes para revisar`,
-                onPress: () => setActiveTab("requests"),
+                subtitle: `${requests.filter((item) => (item.status || "pending") === "pending").length} pendientes de revisar`,
+                onPress: () => {
+                  setRequestsStatusFilter("pending");
+                  setActiveTab("requests");
+                },
                 icon: "person-add-outline",
               })}
               {renderMenuCard({
@@ -991,11 +1037,79 @@ export default function AdminScreen({ navigation, route }) {
           ) : activeTab === "requests" ? (
             <FlatList
               contentContainerStyle={styles.listContent}
-              data={requests}
+              data={visibleRequests}
               keyExtractor={(item) => item.id}
+              ListHeaderComponent={
+                <View>
+                  <View style={styles.requestsFilterRow}>
+                    {[
+                      { key: "pending", label: "Pendientes" },
+                      { key: "approved", label: "Aprobados" },
+                      { key: "rejected", label: "Rechazados" },
+                    ].map((option) => (
+                      <Pressable
+                        key={option.key}
+                        onPress={() => setRequestsStatusFilter(option.key)}
+                        style={[
+                          styles.requestsFilterChip,
+                          requestsStatusFilter === option.key
+                            ? styles.requestsFilterChipActive
+                            : null,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.requestsFilterChipText,
+                            requestsStatusFilter === option.key
+                              ? styles.requestsFilterChipTextActive
+                              : null,
+                          ]}
+                        >
+                          {option.label}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                  {requestsStatusFilter === "approved" ? (
+                    <View style={styles.requestsFilterRow}>
+                      {[
+                        { key: "all", label: "Todos" },
+                        { key: "trial", label: "En prueba" },
+                        { key: "simple", label: "Simple" },
+                        { key: "plus", label: "Plus" },
+                        { key: "premium", label: "Premium" },
+                      ].map((option) => (
+                        <Pressable
+                          key={option.key}
+                          onPress={() => setRequestsPlanFilter(option.key)}
+                          style={[
+                            styles.requestsFilterChipSecondary,
+                            requestsPlanFilter === option.key
+                              ? styles.requestsFilterChipActive
+                              : null,
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.requestsFilterChipText,
+                              requestsPlanFilter === option.key
+                                ? styles.requestsFilterChipTextActive
+                                : null,
+                            ]}
+                          >
+                            {option.label}
+                          </Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                  ) : null}
+                </View>
+              }
               ListEmptyComponent={
                 <Text style={styles.emptyText}>
-                  {loading ? "Cargando solicitudes..." : "No hay solicitudes para revisar."}
+                  {loading
+                    ? "Cargando solicitudes..."
+                    : `No hay solicitudes ${formatRequestStatusLabel(requestsStatusFilter).toLowerCase()}s.`}
                 </Text>
               }
               renderItem={renderRequestItem}
@@ -2464,6 +2578,40 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     gap: 8,
     marginBottom: spacing.md,
+  },
+  requestsFilterRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginBottom: spacing.sm,
+  },
+  requestsFilterChip: {
+    backgroundColor: colors.surfaceAlt,
+    borderColor: colors.border,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    paddingHorizontal: 16,
+    paddingVertical: 9,
+  },
+  requestsFilterChipSecondary: {
+    backgroundColor: colors.surfaceAlt,
+    borderColor: colors.border,
+    borderRadius: 10,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  requestsFilterChipActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  requestsFilterChipText: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  requestsFilterChipTextActive: {
+    color: "#fff",
   },
   planChip: {
     borderColor: colors.border,
