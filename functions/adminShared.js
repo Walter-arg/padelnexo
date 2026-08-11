@@ -86,7 +86,25 @@ async function requireAdmin(req) {
   return decodedToken;
 }
 
-function withAdminHandler(handler) {
+// Registra quien hizo que y cuando. Nunca debe romper la accion real: si el
+// log falla, solo se anota en los logs de Cloud Functions.
+async function logAdminAction({ action, actor, details = {} }) {
+  try {
+    await getDb()
+      .collection("adminAuditLog")
+      .add({
+        action,
+        actorUid: actor?.uid || "",
+        actorEmail: actor?.email || "",
+        details,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+  } catch (error) {
+    logger.error("No se pudo registrar la accion en el log de auditoria", error);
+  }
+}
+
+function withAdminHandler(actionName, handler) {
   return async (req, res) => {
     if (handlePreflight(req, res)) {
       return;
@@ -100,8 +118,12 @@ function withAdminHandler(handler) {
     }
 
     try {
-      await requireAdmin(req);
+      const actor = await requireAdmin(req);
       await handler(req, res);
+
+      if (actionName) {
+        await logAdminAction({ action: actionName, actor, details: req.body || {} });
+      }
     } catch (error) {
       if (error instanceof HttpError) {
         res.status(error.statusCode).json({ error: error.message });

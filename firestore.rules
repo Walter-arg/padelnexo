@@ -256,5 +256,12 @@ service cloud.firestore {
       allow list: if false;
       allow write: if false;
     }
+
+    // Log de auditoria de acciones administrativas: solo lectura para
+    // admins. Solo las Cloud Functions (Admin SDK) escriben aca.
+    match /adminAuditLog/{entryId} {
+      allow read: if esAdmin();
+      allow write: if false;
+    }
   }
 }

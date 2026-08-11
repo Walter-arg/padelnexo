@@ -1,6 +1,6 @@
 const { onRequest } = require("firebase-functions/v2/https");
 
-const { admin, getDb, withAdminHandler } = require("./adminShared");
+const { admin, getDb, withAdminHandler, HttpError } = require("./adminShared");
 
 const USER_ROLE = "user";
 const ADMIN_ROLE = "admin";
@@ -20,9 +20,7 @@ function requireUserId(req) {
   const userId = String(req.body?.userId || "").trim();
 
   if (!userId) {
-    const error = new Error("userId_required");
-    error.statusCode = 400;
-    throw error;
+    throw new HttpError(400, "userId_required");
   }
 
   return userId;
@@ -30,7 +28,7 @@ function requireUserId(req) {
 
 const grantAdminAccess = onRequest(
   { invoker: "public" },
-  withAdminHandler(async (req, res) => {
+  withAdminHandler("grantAdminAccess", async (req, res) => {
     const userId = requireUserId(req);
 
     await getDb().collection("users").doc(userId).update({
@@ -44,7 +42,7 @@ const grantAdminAccess = onRequest(
 
 const revokeAdminAccess = onRequest(
   { invoker: "public" },
-  withAdminHandler(async (req, res) => {
+  withAdminHandler("revokeAdminAccess", async (req, res) => {
     const userId = requireUserId(req);
     const currentRole = String(req.body?.currentRole || "");
     const payload = {
@@ -64,7 +62,7 @@ const revokeAdminAccess = onRequest(
 
 const revokeOrganizerAccess = onRequest(
   { invoker: "public" },
-  withAdminHandler(async (req, res) => {
+  withAdminHandler("revokeOrganizerAccess", async (req, res) => {
     const userId = requireUserId(req);
 
     await getDb().collection("users").doc(userId).update({
@@ -79,7 +77,7 @@ const revokeOrganizerAccess = onRequest(
 
 const blockUserAccount = onRequest(
   { invoker: "public" },
-  withAdminHandler(async (req, res) => {
+  withAdminHandler("blockUserAccount", async (req, res) => {
     const userId = requireUserId(req);
     const mode = String(req.body?.mode || "indefinite");
     const userRef = getDb().collection("users").doc(userId);
@@ -115,7 +113,7 @@ const blockUserAccount = onRequest(
 
 const restoreUserAccount = onRequest(
   { invoker: "public" },
-  withAdminHandler(async (req, res) => {
+  withAdminHandler("restoreUserAccount", async (req, res) => {
     const userId = requireUserId(req);
     const userRef = getDb().collection("users").doc(userId);
     const snapshot = await userRef.get();
@@ -144,7 +142,7 @@ const restoreUserAccount = onRequest(
 // A diferencia del bloqueo (blockUserAccount), esto es irreversible.
 const deleteUserAccount = onRequest(
   { invoker: "public" },
-  withAdminHandler(async (req, res) => {
+  withAdminHandler("deleteUserAccount", async (req, res) => {
     const userId = requireUserId(req);
     const reason = String(req.body?.reason || "").trim();
     const db = getDb();
@@ -191,14 +189,13 @@ const deleteUserAccount = onRequest(
 
 const assignOrganizerPlan = onRequest(
   { invoker: "public" },
-  withAdminHandler(async (req, res) => {
+  withAdminHandler("assignOrganizerPlan", async (req, res) => {
     const userId = requireUserId(req);
     const plan = String(req.body?.plan || "").trim();
     const trialDays = Number(req.body?.trialDays || 0);
 
     if (!plan) {
-      res.status(400).json({ error: "plan_required" });
-      return;
+      throw new HttpError(400, "plan_required");
     }
 
     const isTrial = trialDays > 0;
@@ -225,7 +222,7 @@ const assignOrganizerPlan = onRequest(
 
 const revokeOrganizerPlan = onRequest(
   { invoker: "public" },
-  withAdminHandler(async (req, res) => {
+  withAdminHandler("revokeOrganizerPlan", async (req, res) => {
     const userId = requireUserId(req);
 
     await getDb().collection("users").doc(userId).update({
@@ -243,7 +240,7 @@ const revokeOrganizerPlan = onRequest(
 
 const updateUserProfileAsAdmin = onRequest(
   { invoker: "public" },
-  withAdminHandler(async (req, res) => {
+  withAdminHandler("updateUserProfileAsAdmin", async (req, res) => {
     const userId = requireUserId(req);
     const updates = req.body?.updates || {};
     const city = String(updates.city || "").trim();
@@ -272,12 +269,11 @@ const updateUserProfileAsAdmin = onRequest(
 
 const archiveLeagueAsAdmin = onRequest(
   { invoker: "public" },
-  withAdminHandler(async (req, res) => {
+  withAdminHandler("archiveLeagueAsAdmin", async (req, res) => {
     const leagueId = String(req.body?.leagueId || "").trim();
 
     if (!leagueId) {
-      res.status(400).json({ error: "leagueId_required" });
-      return;
+      throw new HttpError(400, "leagueId_required");
     }
 
     await getDb().collection("leagues").doc(leagueId).update({
@@ -292,12 +288,11 @@ const archiveLeagueAsAdmin = onRequest(
 
 const restoreLeagueAsAdmin = onRequest(
   { invoker: "public" },
-  withAdminHandler(async (req, res) => {
+  withAdminHandler("restoreLeagueAsAdmin", async (req, res) => {
     const leagueId = String(req.body?.leagueId || "").trim();
 
     if (!leagueId) {
-      res.status(400).json({ error: "leagueId_required" });
-      return;
+      throw new HttpError(400, "leagueId_required");
     }
 
     await getDb().collection("leagues").doc(leagueId).update({
@@ -312,12 +307,11 @@ const restoreLeagueAsAdmin = onRequest(
 
 const cancelTournamentAsAdmin = onRequest(
   { invoker: "public" },
-  withAdminHandler(async (req, res) => {
+  withAdminHandler("cancelTournamentAsAdmin", async (req, res) => {
     const tournamentId = String(req.body?.tournamentId || "").trim();
 
     if (!tournamentId) {
-      res.status(400).json({ error: "tournamentId_required" });
-      return;
+      throw new HttpError(400, "tournamentId_required");
     }
 
     await getDb().collection("tournaments").doc(tournamentId).update({
@@ -334,12 +328,11 @@ const cancelTournamentAsAdmin = onRequest(
 
 const restoreTournamentAsAdmin = onRequest(
   { invoker: "public" },
-  withAdminHandler(async (req, res) => {
+  withAdminHandler("restoreTournamentAsAdmin", async (req, res) => {
     const tournamentId = String(req.body?.tournamentId || "").trim();
 
     if (!tournamentId) {
-      res.status(400).json({ error: "tournamentId_required" });
-      return;
+      throw new HttpError(400, "tournamentId_required");
     }
 
     await getDb().collection("tournaments").doc(tournamentId).update({
@@ -354,7 +347,7 @@ const restoreTournamentAsAdmin = onRequest(
 
 const approveOrganizerRequest = onRequest(
   { invoker: "public" },
-  withAdminHandler(async (req, res) => {
+  withAdminHandler("approveOrganizerRequest", async (req, res) => {
     const userId = requireUserId(req);
     const db = getDb();
     const requestRef = db.collection("organizerRequests").doc(userId);
@@ -362,8 +355,7 @@ const approveOrganizerRequest = onRequest(
     const requestSnapshot = await requestRef.get();
 
     if (!requestSnapshot.exists) {
-      res.status(404).json({ error: "request_not_found" });
-      return;
+      throw new HttpError(404, "request_not_found");
     }
 
     const requestData = requestSnapshot.data() || {};
@@ -385,7 +377,7 @@ const approveOrganizerRequest = onRequest(
 
 const rejectOrganizerRequest = onRequest(
   { invoker: "public" },
-  withAdminHandler(async (req, res) => {
+  withAdminHandler("rejectOrganizerRequest", async (req, res) => {
     const userId = requireUserId(req);
     const db = getDb();
     const requestRef = db.collection("organizerRequests").doc(userId);
@@ -407,7 +399,7 @@ const rejectOrganizerRequest = onRequest(
 
 const deleteOrganizerRequest = onRequest(
   { invoker: "public" },
-  withAdminHandler(async (req, res) => {
+  withAdminHandler("deleteOrganizerRequest", async (req, res) => {
     const userId = requireUserId(req);
     const db = getDb();
     const requestRef = db.collection("organizerRequests").doc(userId);
@@ -444,7 +436,7 @@ function resolveTimestampMillis(value) {
 // esta funcion en vez de leer Firestore directo desde el cliente.
 const listAdminUsersData = onRequest(
   { invoker: "public" },
-  withAdminHandler(async (req, res) => {
+  withAdminHandler(null, async (req, res) => {
     const db = getDb();
     const usersSnapshot = await db.collection("users").get();
 
@@ -498,12 +490,11 @@ const listAdminUsersData = onRequest(
 
 const approveComplexRequest = onRequest(
   { invoker: "public" },
-  withAdminHandler(async (req, res) => {
+  withAdminHandler("approveComplexRequest", async (req, res) => {
     const requestId = String(req.body?.requestId || "").trim();
 
     if (!requestId) {
-      res.status(400).json({ error: "requestId_required" });
-      return;
+      throw new HttpError(400, "requestId_required");
     }
 
     const db = getDb();
@@ -511,24 +502,21 @@ const approveComplexRequest = onRequest(
     const requestSnapshot = await requestRef.get();
 
     if (!requestSnapshot.exists) {
-      res.status(404).json({ error: "request_not_found" });
-      return;
+      throw new HttpError(404, "request_not_found");
     }
 
     const requestData = requestSnapshot.data() || {};
     const userId = String(requestData.userId || "").trim();
 
     if (!userId) {
-      res.status(400).json({ error: "request_missing_user" });
-      return;
+      throw new HttpError(400, "request_missing_user");
     }
 
     const userRef = db.collection("users").doc(userId);
     const userSnapshot = await userRef.get();
 
     if (!userSnapshot.exists) {
-      res.status(404).json({ error: "user_not_found" });
-      return;
+      throw new HttpError(404, "user_not_found");
     }
 
     const currentComplexes = Array.isArray(userSnapshot.data()?.complejos)
@@ -567,12 +555,11 @@ const approveComplexRequest = onRequest(
 
 const deleteComplexRequestAsAdmin = onRequest(
   { invoker: "public" },
-  withAdminHandler(async (req, res) => {
+  withAdminHandler("deleteComplexRequestAsAdmin", async (req, res) => {
     const requestId = String(req.body?.requestId || "").trim();
 
     if (!requestId) {
-      res.status(400).json({ error: "requestId_required" });
-      return;
+      throw new HttpError(400, "requestId_required");
     }
 
     await getDb().collection("complexRequests").doc(requestId).delete();

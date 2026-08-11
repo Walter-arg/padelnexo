@@ -35,6 +35,7 @@ import {
   cancelTournamentAsAdmin,
   deleteUserAccount,
   grantAdminAccess,
+  listAdminAuditLog,
   listAdminContent,
   listAdminUsers,
   restoreUserAccount,
@@ -149,6 +150,51 @@ function formatContentStatusLabel(status = "") {
   return status || "Sin estado";
 }
 
+const AUDIT_ACTION_LABELS = {
+  grantAdminAccess: "Otorgo acceso admin",
+  revokeAdminAccess: "Revoco acceso admin",
+  revokeOrganizerAccess: "Quito organizador",
+  blockUserAccount: "Bloqueo usuario",
+  restoreUserAccount: "Desbloqueo usuario",
+  deleteUserAccount: "Elimino usuario",
+  assignOrganizerPlan: "Asigno plan",
+  revokeOrganizerPlan: "Revoco plan",
+  updateUserProfileAsAdmin: "Edito perfil de usuario",
+  archiveLeagueAsAdmin: "Archivo liga",
+  restoreLeagueAsAdmin: "Restauro liga",
+  cancelTournamentAsAdmin: "Cancelo torneo",
+  restoreTournamentAsAdmin: "Restauro torneo",
+  approveOrganizerRequest: "Aprobo solicitud de organizador",
+  rejectOrganizerRequest: "Rechazo solicitud de organizador",
+  deleteOrganizerRequest: "Elimino solicitud de organizador",
+  approveComplexRequest: "Aprobo solicitud de complejo",
+  deleteComplexRequestAsAdmin: "Elimino solicitud de complejo",
+};
+
+function formatAuditActionLabel(action = "") {
+  return AUDIT_ACTION_LABELS[action] || action || "Accion desconocida";
+}
+
+function formatAuditDetails(entry = {}, usersList = []) {
+  const details = entry.details || {};
+  const parts = [];
+  const targetUserId = details.userId;
+
+  if (targetUserId) {
+    const targetUser = usersList.find((item) => item.id === targetUserId);
+    parts.push(`Usuario: ${targetUser?.name || targetUserId}`);
+  }
+
+  if (details.leagueId) parts.push(`Liga: ${details.leagueId}`);
+  if (details.tournamentId) parts.push(`Torneo: ${details.tournamentId}`);
+  if (details.requestId) parts.push(`Solicitud: ${details.requestId}`);
+  if (details.plan) parts.push(`Plan: ${details.plan}`);
+  if (details.mode) parts.push(`Modo: ${details.mode}`);
+  if (details.reason) parts.push(`Motivo: ${details.reason}`);
+
+  return parts.join(" - ") || "Sin detalle adicional";
+}
+
 function formatReportTypeLabel(type = "") {
   if (type === "conversation") {
     return "Conversacion";
@@ -224,6 +270,14 @@ export default function AdminScreen({ navigation, route }) {
   const [userHistoryLoading, setUserHistoryLoading] = useState(false);
   const [userToDelete, setUserToDelete] = useState(null);
   const [deletingUser, setDeletingUser] = useState(false);
+  const [auditLog, setAuditLog] = useState([]);
+  const [auditLogLoading, setAuditLogLoading] = useState(false);
+  const [auditLogLoaded, setAuditLogLoaded] = useState(false);
+  const [visibleUserCount, setVisibleUserCount] = useState(20);
+
+  useEffect(() => {
+    setVisibleUserCount(20);
+  }, [activeTab, userSearchQuery]);
 
   const canAccessAdmin = canAccessAdminPanel({
     ...userData,
@@ -264,6 +318,14 @@ export default function AdminScreen({ navigation, route }) {
             .some((field) => field.toLowerCase().includes(normalizedUserSearchQuery))
         )
       : list;
+  const activeUserTabList = filterBySearch(
+    activeTab === "players"
+      ? playerUsers
+      : activeTab === "organizers"
+        ? organizerUsers
+        : blockedUsers
+  );
+  const visibleUserTabList = activeUserTabList.slice(0, visibleUserCount);
   const contentFiltered = contentItems.filter((item) => {
     if (activeTab === "leagues") {
       return item.type === "league";
@@ -534,6 +596,43 @@ export default function AdminScreen({ navigation, route }) {
     handleSelectUser(selected);
   };
 
+  const handleBlockReportedUser = async (userId = "", fallbackName = "") => {
+    if (!userId) {
+      return;
+    }
+
+    try {
+      await blockUserAccount(userId, "indefinite");
+      Alert.alert(
+        "Usuario bloqueado",
+        `${fallbackName || "El usuario reportado"} fue bloqueado.`
+      );
+      refreshAdminData();
+    } catch (error) {
+      Alert.alert("No pudimos bloquear al usuario", error.message);
+    }
+  };
+
+  const handleOpenAuditLog = async () => {
+    setActiveTab("auditLog");
+
+    if (auditLogLoaded) {
+      return;
+    }
+
+    setAuditLogLoading(true);
+
+    try {
+      const entries = await listAdminAuditLog();
+      setAuditLog(entries);
+      setAuditLogLoaded(true);
+    } catch (error) {
+      Alert.alert("No pudimos cargar el registro", error.message);
+    } finally {
+      setAuditLogLoading(false);
+    }
+  };
+
   const handleOpenOrganizerHistory = (organizer) => {
     setOrganizerHistoryUser(organizer);
     setSelectedUser(null);
@@ -798,6 +897,12 @@ export default function AdminScreen({ navigation, route }) {
                 onPress: () => setActiveTab("plans"),
                 icon: "ribbon-outline",
               })}
+              {renderMenuCard({
+                title: "REGISTRO DE AUDITORIA",
+                subtitle: "Quien hizo que accion administrativa y cuando",
+                onPress: handleOpenAuditLog,
+                icon: "shield-checkmark-outline",
+              })}
             </View>
           ) : activeTab === "usersMenu" ? (
             <View style={styles.menuGrid}>
@@ -881,14 +986,23 @@ export default function AdminScreen({ navigation, route }) {
           ) : activeTab === "players" || activeTab === "organizers" || activeTab === "blockedUsers" ? (
             <FlatList
               contentContainerStyle={styles.listContent}
-              data={filterBySearch(
-                activeTab === "players"
-                  ? playerUsers
-                  : activeTab === "organizers"
-                    ? organizerUsers
-                    : blockedUsers
-              )}
+              data={visibleUserTabList}
               keyExtractor={(item) => item.id}
+              ListFooterComponent={
+                activeUserTabList.length > visibleUserCount ? (
+                  <Pressable
+                    onPress={() => setVisibleUserCount((current) => current + 20)}
+                    style={({ pressed }) => [
+                      styles.loadMoreButton,
+                      pressed && styles.requestCardPressed,
+                    ]}
+                  >
+                    <Text style={styles.loadMoreButtonText}>
+                      Cargar mas ({activeUserTabList.length - visibleUserCount} restantes)
+                    </Text>
+                  </Pressable>
+                ) : null
+              }
               ListHeaderComponent={
                 <View style={styles.userSearchWrap}>
                   <Ionicons color={colors.muted} name="search-outline" size={16} />
@@ -1084,6 +1198,34 @@ export default function AdminScreen({ navigation, route }) {
                 showsVerticalScrollIndicator={false}
               />
             </View>
+          ) : activeTab === "auditLog" ? (
+            <FlatList
+              contentContainerStyle={styles.listContent}
+              data={auditLog}
+              keyExtractor={(item) => item.id}
+              ListEmptyComponent={
+                <Text style={styles.emptyText}>
+                  {auditLogLoading
+                    ? "Cargando registro..."
+                    : "Todavia no hay acciones administrativas registradas."}
+                </Text>
+              }
+              renderItem={({ item }) => (
+                <View style={styles.requestCard}>
+                  <View style={styles.requestTopRow}>
+                    <Text style={styles.requestName}>{formatAuditActionLabel(item.action)}</Text>
+                    <Text style={styles.statusBadge}>
+                      {formatAdminDate(item.createdAtMillis)}
+                    </Text>
+                  </View>
+                  <Text style={styles.requestMeta}>
+                    Admin: {item.actorEmail || item.actorUid || "-"}
+                  </Text>
+                  <Text style={styles.requestMeta}>{formatAuditDetails(item, users)}</Text>
+                </View>
+              )}
+              showsVerticalScrollIndicator={false}
+            />
           ) : activeTab === "plans" ? (
             <FlatList
               contentContainerStyle={styles.listContent}
@@ -1829,6 +1971,19 @@ export default function AdminScreen({ navigation, route }) {
                       style={styles.compactButton}
                     />
                   ) : null}
+                  {resolveReportedUserFromReport(selectedReport).id ? (
+                    <AppButton
+                      title="Bloquear reportado"
+                      onPress={() =>
+                        handleBlockReportedUser(
+                          resolveReportedUserFromReport(selectedReport).id,
+                          resolveReportedUserFromReport(selectedReport).name
+                        )
+                      }
+                      style={styles.compactButton}
+                      variant="secondary"
+                    />
+                  ) : null}
                   <AppButton
                     title="Cerrar"
                     onPress={() => setSelectedReport(null)}
@@ -1937,6 +2092,20 @@ const styles = StyleSheet.create({
     color: colors.text,
     flex: 1,
     fontSize: 14,
+  },
+  loadMoreButton: {
+    alignItems: "center",
+    backgroundColor: colors.surfaceAlt,
+    borderColor: colors.border,
+    borderRadius: 14,
+    borderWidth: 1,
+    marginTop: spacing.sm,
+    paddingVertical: spacing.md,
+  },
+  loadMoreButtonText: {
+    color: colors.primaryDark,
+    fontSize: 14,
+    fontWeight: "800",
   },
   backButton: {
     alignItems: "center",

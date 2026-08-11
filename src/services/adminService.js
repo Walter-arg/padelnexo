@@ -1,4 +1,4 @@
-import { collection, getDocs } from "../../services/firebaseFirestore";
+import { collection, getDocs, limit, orderBy, query } from "../../services/firebaseFirestore";
 
 import { db } from "../../services/firebaseConfig";
 import { callAdminAction } from "./adminActionsClient";
@@ -49,6 +49,28 @@ function mapAdminTournament(docSnapshot) {
     createdAtMillis: resolveTimestampMillis(data.createdAt),
     updatedAtMillis: resolveTimestampMillis(data.updatedAt),
   };
+}
+
+export async function listAdminAuditLog(entriesLimit = 100) {
+  const auditQuery = query(
+    collection(db, "adminAuditLog"),
+    orderBy("createdAt", "desc"),
+    limit(entriesLimit)
+  );
+  const snapshot = await getDocs(auditQuery);
+
+  return snapshot.docs.map((docSnapshot) => {
+    const data = docSnapshot.data() || {};
+
+    return {
+      id: docSnapshot.id,
+      action: data.action || "",
+      actorUid: data.actorUid || "",
+      actorEmail: data.actorEmail || "",
+      details: data.details || {},
+      createdAtMillis: resolveTimestampMillis(data.createdAt),
+    };
+  });
 }
 
 export async function listAdminUsers() {
