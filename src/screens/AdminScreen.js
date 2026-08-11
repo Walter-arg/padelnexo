@@ -222,6 +222,8 @@ export default function AdminScreen({ navigation, route }) {
   const [userHistoryTarget, setUserHistoryTarget] = useState(null);
   const [userHistoryReservations, setUserHistoryReservations] = useState([]);
   const [userHistoryLoading, setUserHistoryLoading] = useState(false);
+  const [userToDelete, setUserToDelete] = useState(null);
+  const [deletingUser, setDeletingUser] = useState(false);
 
   const canAccessAdmin = canAccessAdminPanel({
     ...userData,
@@ -559,27 +561,27 @@ export default function AdminScreen({ navigation, route }) {
       return;
     }
 
-    Alert.alert(
-      "Eliminar jugador",
-      `Esto borra la cuenta de ${targetUser.name || "este usuario"} por completo (perfil, foto, acceso a la app) y no se puede deshacer. El email tampoco va a poder usarse para registrarse de nuevo. ¿Confirmas?`,
-      [
-        { text: "Cancelar", style: "cancel" },
-        {
-          text: "Eliminar definitivamente",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              await deleteUserAccount(targetUser.id);
-              setSelectedUser(null);
-              refreshAdminData();
-              Alert.alert("Cuenta eliminada", "El jugador fue eliminado de PadelNexo.");
-            } catch (error) {
-              Alert.alert("No pudimos eliminar la cuenta", error.message);
-            }
-          },
-        },
-      ]
-    );
+    setUserToDelete(targetUser);
+  };
+
+  const handleConfirmDeleteUser = async () => {
+    if (!userToDelete?.id || deletingUser) {
+      return;
+    }
+
+    setDeletingUser(true);
+
+    try {
+      await deleteUserAccount(userToDelete.id);
+      setUserToDelete(null);
+      setSelectedUser(null);
+      refreshAdminData();
+      Alert.alert("Cuenta eliminada", "El jugador fue eliminado de PadelNexo.");
+    } catch (error) {
+      Alert.alert("No pudimos eliminar la cuenta", error.message);
+    } finally {
+      setDeletingUser(false);
+    }
   };
 
   useEffect(() => {
@@ -1626,6 +1628,48 @@ export default function AdminScreen({ navigation, route }) {
           </View>
         </View>
       </Modal>
+      <Modal
+        animationType="fade"
+        onRequestClose={() => setUserToDelete(null)}
+        transparent
+        visible={Boolean(userToDelete)}
+      >
+        <View style={styles.confirmOverlay}>
+          <Pressable onPress={() => setUserToDelete(null)} style={styles.confirmBackdrop} />
+          <View style={styles.confirmCard}>
+            <Text style={styles.confirmTitle}>Eliminar jugador</Text>
+            <Text style={styles.confirmText}>
+              Esto borra la cuenta de {userToDelete?.name || "este usuario"} por completo (perfil,
+              foto, acceso a la app) y no se puede deshacer. El email tampoco va a poder usarse
+              para registrarse de nuevo.
+            </Text>
+            <View style={styles.confirmActions}>
+              <Pressable
+                onPress={() => setUserToDelete(null)}
+                style={({ pressed }) => [
+                  styles.confirmSecondaryButton,
+                  pressed && styles.confirmButtonPressed,
+                ]}
+              >
+                <Text style={styles.confirmSecondaryButtonText}>Cancelar</Text>
+              </Pressable>
+              <Pressable
+                disabled={deletingUser}
+                onPress={handleConfirmDeleteUser}
+                style={({ pressed }) => [
+                  styles.confirmPrimaryButton,
+                  pressed && styles.confirmButtonPressed,
+                  deletingUser && styles.primaryButtonDisabled,
+                ]}
+              >
+                <Text style={styles.confirmPrimaryButtonText}>
+                  {deletingUser ? "Eliminando..." : "Eliminar definitivamente"}
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
       <Modal animationType="slide" transparent visible={Boolean(selectedContent)}>
         <View style={styles.modalOverlay}>
           <Pressable onPress={() => setSelectedContent(null)} style={styles.modalBackdrop} />
@@ -2063,6 +2107,78 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.lg,
     paddingBottom: spacing.xl,
+  },
+  confirmOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: spacing.lg,
+  },
+  confirmBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: colors.overlay,
+  },
+  confirmCard: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 24,
+    borderWidth: 1,
+    padding: spacing.lg,
+    width: "100%",
+  },
+  confirmTitle: {
+    color: colors.text,
+    fontSize: 22,
+    fontWeight: "800",
+    textAlign: "center",
+  },
+  confirmText: {
+    color: colors.muted,
+    fontSize: 15,
+    lineHeight: 22,
+    marginTop: spacing.sm,
+    textAlign: "center",
+  },
+  confirmActions: {
+    flexDirection: "row",
+    gap: spacing.sm,
+    marginTop: spacing.lg,
+  },
+  confirmSecondaryButton: {
+    alignItems: "center",
+    backgroundColor: colors.surfaceAlt,
+    borderColor: colors.border,
+    borderRadius: 16,
+    borderWidth: 1,
+    flex: 1,
+    justifyContent: "center",
+    minHeight: 46,
+    paddingHorizontal: spacing.md,
+  },
+  confirmPrimaryButton: {
+    alignItems: "center",
+    backgroundColor: "#C53B3B",
+    borderRadius: 16,
+    flex: 1,
+    justifyContent: "center",
+    minHeight: 46,
+    paddingHorizontal: spacing.md,
+  },
+  confirmSecondaryButtonText: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: "800",
+  },
+  confirmPrimaryButtonText: {
+    color: colors.surface,
+    fontSize: 15,
+    fontWeight: "800",
+  },
+  confirmButtonPressed: {
+    opacity: 0.9,
+  },
+  primaryButtonDisabled: {
+    opacity: 0.6,
   },
   modalTitle: {
     color: colors.text,
