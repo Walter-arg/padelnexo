@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import DateTimePicker from "@react-native-community/datetimepicker";
+import { Ionicons } from "@expo/vector-icons";
 
 import AppButton from "../components/AppButton";
 import AppInput from "../components/AppInput";
@@ -111,6 +112,7 @@ export default function RegisterScreen({ navigation }) {
   const [isDominantHandVisible, setIsDominantHandVisible] = useState(false);
   const [birthDate, setBirthDate] = useState(null);
   const [datePickerVisible, setDatePickerVisible] = useState(false);
+  const [termsAccepted, setTermsAccepted] = useState(false);
 
   const showFeedback = (title, message, tone = "default") => {
     setFeedback({
@@ -194,6 +196,15 @@ export default function RegisterScreen({ navigation }) {
       showFeedback(
         "Contrase\u00f1a muy corta",
         `Debe tener al menos ${MIN_PASSWORD_LENGTH} caracteres.`,
+        "danger"
+      );
+      return;
+    }
+
+    if (!termsAccepted) {
+      showFeedback(
+        "Falta aceptar los t\u00e9rminos",
+        "Ten\u00e9s que aceptar los T\u00e9rminos y Condiciones y la Pol\u00edtica de Privacidad para registrarte.",
         "danger"
       );
       return;
@@ -455,24 +466,32 @@ export default function RegisterScreen({ navigation }) {
             value={password}
           />
 
+          <Pressable
+            onPress={() => setTermsAccepted((current) => !current)}
+            style={styles.termsRow}
+          >
+            <View style={[styles.checkbox, termsAccepted ? styles.checkboxChecked : null]}>
+              {termsAccepted ? <Ionicons color="#fff" name="checkmark" size={14} /> : null}
+            </View>
+            <Text style={styles.legalText}>
+              Acepto los{" "}
+              <Text
+                onPress={() => Linking.openURL("https://www.padelnexo.com.ar/terminos-condiciones")}
+                style={styles.legalLink}
+              >
+                Terminos y Condiciones
+              </Text>
+              {" "}y la{" "}
+              <Text
+                onPress={() => Linking.openURL("https://www.padelnexo.com.ar/politica-privacidad")}
+                style={styles.legalLink}
+              >
+                Politica de Privacidad
+              </Text>
+              .
+            </Text>
+          </Pressable>
           <AppButton title="Registrarme" onPress={handleRegister} style={styles.primaryButton} />
-          <Text style={styles.legalText}>
-            Al registrarte aceptas los{" "}
-            <Text
-              onPress={() => Linking.openURL("https://www.padelnexo.com.ar/terminos-condiciones")}
-              style={styles.legalLink}
-            >
-              Terminos y Condiciones
-            </Text>
-            {" "}y la{" "}
-            <Text
-              onPress={() => Linking.openURL("https://www.padelnexo.com.ar/politica-privacidad")}
-              style={styles.legalLink}
-            >
-              Politica de Privacidad
-            </Text>
-            .
-          </Text>
           <AppButton
             title="Ya tengo cuenta"
             onPress={() => navigation.goBack()}
@@ -605,15 +624,35 @@ const styles = StyleSheet.create({
   },
   legalText: {
     color: colors.muted,
+    flex: 1,
     fontSize: 12,
     lineHeight: 18,
-    marginTop: spacing.xs,
-    textAlign: "center",
   },
   legalLink: {
     color: colors.primaryDark,
     fontWeight: "700",
     textDecorationLine: "underline",
+  },
+  termsRow: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+    paddingHorizontal: spacing.xs,
+  },
+  checkbox: {
+    alignItems: "center",
+    borderColor: colors.border,
+    borderRadius: 6,
+    borderWidth: 2,
+    height: 20,
+    justifyContent: "center",
+    marginTop: 1,
+    width: 20,
+  },
+  checkboxChecked: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
   },
   nameRow: {
     flexDirection: "row",
