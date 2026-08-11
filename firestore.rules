@@ -257,6 +257,14 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Localidades argentinas: dataset de referencia de solo lectura, usado
+    // como respaldo en LocationPicker cuando el dataset local no encuentra
+    // resultados. Nadie escribe aca desde la app.
+    match /locations/{locationId} {
+      allow read: if isAuth();
+      allow write: if false;
+    }
+
     // Log de auditoria de acciones administrativas: solo lectura para
     // admins. Solo las Cloud Functions (Admin SDK) escriben aca.
     match /adminAuditLog/{entryId} {
