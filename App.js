@@ -43,21 +43,37 @@ import { clearPendingTournamentMercadoPagoAttempt } from "./src/services/tournam
 import { cancelPendingMercadoPagoReservation } from "./src/services/turnosService";
 import { ensureDb } from "./services/firebaseConfig";
 
+// Si el modulo nativo de Crashlytics no esta compilado en el binario
+// instalado (por ejemplo un dev-client viejo, de antes de agregar el
+// plugin, que necesita un build nuevo para incluirlo), crashlytics() tira
+// o crashlytics es undefined. Esta funcion evita que eso tumbe toda la app.
+function getCrashlyticsSafe() {
+  try {
+    if (typeof crashlytics === "function") {
+      return crashlytics();
+    }
+  } catch (error) {
+    devLog("[Crashlytics] Modulo nativo no disponible:", error?.message || error);
+  }
+
+  return null;
+}
+
 // Manda a Crashlytics los errores de JS que no pasan por React (event
 // handlers, timers, codigo fuera del render) y las promesas rechazadas sin
 // catch, que son la mayoria de los crashes reales en una app RN. Envuelve
 // el handler default de RN en vez de reemplazarlo, para no perder el
 // redbox de desarrollo ni ningun otro comportamiento nativo esperado.
-crashlytics()
-  .setCrashlyticsCollectionEnabled(true)
+getCrashlyticsSafe()
+  ?.setCrashlyticsCollectionEnabled(true)
   .catch(() => {});
 
 if (typeof ErrorUtils !== "undefined") {
   const defaultErrorHandler = ErrorUtils.getGlobalHandler();
 
   ErrorUtils.setGlobalHandler((error, isFatal) => {
-    crashlytics()
-      .recordError(error)
+    getCrashlyticsSafe()
+      ?.recordError(error)
       .catch(() => {});
     defaultErrorHandler(error, isFatal);
   });
@@ -67,8 +83,8 @@ require("promise/setimmediate/rejection-tracking").enable({
   allRejections: true,
   onUnhandled: (id, error) => {
     const normalizedError = error instanceof Error ? error : new Error(String(error));
-    crashlytics()
-      .recordError(normalizedError)
+    getCrashlyticsSafe()
+      ?.recordError(normalizedError)
       .catch(() => {});
   },
 });
@@ -533,8 +549,8 @@ class RootErrorBoundary extends React.Component {
   componentDidCatch(error, info) {
     this.setState({ info });
     devLog("[RootErrorBoundary]", error, info);
-    crashlytics()
-      .recordError(error)
+    getCrashlyticsSafe()
+      ?.recordError(error)
       .catch(() => {});
   }
 
