@@ -183,10 +183,10 @@ export async function deleteUserAccount(userId, reason = "") {
   await callAdminAction("deleteUserAccount", { userId, reason });
 }
 
-export async function assignOrganizerPlan(userId, plan, trialDays = 0) {
+export async function assignOrganizerPlan(userId, plan, days = 0, isTrial = false) {
   if (!userId || !plan) return;
 
-  await callAdminAction("assignOrganizerPlan", { userId, plan, trialDays: Number(trialDays) });
+  await callAdminAction("assignOrganizerPlan", { userId, plan, days: Number(days), isTrial });
 }
 
 export async function revokeOrganizerPlan(userId) {

@@ -26,10 +26,18 @@ export async function getUserPlanInfo(userId) {
     const plan = data.plan || null;
     const planStatus = data.planStatus || "none";
     const trialEndDate = typeof data.trialEndDate === "number" ? data.trialEndDate : 0;
-    const isExpired = planStatus === "trial" && trialEndDate > 0 && Date.now() > trialEndDate;
+    const planExpiresAt = typeof data.planExpiresAt === "number" ? data.planExpiresAt : 0;
+    // planExpiresAt vale tanto para trial como para plan pago (mensual/anual).
+    // La funcion programada checkPlanExpirations ya pasa planStatus a
+    // "expired" cuando vence, pero este chequeo evita una ventana de acceso
+    // si todavia no corrio esa funcion (corre una vez por dia).
+    const isExpired =
+      (planStatus === "trial" || planStatus === "active") &&
+      planExpiresAt > 0 &&
+      Date.now() > planExpiresAt;
     const effectivePlan = isExpired ? null : plan;
     const effectiveStatus = isExpired ? "expired" : planStatus;
-    return { plan: effectivePlan, planStatus: effectiveStatus, isExpired, trialEndDate };
+    return { plan: effectivePlan, planStatus: effectiveStatus, isExpired, trialEndDate, planExpiresAt };
   } catch {
     return { plan: null, planStatus: "none", isExpired: false };
   }

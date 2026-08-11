@@ -1,5 +1,6 @@
 const { setGlobalOptions } = require("firebase-functions/v2");
 const { onRequest } = require("firebase-functions/v2/https");
+const { onSchedule } = require("firebase-functions/v2/scheduler");
 const v1 = require("firebase-functions/v1");
 
 setGlobalOptions({
@@ -84,6 +85,20 @@ exports.deleteComplexRequestAsAdmin = lazyOnRequest(
   "deleteComplexRequestAsAdmin"
 );
 exports.listAdminUsersData = lazyOnRequest("./adminActions", "listAdminUsersData");
+
+// Revisa una vez por dia los planes de organizador: pasa a "expired" los
+// que ya vencieron, y avisa por email a los que vencen en menos de 3 dias.
+exports.checkPlanExpirations = onSchedule(
+  {
+    schedule: "every day 09:00",
+    timeZone: "America/Argentina/Buenos_Aires",
+    secrets: ["RESEND_API_KEY"],
+  },
+  async () => {
+    const { checkPlanExpirationsHandler } = require("./checkPlanExpirations");
+    await checkPlanExpirationsHandler();
+  }
+);
 
 exports.sendWelcomeEmail = v1
   .runWith({ secrets: ["RESEND_API_KEY"] })

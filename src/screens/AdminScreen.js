@@ -424,9 +424,14 @@ export default function AdminScreen({ navigation, route }) {
 
   const handleAssignPlan = async (plan) => {
     if (!selectedUser?.id || planActionLoading) return;
+    const days = Number(planTrialDays);
+    if (!days || days < 1) {
+      Alert.alert("Días inválidos", "Ingresá una cantidad de días de vigencia mayor a 0.");
+      return;
+    }
     Alert.alert(
       "Asignar plan",
-      `¿Asignar ${getPlanLabel(plan)} a ${selectedUser.name}?`,
+      `¿Asignar ${getPlanLabel(plan)} a ${selectedUser.name} por ${days} días?`,
       [
         { text: "Cancelar", style: "cancel" },
         {
@@ -434,8 +439,9 @@ export default function AdminScreen({ navigation, route }) {
           onPress: async () => {
             setPlanActionLoading(true);
             try {
-              await assignOrganizerPlan(selectedUser.id, plan, 0);
-              setSelectedUser((prev) => ({ ...prev, plan, planStatus: "active", trialEndDate: 0 }));
+              await assignOrganizerPlan(selectedUser.id, plan, days, false);
+              const planExpiresAt = Date.now() + days * 24 * 60 * 60 * 1000;
+              setSelectedUser((prev) => ({ ...prev, plan, planStatus: "active", planExpiresAt }));
               Alert.alert("Plan asignado", `${getPlanLabel(plan)} activado para ${selectedUser.name}.`);
             } catch (error) {
               Alert.alert("Error", error.message);
@@ -465,9 +471,15 @@ export default function AdminScreen({ navigation, route }) {
           onPress: async () => {
             setPlanActionLoading(true);
             try {
-              await assignOrganizerPlan(selectedUser.id, plan, days);
-              const trialEndDate = Date.now() + days * 24 * 60 * 60 * 1000;
-              setSelectedUser((prev) => ({ ...prev, plan, planStatus: "trial", trialEndDate }));
+              await assignOrganizerPlan(selectedUser.id, plan, days, true);
+              const planExpiresAt = Date.now() + days * 24 * 60 * 60 * 1000;
+              setSelectedUser((prev) => ({
+                ...prev,
+                plan,
+                planStatus: "trial",
+                trialEndDate: planExpiresAt,
+                planExpiresAt,
+              }));
               Alert.alert("Trial asignado", `${days} días de ${getPlanLabel(plan)} activados.`);
             } catch (error) {
               Alert.alert("Error", error.message);
@@ -494,7 +506,13 @@ export default function AdminScreen({ navigation, route }) {
             setPlanActionLoading(true);
             try {
               await revokeOrganizerPlan(selectedUser.id);
-              setSelectedUser((prev) => ({ ...prev, plan: null, planStatus: "none", trialEndDate: 0 }));
+              setSelectedUser((prev) => ({
+                ...prev,
+                plan: null,
+                planStatus: "none",
+                trialEndDate: 0,
+                planExpiresAt: 0,
+              }));
               Alert.alert("Plan revocado", `${selectedUser.name} ya no tiene plan activo.`);
             } catch (error) {
               Alert.alert("Error", error.message);
@@ -1461,14 +1479,25 @@ export default function AdminScreen({ navigation, route }) {
                     <Text style={styles.detailLabel}>Plan actual</Text>
                     <Text style={styles.detailValue}>
                       {selectedUser.plan
-                        ? `${getPlanLabel(selectedUser.plan)}${selectedUser.planStatus === "trial" ? " (Trial)" : ""}`
+                        ? `${getPlanLabel(selectedUser.plan)}${selectedUser.planStatus === "trial" ? " (Trial)" : selectedUser.planStatus === "expired" ? " (Vencido)" : ""}`
                         : "Sin plan"}
-                      {selectedUser.planStatus === "trial" && selectedUser.trialEndDate
-                        ? `  —  vence ${formatAdminDate(selectedUser.trialEndDate)}`
+                      {(selectedUser.planStatus === "trial" || selectedUser.planStatus === "active") &&
+                      selectedUser.planExpiresAt
+                        ? `  —  vence ${formatAdminDate(selectedUser.planExpiresAt)}`
                         : ""}
                     </Text>
 
-                    <Text style={styles.inputLabel}>Asignar plan permanente</Text>
+                    <Text style={styles.inputLabel}>Dias de vigencia (30 = mensual, 365 = anual)</Text>
+                    <TextInput
+                      keyboardType="number-pad"
+                      onChangeText={setPlanTrialDays}
+                      placeholder="Dias"
+                      placeholderTextColor={colors.muted}
+                      style={styles.adminInput}
+                      value={planTrialDays}
+                    />
+
+                    <Text style={styles.inputLabel}>Activar plan pago</Text>
                     <View style={styles.planChipRow}>
                       {["simple", "plus", "premium"].map((plan) => (
                         <Pressable
@@ -1497,14 +1526,6 @@ export default function AdminScreen({ navigation, route }) {
 
                     <Text style={styles.inputLabel}>Asignar trial</Text>
                     <View style={styles.trialRow}>
-                      <TextInput
-                        keyboardType="number-pad"
-                        onChangeText={setPlanTrialDays}
-                        placeholder="Días"
-                        placeholderTextColor={colors.muted}
-                        style={[styles.adminInput, styles.trialDaysInput]}
-                        value={planTrialDays}
-                      />
                       {["simple", "plus", "premium"].map((plan) => (
                         <Pressable
                           key={plan}

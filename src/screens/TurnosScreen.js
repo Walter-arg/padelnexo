@@ -46,7 +46,7 @@ import {
   requestCurrentLocation,
 } from "../services/locationService";
 import { listPlayers } from "../services/playersService";
-import { isApprovedOrganizer } from "../services/roleService";
+import { hasActivePlan, isApprovedOrganizer } from "../services/roleService";
 import {
   addTurnoReservationPayment,
   createTurnoReservation,
@@ -528,7 +528,7 @@ async function uploadTurnoProof(asset = {}, playerId = "") {
 
 export default function TurnosScreen({ navigation, route }) {
   const { userData } = useAuth();
-  const canManageTurnos = isApprovedOrganizer(userData);
+  const canManageTurnos = isApprovedOrganizer(userData) && hasActivePlan(userData);
   const organizerMercadoPagoConfig = useMemo(
     () => normalizeMercadoPagoConfig(userData?.mercadoPagoConfig),
     [userData?.mercadoPagoConfig]

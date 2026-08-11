@@ -192,22 +192,29 @@ const assignOrganizerPlan = onRequest(
   withAdminHandler("assignOrganizerPlan", async (req, res) => {
     const userId = requireUserId(req);
     const plan = String(req.body?.plan || "").trim();
-    const trialDays = Number(req.body?.trialDays || 0);
+    const days = Number(req.body?.days || 0);
+    const isTrial = req.body?.isTrial === true;
 
     if (!plan) {
       throw new HttpError(400, "plan_required");
     }
 
-    const isTrial = trialDays > 0;
+    if (!days || days < 1) {
+      throw new HttpError(400, "days_required");
+    }
+
+    const planExpiresAt = Date.now() + days * 24 * 60 * 60 * 1000;
     const payload = {
       plan,
       planStatus: isTrial ? "trial" : "active",
+      planExpiresAt,
+      planExpirationWarningSentAt: null,
       planUpdatedAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     };
 
     if (isTrial) {
-      payload.trialEndDate = Date.now() + trialDays * 24 * 60 * 60 * 1000;
+      payload.trialEndDate = planExpiresAt;
       payload.planActivatedDate = null;
     } else {
       payload.planActivatedDate = serverTimestamp();
@@ -229,6 +236,8 @@ const revokeOrganizerPlan = onRequest(
       plan: null,
       planStatus: "none",
       trialEndDate: null,
+      planExpiresAt: null,
+      planExpirationWarningSentAt: null,
       planActivatedDate: null,
       planUpdatedAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
@@ -345,6 +354,9 @@ const restoreTournamentAsAdmin = onRequest(
   })
 );
 
+const ORGANIZER_TRIAL_DAYS = 30;
+const ORGANIZER_TRIAL_PLAN = "premium";
+
 const approveOrganizerRequest = onRequest(
   { invoker: "public" },
   withAdminHandler("approveOrganizerRequest", async (req, res) => {
@@ -360,13 +372,30 @@ const approveOrganizerRequest = onRequest(
 
     const requestData = requestSnapshot.data() || {};
     const complejos = Array.isArray(requestData.complejos) ? requestData.complejos : [];
+    const userSnapshot = await userRef.get();
+    const userData = userSnapshot.exists ? userSnapshot.data() || {} : {};
     const batch = db.batch();
 
-    batch.update(userRef, {
+    const userUpdate = {
       organizerStatus: ORGANIZER_STATUS.APPROVED,
       role: ORGANIZER_ROLE,
       complejos,
-    });
+    };
+
+    // Trial automatico solo si todavia no tiene ningun plan (primera vez
+    // que se aprueba). Si ya tenia uno, no lo pisamos.
+    if (!userData.plan) {
+      const trialExpiresAt = Date.now() + ORGANIZER_TRIAL_DAYS * 24 * 60 * 60 * 1000;
+      userUpdate.plan = ORGANIZER_TRIAL_PLAN;
+      userUpdate.planStatus = "trial";
+      userUpdate.trialEndDate = trialExpiresAt;
+      userUpdate.planExpiresAt = trialExpiresAt;
+      userUpdate.planExpirationWarningSentAt = null;
+      userUpdate.planActivatedDate = null;
+      userUpdate.planUpdatedAt = serverTimestamp();
+    }
+
+    batch.update(userRef, userUpdate);
     batch.update(requestRef, { status: ORGANIZER_STATUS.APPROVED });
 
     await batch.commit();

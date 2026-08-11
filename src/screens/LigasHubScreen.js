@@ -39,7 +39,7 @@ import {
 } from "../services/leaguesService";
 import { createInvitation } from "../services/invitationsService";
 import { listPlayers } from "../services/playersService";
-import { isApprovedOrganizer } from "../services/roleService";
+import { hasActivePlan, isApprovedOrganizer } from "../services/roleService";
 import {
   calculateDistanceKm,
   geocodeAddress,
@@ -258,7 +258,7 @@ export default function LigasHubScreen({ navigation }) {
   const [draftCategoria, setDraftCategoria] = useState("");
   const [draftComplejo, setDraftComplejo] = useState("");
   const [draftDia, setDraftDia] = useState("");
-  const canCreateLeague = isApprovedOrganizer(userData);
+  const canCreateLeague = isApprovedOrganizer(userData) && hasActivePlan(userData);
 
   const hasActiveFilters =
     query.trim().length > 0 ||

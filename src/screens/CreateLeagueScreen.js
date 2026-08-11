@@ -41,7 +41,11 @@ import {
   buildPublicationMercadoPagoConfig,
   normalizeMercadoPagoConfig,
 } from "../services/mercadoPagoConfigService";
-import { isApprovedOrganizer } from "../services/roleService";
+import {
+  getOrganizerRestrictionMessage,
+  hasActivePlan,
+  isApprovedOrganizer,
+} from "../services/roleService";
 
 const CATEGORY_FORMAT_OPTIONS = [
   { label: "Categoria unica", value: "single", description: "Se juega 1 Categoria" },
@@ -513,7 +517,8 @@ export default function CreateLeagueScreen({ navigation, route }) {
     }
   }, [selectedComplex]);
 
-  const canCreateLeague = isApprovedOrganizer(userData) || canAccessAdminPanel(userData);
+  const canCreateLeague =
+    (isApprovedOrganizer(userData) && hasActivePlan(userData)) || canAccessAdminPanel(userData);
   const selectedGameMode = getGameModeValue(form);
   const filteredFirstCategoryOptions = useMemo(() => {
     if (selectedGameMode !== "sum_fixed" || !form.sumTarget) {
@@ -777,11 +782,7 @@ export default function CreateLeagueScreen({ navigation, route }) {
 
   const validateForm = () => {
     if (!canCreateLeague) {
-      showFeedback(
-        "Acceso restringido",
-        "Solo los organizadores aprobados pueden crear ligas.",
-        "danger"
-      );
+      showFeedback("Acceso restringido", getOrganizerRestrictionMessage(userData), "danger");
       return false;
     }
 
@@ -1137,10 +1138,7 @@ export default function CreateLeagueScreen({ navigation, route }) {
         <View style={styles.content}>
           <View style={styles.heroCard}>
             <Text style={styles.heroTitle}>Acceso restringido</Text>
-            <Text style={styles.heroText}>
-              Solo los organizadores aprobados pueden crear ligas. Si corresponde, pedi acceso
-              desde tu perfil.
-            </Text>
+            <Text style={styles.heroText}>{getOrganizerRestrictionMessage(userData)}</Text>
           </View>
         </View>
       </SafeAreaView>

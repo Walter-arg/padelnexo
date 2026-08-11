@@ -32,7 +32,7 @@ import {
   listOrganizerDraftTournaments,
   listTournamentsWithRegistrationCounts,
 } from "../services/tournamentsService";
-import { isApprovedOrganizer } from "../services/roleService";
+import { hasActivePlan, isApprovedOrganizer } from "../services/roleService";
 import {
   calculateDistanceKm,
   geocodeAddress,
@@ -835,7 +835,7 @@ function EmptyState({ canCreate, currentTab, loading }) {
 
 export default function TorneosScreen({ navigation, route }) {
   const { user, userData } = useAuth();
-  const canCreateTournament = isApprovedOrganizer(userData);
+  const canCreateTournament = isApprovedOrganizer(userData) && hasActivePlan(userData);
   const organizerView = canCreateTournament
     ? route?.params?.organizerView || "active"
     : "active";

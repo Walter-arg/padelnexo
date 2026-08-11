@@ -27,7 +27,11 @@ import {
   buildPublicationMercadoPagoConfig,
   normalizeMercadoPagoConfig,
 } from "../services/mercadoPagoConfigService";
-import { isApprovedOrganizer } from "../services/roleService";
+import {
+  getOrganizerRestrictionMessage,
+  hasActivePlan,
+  isApprovedOrganizer,
+} from "../services/roleService";
 import {
   createMultipleTournaments,
   createTournament,
@@ -695,7 +699,8 @@ export default function CreateTournamentScreen({ navigation, route }) {
   const [temporaryComplex, setTemporaryComplex] = useState(() => createEmptyComplex());
   const [datePickerTarget, setDatePickerTarget] = useState("");
 
-  const canCreateTournament = isApprovedOrganizer(userData) || canAccessAdminPanel(userData);
+  const canCreateTournament =
+    (isApprovedOrganizer(userData) && hasActivePlan(userData)) || canAccessAdminPanel(userData);
   const organizerComplexes = Array.isArray(userData?.complejos) ? userData.complejos : [];
   const tournamentComplexes = Array.isArray(userData?.tournamentComplexes)
     ? userData.tournamentComplexes
@@ -1028,11 +1033,7 @@ export default function CreateTournamentScreen({ navigation, route }) {
 
   const handleSubmit = async () => {
     if (!canCreateTournament) {
-      showFeedback(
-        "Acceso restringido",
-        "Solo los perfiles organizadores pueden crear torneos.",
-        "danger"
-      );
+      showFeedback("Acceso restringido", getOrganizerRestrictionMessage(userData), "danger");
       return;
     }
 
@@ -1179,9 +1180,7 @@ export default function CreateTournamentScreen({ navigation, route }) {
         />
         <View style={styles.restrictedWrap}>
           <Text style={styles.restrictedTitle}>Acceso restringido</Text>
-          <Text style={styles.restrictedText}>
-            Esta pantalla esta disponible solo para perfiles organizadores.
-          </Text>
+          <Text style={styles.restrictedText}>{getOrganizerRestrictionMessage(userData)}</Text>
         </View>
       </SafeAreaView>
     );
