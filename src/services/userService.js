@@ -462,6 +462,20 @@ export async function createUserProfile(uid, payload) {
     throw new Error("Firestore no esta disponible en este momento.");
   }
 
+  const normalizedEmailForBlockCheck = String(payload.email || "").trim().toLowerCase();
+
+  if (normalizedEmailForBlockCheck) {
+    const blockedSnapshot = await getDoc(
+      doc(activeDb, "blockedEmails", normalizedEmailForBlockCheck)
+    );
+
+    if (blockedSnapshot.exists()) {
+      throw new Error(
+        "Esta cuenta fue eliminada de PadelNexo y no puede volver a registrarse. Si creés que es un error, contactá a soporte."
+      );
+    }
+  }
+
   const userRef = doc(activeDb, "users", uid);
   const privateRef = doc(activeDb, "users", uid, "private", "contact");
   const localidad =

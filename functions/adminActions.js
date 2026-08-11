@@ -138,6 +138,57 @@ const restoreUserAccount = onRequest(
   })
 );
 
+// Borrado real de una cuenta por un admin: Auth + Firestore (perfil, datos
+// privados, solicitud de organizador) + foto de perfil en Storage. Ademas
+// agrega el email a blockedEmails para que no pueda volver a registrarse.
+// A diferencia del bloqueo (blockUserAccount), esto es irreversible.
+const deleteUserAccount = onRequest(
+  { invoker: "public" },
+  withAdminHandler(async (req, res) => {
+    const userId = requireUserId(req);
+    const reason = String(req.body?.reason || "").trim();
+    const db = getDb();
+    const userRef = db.collection("users").doc(userId);
+    const privateRef = userRef.collection("private").doc("contact");
+    const organizerRequestRef = db.collection("organizerRequests").doc(userId);
+
+    const privateSnapshot = await privateRef.get();
+    const email = String(privateSnapshot.exists ? privateSnapshot.data()?.email || "" : "")
+      .trim()
+      .toLowerCase();
+
+    if (email) {
+      await db.collection("blockedEmails").doc(email).set({
+        email,
+        reason: reason || "Cuenta eliminada por un administrador",
+        blockedAt: serverTimestamp(),
+      });
+    }
+
+    try {
+      await admin.storage().bucket().file(`profileImages/${userId}`).delete();
+    } catch (error) {
+      // La foto puede no existir, seguimos igual con el resto del borrado.
+    }
+
+    try {
+      await admin.auth().deleteUser(userId);
+    } catch (error) {
+      // Si la cuenta de Auth ya no existe (o algo falla), igual limpiamos Firestore.
+    }
+
+    const batch = db.batch();
+
+    batch.delete(privateRef);
+    batch.delete(organizerRequestRef);
+    batch.delete(userRef);
+
+    await batch.commit();
+
+    res.status(200).json({ ok: true });
+  })
+);
+
 const assignOrganizerPlan = onRequest(
   { invoker: "public" },
   withAdminHandler(async (req, res) => {
@@ -536,6 +587,7 @@ module.exports = {
   revokeOrganizerAccess,
   blockUserAccount,
   restoreUserAccount,
+  deleteUserAccount,
   assignOrganizerPlan,
   revokeOrganizerPlan,
   updateUserProfileAsAdmin,

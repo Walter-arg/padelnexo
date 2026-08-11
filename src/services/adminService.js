@@ -151,6 +151,16 @@ export async function restoreUserAccount(userId) {
   await callAdminAction("restoreUserAccount", { userId });
 }
 
+// Borrado real e irreversible: cuenta de Auth + perfil + foto. Ademas
+// agrega el email a la lista de bloqueo para que no pueda re-registrarse.
+export async function deleteUserAccount(userId, reason = "") {
+  if (!userId) {
+    return;
+  }
+
+  await callAdminAction("deleteUserAccount", { userId, reason });
+}
+
 export async function assignOrganizerPlan(userId, plan, trialDays = 0) {
   if (!userId || !plan) return;
 

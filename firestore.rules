@@ -246,5 +246,15 @@ service cloud.firestore {
     match /appConfig/{document} {
       allow read: if true;
     }
+
+    // Emails de cuentas eliminadas por un admin: el cliente solo puede
+    // consultar un email puntual (para el chequeo al registrarse), nunca
+    // listar la coleccion completa ni escribirla. Solo la Cloud Function
+    // deleteUserAccount (Admin SDK) escribe aca.
+    match /blockedEmails/{email} {
+      allow get: if isAuth();
+      allow list: if false;
+      allow write: if false;
+    }
   }
 }

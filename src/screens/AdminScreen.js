@@ -33,6 +33,7 @@ import {
   assignOrganizerPlan,
   blockUserAccount,
   cancelTournamentAsAdmin,
+  deleteUserAccount,
   grantAdminAccess,
   listAdminContent,
   listAdminUsers,
@@ -551,6 +552,34 @@ export default function AdminScreen({ navigation, route }) {
     } finally {
       setUserHistoryLoading(false);
     }
+  };
+
+  const handleDeleteUser = (targetUser) => {
+    if (!targetUser?.id) {
+      return;
+    }
+
+    Alert.alert(
+      "Eliminar jugador",
+      `Esto borra la cuenta de ${targetUser.name || "este usuario"} por completo (perfil, foto, acceso a la app) y no se puede deshacer. El email tampoco va a poder usarse para registrarse de nuevo. ¿Confirmas?`,
+      [
+        { text: "Cancelar", style: "cancel" },
+        {
+          text: "Eliminar definitivamente",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await deleteUserAccount(targetUser.id);
+              setSelectedUser(null);
+              refreshAdminData();
+              Alert.alert("Cuenta eliminada", "El jugador fue eliminado de PadelNexo.");
+            } catch (error) {
+              Alert.alert("No pudimos eliminar la cuenta", error.message);
+            }
+          },
+        },
+      ]
+    );
   };
 
   useEffect(() => {
@@ -1578,6 +1607,13 @@ export default function AdminScreen({ navigation, route }) {
                       />
                     </>
                   )}
+                  <AppButton
+                    title="Eliminar jugador"
+                    onPress={() => handleDeleteUser(selectedUser)}
+                    disabled={selectedUserCriticalActionsDisabled}
+                    style={styles.compactButton}
+                    variant="secondary"
+                  />
                   <AppButton
                     title="Cerrar"
                     onPress={() => setSelectedUser(null)}

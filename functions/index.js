@@ -67,6 +67,7 @@ exports.revokeAdminAccess = lazyOnRequest("./adminActions", "revokeAdminAccess")
 exports.revokeOrganizerAccess = lazyOnRequest("./adminActions", "revokeOrganizerAccess");
 exports.blockUserAccount = lazyOnRequest("./adminActions", "blockUserAccount");
 exports.restoreUserAccount = lazyOnRequest("./adminActions", "restoreUserAccount");
+exports.deleteUserAccount = lazyOnRequest("./adminActions", "deleteUserAccount");
 exports.assignOrganizerPlan = lazyOnRequest("./adminActions", "assignOrganizerPlan");
 exports.revokeOrganizerPlan = lazyOnRequest("./adminActions", "revokeOrganizerPlan");
 exports.updateUserProfileAsAdmin = lazyOnRequest("./adminActions", "updateUserProfileAsAdmin");
