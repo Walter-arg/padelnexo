@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import {
   Alert,
   KeyboardAvoidingView,
+  Linking,
   Modal,
   Platform,
   Pressable,
@@ -1209,6 +1210,19 @@ export default function ProfileModal({
                   variant="secondary"
                 />
               </View>
+              <View style={styles.supportLinkRow}>
+                <Pressable
+                  onPress={() => Linking.openURL("mailto:soporte.padelnexo@gmail.com")}
+                  style={({ pressed }) => [
+                    styles.supportLinkButton,
+                    pressed && styles.confirmButtonPressed,
+                  ]}
+                >
+                  <Text style={styles.supportLinkText}>
+                    Ayuda y soporte: soporte.padelnexo@gmail.com
+                  </Text>
+                </Pressable>
+              </View>
               <View style={styles.deleteAccountRow}>
                 <Pressable
                   disabled={loading}
@@ -1838,6 +1852,32 @@ const styles = StyleSheet.create({
   },
   compactSecondaryButton: {
     marginTop: 0,
+  },
+  supportLinkRow: {
+    alignItems: "center",
+    alignSelf: "stretch",
+    justifyContent: "center",
+    marginTop: spacing.sm,
+    width: "100%",
+  },
+  supportLinkButton: {
+    alignItems: "center",
+    alignSelf: "stretch",
+    backgroundColor: "transparent",
+    borderRadius: 999,
+    flexDirection: "row",
+    justifyContent: "center",
+    minHeight: 30,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    width: "100%",
+  },
+  supportLinkText: {
+    color: colors.primaryDark,
+    fontSize: 14,
+    fontWeight: "600",
+    textAlign: "center",
+    width: "100%",
   },
   deleteAccountRow: {
     alignItems: "center",
