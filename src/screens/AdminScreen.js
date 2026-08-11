@@ -48,6 +48,7 @@ import { getPlanLabel } from "../services/planService";
 import { ADMIN_ROLE, ORGANIZER_ROLE, ORGANIZER_STATUS } from "../services/roleService";
 import { listAdminReports, updateReportStatus } from "../services/reportsService";
 import { getTournamentById } from "../services/tournamentsService";
+import { listPlayerTurnoReservations } from "../services/turnosService";
 
 function formatAdminDate(millis = 0) {
   if (!millis) {
@@ -217,6 +218,9 @@ export default function AdminScreen({ navigation, route }) {
   const [planTrialDays, setPlanTrialDays] = useState("30");
   const [planActionLoading, setPlanActionLoading] = useState(false);
   const [userSearchQuery, setUserSearchQuery] = useState("");
+  const [userHistoryTarget, setUserHistoryTarget] = useState(null);
+  const [userHistoryReservations, setUserHistoryReservations] = useState([]);
+  const [userHistoryLoading, setUserHistoryLoading] = useState(false);
 
   const canAccessAdmin = canAccessAdminPanel({
     ...userData,
@@ -285,6 +289,31 @@ export default function AdminScreen({ navigation, route }) {
 
     return limit ? activity.slice(0, limit) : activity;
   };
+
+  const userHistoryReports = userHistoryTarget
+    ? reports.filter(
+        (item) => item.targetType === "profile" && item.targetId === userHistoryTarget.id
+      )
+    : [];
+  const userHistoryItems = userHistoryTarget
+    ? [
+        ...getOrganizerActivity(userHistoryTarget.id).map((item) => ({
+          ...item,
+          historyType: item.type,
+          historyDate: item.updatedAtMillis || item.createdAtMillis || 0,
+        })),
+        ...userHistoryReservations.map((item) => ({
+          ...item,
+          historyType: "reservation",
+          historyDate: item.createdAtMillis || Number(item.dateMillis || 0),
+        })),
+        ...userHistoryReports.map((item) => ({
+          ...item,
+          historyType: "report",
+          historyDate: item.createdAtMillis || 0,
+        })),
+      ].sort((first, second) => second.historyDate - first.historyDate)
+    : [];
 
   const loadRequests = async () => {
     setLoading(true);
@@ -508,6 +537,22 @@ export default function AdminScreen({ navigation, route }) {
     setActiveTab("organizerHistory");
   };
 
+  const handleOpenUserHistory = async (targetUser) => {
+    setUserHistoryTarget(targetUser);
+    setSelectedUser(null);
+    setActiveTab("userHistory");
+    setUserHistoryLoading(true);
+
+    try {
+      const reservations = await listPlayerTurnoReservations(targetUser.id);
+      setUserHistoryReservations(reservations);
+    } catch (error) {
+      setUserHistoryReservations([]);
+    } finally {
+      setUserHistoryLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (canAccessAdmin) {
       loadRequests();
@@ -635,6 +680,13 @@ export default function AdminScreen({ navigation, route }) {
     if (activeTab === "organizerHistory") {
       setOrganizerHistoryUser(null);
       setActiveTab("organizers");
+      return;
+    }
+
+    if (activeTab === "userHistory") {
+      setUserHistoryTarget(null);
+      setUserHistoryReservations([]);
+      setActiveTab("usersMenu");
       return;
     }
 
@@ -912,6 +964,92 @@ export default function AdminScreen({ navigation, route }) {
                     </Text>
                   </Pressable>
                 )}
+                showsVerticalScrollIndicator={false}
+              />
+            </View>
+          ) : activeTab === "userHistory" ? (
+            <View style={styles.historyScreen}>
+              <Text style={styles.historyTitle}>
+                Historial de {userHistoryTarget?.name || "usuario"}
+              </Text>
+              <Text style={styles.historySubtitle}>
+                Ligas, torneos, reservas de turnos y reportes en su contra.
+              </Text>
+              <FlatList
+                contentContainerStyle={styles.listContent}
+                data={userHistoryItems}
+                keyExtractor={(item) => `${item.historyType}-${item.id}`}
+                ListEmptyComponent={
+                  <Text style={styles.emptyText}>
+                    {userHistoryLoading
+                      ? "Cargando historial..."
+                      : "No encontramos actividad para este usuario."}
+                  </Text>
+                }
+                renderItem={({ item }) => {
+                  if (item.historyType === "league" || item.historyType === "tournament") {
+                    return (
+                      <Pressable
+                        onPress={() => setSelectedContent(item)}
+                        style={({ pressed }) => [
+                          styles.requestCard,
+                          pressed && styles.requestCardPressed,
+                        ]}
+                      >
+                        <View style={styles.requestTopRow}>
+                          <Text style={styles.requestName}>{item.title}</Text>
+                          <Text style={styles.statusBadge}>
+                            {item.historyType === "league" ? "Liga" : "Torneo"}
+                          </Text>
+                        </View>
+                        <Text style={styles.requestMeta}>
+                          Estado: {formatContentStatusLabel(item.status)}
+                        </Text>
+                        <Text style={styles.requestMeta}>
+                          Creado: {formatAdminDate(item.createdAtMillis)}
+                        </Text>
+                      </Pressable>
+                    );
+                  }
+
+                  if (item.historyType === "reservation") {
+                    return (
+                      <View style={styles.requestCard}>
+                        <View style={styles.requestTopRow}>
+                          <Text style={styles.requestName}>
+                            {item.complexName || "Complejo"} - {item.courtName || "Cancha"}
+                          </Text>
+                          <Text style={styles.statusBadge}>Reserva</Text>
+                        </View>
+                        <Text style={styles.requestMeta}>
+                          {item.dateLabel || ""} {item.time || ""}
+                        </Text>
+                        <Text style={styles.requestMeta}>Estado: {item.status || "-"}</Text>
+                      </View>
+                    );
+                  }
+
+                  return (
+                    <Pressable
+                      onPress={() => setSelectedReport(item)}
+                      style={({ pressed }) => [
+                        styles.requestCard,
+                        pressed && styles.requestCardPressed,
+                      ]}
+                    >
+                      <View style={styles.requestTopRow}>
+                        <Text style={styles.requestName}>Reporte en su contra</Text>
+                        <Text style={styles.statusBadge}>
+                          {item.status === "pending" ? "Pendiente" : "Revisado"}
+                        </Text>
+                      </View>
+                      <Text style={styles.requestMeta}>Reporto: {item.reporterName || "-"}</Text>
+                      <Text style={styles.requestMeta}>
+                        Fecha: {formatAdminDate(item.createdAtMillis)}
+                      </Text>
+                    </Pressable>
+                  );
+                }}
                 showsVerticalScrollIndicator={false}
               />
             </View>
@@ -1317,6 +1455,12 @@ export default function AdminScreen({ navigation, route }) {
                     title="Guardar perfil"
                     onPress={handleSaveUserProfile}
                     style={styles.compactButton}
+                  />
+                  <AppButton
+                    title="Ver historial completo"
+                    onPress={() => handleOpenUserHistory(selectedUser)}
+                    style={styles.compactButton}
+                    variant="secondary"
                   />
                 </View>
                 {selectedUser.role === ORGANIZER_ROLE ? (

@@ -600,6 +600,25 @@ export async function listOrganizerTurnoReservations(organizerId = "") {
     });
 }
 
+export async function listPlayerTurnoReservations(playerId = "") {
+  if (!playerId) {
+    return [];
+  }
+
+  const snapshot = await getDocs(
+    query(collection(db, "turnoReservations"), where("playerId", "==", playerId))
+  );
+
+  return snapshot.docs
+    .map(mapTurnoReservationDoc)
+    .sort((first, second) => {
+      const firstMillis = first.createdAtMillis || Number(first.dateMillis || 0);
+      const secondMillis = second.createdAtMillis || Number(second.dateMillis || 0);
+
+      return secondMillis - firstMillis;
+    });
+}
+
 export async function getTurnoReservationById(reservationId = "") {
   if (!reservationId) {
     return null;
