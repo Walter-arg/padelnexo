@@ -1,6 +1,7 @@
 const { onRequest } = require("firebase-functions/v2/https");
 
 const { admin, getDb, withAdminHandler, HttpError } = require("./adminShared");
+const { sendPlanActivationEmail } = require("./sendPlanActivationEmail");
 
 const USER_ROLE = "user";
 const ADMIN_ROLE = "admin";
@@ -11,6 +12,7 @@ const ORGANIZER_STATUS = {
   APPROVED: "approved",
   REJECTED: "rejected",
 };
+const PLAN_LABELS = { simple: "Nexo Simple", plus: "Nexo Plus", premium: "Nexo Premium" };
 
 function serverTimestamp() {
   return admin.firestore.FieldValue.serverTimestamp();
@@ -221,7 +223,24 @@ const assignOrganizerPlan = onRequest(
       payload.trialEndDate = null;
     }
 
-    await getDb().collection("users").doc(userId).update(payload);
+    const userRef = getDb().collection("users").doc(userId);
+
+    await userRef.update(payload);
+
+    const [userSnapshot, privateSnapshot] = await Promise.all([
+      userRef.get(),
+      userRef.collection("private").doc("contact").get(),
+    ]);
+    const email = privateSnapshot.exists ? privateSnapshot.data()?.email || "" : "";
+
+    await sendPlanActivationEmail({
+      email,
+      name: userSnapshot.exists ? userSnapshot.data()?.nombre || "" : "",
+      planLabel: PLAN_LABELS[plan] || plan,
+      isTrial,
+      expiresAtLabel: new Date(planExpiresAt).toLocaleDateString("es-AR"),
+      isNewOrganizer: false,
+    });
 
     res.status(200).json({ ok: true });
   })
@@ -384,8 +403,11 @@ const approveOrganizerRequest = onRequest(
 
     // Trial automatico solo si todavia no tiene ningun plan (primera vez
     // que se aprueba). Si ya tenia uno, no lo pisamos.
-    if (!userData.plan) {
-      const trialExpiresAt = Date.now() + ORGANIZER_TRIAL_DAYS * 24 * 60 * 60 * 1000;
+    let trialExpiresAt = 0;
+    const grantedTrial = !userData.plan;
+
+    if (grantedTrial) {
+      trialExpiresAt = Date.now() + ORGANIZER_TRIAL_DAYS * 24 * 60 * 60 * 1000;
       userUpdate.plan = ORGANIZER_TRIAL_PLAN;
       userUpdate.planStatus = "trial";
       userUpdate.trialEndDate = trialExpiresAt;
@@ -399,6 +421,20 @@ const approveOrganizerRequest = onRequest(
     batch.update(requestRef, { status: ORGANIZER_STATUS.APPROVED });
 
     await batch.commit();
+
+    if (grantedTrial) {
+      const privateSnapshot = await userRef.collection("private").doc("contact").get();
+      const email = privateSnapshot.exists ? privateSnapshot.data()?.email || "" : "";
+
+      await sendPlanActivationEmail({
+        email,
+        name: userData.nombre || requestData.nombre || "",
+        planLabel: PLAN_LABELS[ORGANIZER_TRIAL_PLAN],
+        isTrial: true,
+        expiresAtLabel: new Date(trialExpiresAt).toLocaleDateString("es-AR"),
+        isNewOrganizer: true,
+      });
+    }
 
     res.status(200).json({ ok: true });
   })

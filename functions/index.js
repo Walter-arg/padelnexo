@@ -69,14 +69,20 @@ exports.revokeOrganizerAccess = lazyOnRequest("./adminActions", "revokeOrganizer
 exports.blockUserAccount = lazyOnRequest("./adminActions", "blockUserAccount");
 exports.restoreUserAccount = lazyOnRequest("./adminActions", "restoreUserAccount");
 exports.deleteUserAccount = lazyOnRequest("./adminActions", "deleteUserAccount");
-exports.assignOrganizerPlan = lazyOnRequest("./adminActions", "assignOrganizerPlan");
+exports.assignOrganizerPlan = lazyOnRequest("./adminActions", "assignOrganizerPlan", {
+  invoker: "public",
+  secrets: ["RESEND_API_KEY"],
+});
 exports.revokeOrganizerPlan = lazyOnRequest("./adminActions", "revokeOrganizerPlan");
 exports.updateUserProfileAsAdmin = lazyOnRequest("./adminActions", "updateUserProfileAsAdmin");
 exports.archiveLeagueAsAdmin = lazyOnRequest("./adminActions", "archiveLeagueAsAdmin");
 exports.restoreLeagueAsAdmin = lazyOnRequest("./adminActions", "restoreLeagueAsAdmin");
 exports.cancelTournamentAsAdmin = lazyOnRequest("./adminActions", "cancelTournamentAsAdmin");
 exports.restoreTournamentAsAdmin = lazyOnRequest("./adminActions", "restoreTournamentAsAdmin");
-exports.approveOrganizerRequest = lazyOnRequest("./adminActions", "approveOrganizerRequest");
+exports.approveOrganizerRequest = lazyOnRequest("./adminActions", "approveOrganizerRequest", {
+  invoker: "public",
+  secrets: ["RESEND_API_KEY"],
+});
 exports.rejectOrganizerRequest = lazyOnRequest("./adminActions", "rejectOrganizerRequest");
 exports.deleteOrganizerRequest = lazyOnRequest("./adminActions", "deleteOrganizerRequest");
 exports.approveComplexRequest = lazyOnRequest("./adminActions", "approveComplexRequest");
