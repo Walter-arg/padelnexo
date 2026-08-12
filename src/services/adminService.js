@@ -157,6 +157,14 @@ export async function revokeOrganizerAccess(userId) {
   await callAdminAction("revokeOrganizerAccess", { userId });
 }
 
+export async function grantOrganizerAccess(userId) {
+  if (!userId) {
+    return;
+  }
+
+  await callAdminAction("grantOrganizerAccess", { userId });
+}
+
 export async function blockUserAccount(userId, mode = "indefinite") {
   if (!userId) {
     return;

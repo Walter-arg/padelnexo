@@ -66,6 +66,10 @@ exports.sendPasswordReset = lazyOnRequest("./sendPasswordReset", "sendPasswordRe
 exports.grantAdminAccess = lazyOnRequest("./adminActions", "grantAdminAccess");
 exports.revokeAdminAccess = lazyOnRequest("./adminActions", "revokeAdminAccess");
 exports.revokeOrganizerAccess = lazyOnRequest("./adminActions", "revokeOrganizerAccess");
+exports.grantOrganizerAccess = lazyOnRequest("./adminActions", "grantOrganizerAccess", {
+  invoker: "public",
+  secrets: ["RESEND_API_KEY"],
+});
 exports.blockUserAccount = lazyOnRequest("./adminActions", "blockUserAccount");
 exports.restoreUserAccount = lazyOnRequest("./adminActions", "restoreUserAccount");
 exports.deleteUserAccount = lazyOnRequest("./adminActions", "deleteUserAccount");

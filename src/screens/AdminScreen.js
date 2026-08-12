@@ -34,6 +34,7 @@ import {
   cancelTournamentAsAdmin,
   deleteUserAccount,
   grantAdminAccess,
+  grantOrganizerAccess,
   listAdminAuditLog,
   listAdminContent,
   listAdminUsers,
@@ -153,6 +154,7 @@ const AUDIT_ACTION_LABELS = {
   grantAdminAccess: "Otorgo acceso admin",
   revokeAdminAccess: "Revoco acceso admin",
   revokeOrganizerAccess: "Quito organizador",
+  grantOrganizerAccess: "Hizo organizador",
   blockUserAccount: "Bloqueo usuario",
   restoreUserAccount: "Desbloqueo usuario",
   deleteUserAccount: "Elimino usuario",
@@ -1853,7 +1855,18 @@ export default function AdminScreen({ navigation, route }) {
                       style={styles.compactButton}
                       variant="secondary"
                     />
-                  ) : null}
+                  ) : (
+                    <AppButton
+                      title="Hacer organizador"
+                      onPress={async () => {
+                        await grantOrganizerAccess(selectedUser.id);
+                        setSelectedUser(null);
+                        refreshAdminData();
+                      }}
+                      disabled={selectedUserCriticalActionsDisabled}
+                      style={styles.compactButton}
+                    />
+                  )}
                   {selectedUser.accountDeleted ||
                   selectedUser.blockStatus === "temporary" ||
                   selectedUser.blockStatus === "indefinite" ||

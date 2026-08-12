@@ -90,6 +90,97 @@ const revokeOrganizerAccess = onRequest(
   })
 );
 
+const grantOrganizerAccess = onRequest(
+  { invoker: "public", secrets: ["RESEND_API_KEY"] },
+  withAdminHandler("grantOrganizerAccess", async (req, res) => {
+    const userId = requireUserId(req);
+    const db = getDb();
+    const requestRef = db.collection("organizerRequests").doc(userId);
+    const userRef = db.collection("users").doc(userId);
+    const [requestSnapshot, userSnapshot] = await Promise.all([
+      requestRef.get(),
+      userRef.get(),
+    ]);
+
+    if (!userSnapshot.exists) {
+      throw new HttpError(404, "user_not_found");
+    }
+
+    const requestData = requestSnapshot.exists ? requestSnapshot.data() || {} : {};
+    const userData = userSnapshot.data() || {};
+    const complejos =
+      Array.isArray(userData.complejos) && userData.complejos.length
+        ? userData.complejos
+        : Array.isArray(requestData.complejos)
+          ? requestData.complejos
+          : [];
+    const batch = db.batch();
+
+    const userUpdate = {
+      organizerStatus: ORGANIZER_STATUS.APPROVED,
+      role: ORGANIZER_ROLE,
+      complejos,
+      updatedAt: serverTimestamp(),
+    };
+
+    // Trial automatico solo si todavia no tiene ningun plan, igual que al
+    // aprobar una solicitud (mismo beneficio por los dos caminos).
+    let trialExpiresAt = 0;
+    const grantedTrial = !userData.plan;
+
+    if (grantedTrial) {
+      trialExpiresAt = Date.now() + ORGANIZER_TRIAL_DAYS * 24 * 60 * 60 * 1000;
+      userUpdate.plan = ORGANIZER_TRIAL_PLAN;
+      userUpdate.planStatus = "trial";
+      userUpdate.trialEndDate = trialExpiresAt;
+      userUpdate.planExpiresAt = trialExpiresAt;
+      userUpdate.planExpirationWarningSentAt = null;
+      userUpdate.planActivatedDate = null;
+      userUpdate.planUpdatedAt = serverTimestamp();
+    }
+
+    batch.update(userRef, userUpdate);
+
+    if (requestSnapshot.exists) {
+      batch.update(requestRef, { status: ORGANIZER_STATUS.APPROVED });
+    } else {
+      // No hubo solicitud del usuario: el admin la otorga directo, asi que
+      // creamos el registro para que el resto del sistema (revocar, etc)
+      // encuentre siempre un organizerRequests consistente con users.
+      batch.set(requestRef, {
+        userId,
+        nombre: userData.nombre || userData.name || "",
+        dni: "",
+        telefono: userData.telefono || "",
+        countryCode: userData.countryCode || "+54",
+        phoneCountry: userData.phoneCountry || "Argentina",
+        complejos,
+        status: ORGANIZER_STATUS.APPROVED,
+        createdAt: serverTimestamp(),
+        grantedDirectlyByAdmin: true,
+      });
+    }
+
+    await batch.commit();
+
+    if (grantedTrial) {
+      const privateSnapshot = await userRef.collection("private").doc("contact").get();
+      const email = privateSnapshot.exists ? privateSnapshot.data()?.email || "" : "";
+
+      await sendPlanActivationEmail({
+        email,
+        name: userData.nombre || userData.name || "",
+        planLabel: PLAN_LABELS[ORGANIZER_TRIAL_PLAN],
+        isTrial: true,
+        expiresAtLabel: new Date(trialExpiresAt).toLocaleDateString("es-AR"),
+        isNewOrganizer: true,
+      });
+    }
+
+    res.status(200).json({ ok: true });
+  })
+);
+
 const blockUserAccount = onRequest(
   { invoker: "public" },
   withAdminHandler("blockUserAccount", async (req, res) => {
@@ -650,6 +741,7 @@ module.exports = {
   grantAdminAccess,
   revokeAdminAccess,
   revokeOrganizerAccess,
+  grantOrganizerAccess,
   blockUserAccount,
   restoreUserAccount,
   deleteUserAccount,
