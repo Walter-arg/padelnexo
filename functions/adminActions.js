@@ -66,12 +66,25 @@ const revokeOrganizerAccess = onRequest(
   { invoker: "public" },
   withAdminHandler("revokeOrganizerAccess", async (req, res) => {
     const userId = requireUserId(req);
+    const db = getDb();
+    const requestRef = db.collection("organizerRequests").doc(userId);
+    const userRef = db.collection("users").doc(userId);
+    const batch = db.batch();
 
-    await getDb().collection("users").doc(userId).update({
+    batch.update(userRef, {
       role: USER_ROLE,
       organizerStatus: ORGANIZER_STATUS.REJECTED,
+      complejos: [],
       updatedAt: serverTimestamp(),
     });
+
+    const requestSnapshot = await requestRef.get();
+
+    if (requestSnapshot.exists) {
+      batch.update(requestRef, { status: ORGANIZER_STATUS.REJECTED });
+    }
+
+    await batch.commit();
 
     res.status(200).json({ ok: true });
   })
