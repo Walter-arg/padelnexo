@@ -511,7 +511,7 @@ function buildTurnosHomePreview(complexes = []) {
 }
 
 export default function HomeScreen({ navigation, route }) {
-  const { user, userData } = useAuth();
+  const { user, userData, refreshUserData } = useAuth();
   const [isLoginVisible, setIsLoginVisible] = useState(false);
   const [isProfileVisible, setIsProfileVisible] = useState(false);
   const [selectedMenuItem, setSelectedMenuItem] = useState(MENU_ITEMS[0]);
@@ -618,6 +618,14 @@ export default function HomeScreen({ navigation, route }) {
       isCancelled = true;
     };
   }, [userData?.uid]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (user?.uid) {
+        refreshUserData().catch(() => {});
+      }
+    }, [user?.uid, refreshUserData])
+  );
 
   useFocusEffect(
     useCallback(() => {
