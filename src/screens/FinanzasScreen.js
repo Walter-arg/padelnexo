@@ -27,7 +27,11 @@ import {
   updateLeagueRoundPayments,
 } from "../services/leaguesService";
 import { listPlayers } from "../services/playersService";
-import { isApprovedOrganizer } from "../services/roleService";
+import {
+  getOrganizerRestrictionMessage,
+  hasActivePlan,
+  isApprovedOrganizer,
+} from "../services/roleService";
 import { sendChatMessage } from "../services/chatService";
 import {
   sendPaymentReminderPushAsync,
@@ -1754,7 +1758,7 @@ export default function FinanzasScreen({ navigation }) {
     message: "",
     tone: "default",
   });
-  const canManageFinances = isApprovedOrganizer(userData);
+  const canManageFinances = isApprovedOrganizer(userData) && hasActivePlan(userData);
   const deferredSourceFilters = useDeferredValue(activeSourceFilters);
   const deferredCobroStatus = useDeferredValue(activeCobroStatus);
   const deferredFinanceSearch = useDeferredValue(financeSearch);
@@ -2922,9 +2926,7 @@ export default function FinanzasScreen({ navigation }) {
 {!canManageFinances ? (
   <View style={styles.card}>
     <Text style={styles.cardTitle}>Acceso de organizador</Text>
-    <Text style={styles.cardText}>
-      Esta area queda disponible para organizadores aprobados.
-    </Text>
+    <Text style={styles.cardText}>{getOrganizerRestrictionMessage(userData)}</Text>
   </View>
 ) : (
   <>

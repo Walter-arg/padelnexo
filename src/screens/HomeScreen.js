@@ -26,7 +26,7 @@ import { useAuth } from "../context/AuthContext";
 import { DAY_LABELS, isLeagueParticipant, listLeagues, updateLeagueFixture } from "../services/leaguesService";
 import { hasConfiguredAvailability, isAvailableToday } from "../services/availabilityService";
 import { listPlayers } from "../services/playersService";
-import { isApprovedOrganizer } from "../services/roleService";
+import { hasActivePlan, isApprovedOrganizer } from "../services/roleService";
 import { listTournamentsWithRegistrationCounts } from "../services/tournamentsService";
 import { listBookableComplexes } from "../services/turnosService";
 import { getUserId } from "../utils/getUserId";
@@ -521,7 +521,7 @@ export default function HomeScreen({ navigation, route }) {
   const tournamentCarouselRef = useRef(null);
   const turnosCarouselRef = useRef(null);
   const currentUser = userData ? { ...DEFAULT_USER, ...userData } : null;
-  const canManageFinances = isApprovedOrganizer(currentUser);
+  const canManageFinances = isApprovedOrganizer(currentUser) && hasActivePlan(currentUser);
   const canOpenAdminPanel = canAccessAdminPanel(currentUser || {});
   const [playersPreview, setPlayersPreview] = useState([]);
   const [leaguesPreview, setLeaguesPreview] = useState([]);
