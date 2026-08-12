@@ -27,6 +27,7 @@ import { DAY_LABELS, isLeagueParticipant, listLeagues, updateLeagueFixture } fro
 import { hasConfiguredAvailability, isAvailableToday } from "../services/availabilityService";
 import { listPlayers } from "../services/playersService";
 import { hasActivePlan, isApprovedOrganizer } from "../services/roleService";
+import { getPlanStatusSummary } from "../services/planService";
 import { listTournamentsWithRegistrationCounts } from "../services/tournamentsService";
 import { listBookableComplexes } from "../services/turnosService";
 import { getUserId } from "../utils/getUserId";
@@ -522,6 +523,7 @@ export default function HomeScreen({ navigation, route }) {
   const turnosCarouselRef = useRef(null);
   const currentUser = userData ? { ...DEFAULT_USER, ...userData } : null;
   const canManageFinances = isApprovedOrganizer(currentUser) && hasActivePlan(currentUser);
+  const planStatusSummary = useMemo(() => getPlanStatusSummary(currentUser || {}), [currentUser]);
   const canOpenAdminPanel = canAccessAdminPanel(currentUser || {});
   const [playersPreview, setPlayersPreview] = useState([]);
   const [leaguesPreview, setLeaguesPreview] = useState([]);
@@ -941,6 +943,18 @@ export default function HomeScreen({ navigation, route }) {
                 <Text numberOfLines={2} style={styles.userName}>
                   {currentUser.name}
                 </Text>
+                {isApprovedOrganizer(currentUser) ? (
+                  <Text
+                    style={[
+                      styles.userPlanStatus,
+                      planStatusSummary.isActive
+                        ? styles.userPlanStatusActive
+                        : styles.userPlanStatusInactive,
+                    ]}
+                  >
+                    {planStatusSummary.label}
+                  </Text>
+                ) : null}
               </View>
             </Pressable>
           ) : (
@@ -1646,6 +1660,18 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     lineHeight: 16,
     textAlign: "left",
+  },
+  userPlanStatus: {
+    fontSize: 10,
+    fontWeight: "700",
+    marginTop: 2,
+    textAlign: "left",
+  },
+  userPlanStatusActive: {
+    color: colors.primary,
+  },
+  userPlanStatusInactive: {
+    color: colors.danger,
   },
   financeButton: {
     alignItems: "center",

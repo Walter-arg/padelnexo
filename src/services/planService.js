@@ -17,6 +17,27 @@ export function getPlanLabel(plan) {
   return labels[plan] || "Sin plan";
 }
 
+// Resumen corto para mostrar el estado del plan en la UI (ej: junto al
+// nombre del usuario en Home). No hace ninguna consulta, solo lee lo que ya
+// esta cargado en el perfil.
+export function getPlanStatusSummary(profile = {}) {
+  if (!profile?.plan) {
+    return { label: "Sin plan activo", isActive: false };
+  }
+
+  const isPastExpiry = Boolean(profile.planExpiresAt) && Date.now() > profile.planExpiresAt;
+
+  if (profile.planStatus === "expired" || profile.planStatus === "none" || isPastExpiry) {
+    return { label: "Plan vencido", isActive: false };
+  }
+
+  if (profile.planStatus === "trial") {
+    return { label: `${getPlanLabel(profile.plan)} (Prueba)`, isActive: true };
+  }
+
+  return { label: `${getPlanLabel(profile.plan)} activo`, isActive: true };
+}
+
 export async function getUserPlanInfo(userId) {
   if (!userId) return { plan: null, planStatus: "none", isExpired: false };
   try {
