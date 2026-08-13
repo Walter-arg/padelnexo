@@ -559,6 +559,22 @@ class RootErrorBoundary extends React.Component {
       return this.props.children;
     }
 
+    if (!__DEV__) {
+      return (
+        <SafeAreaView style={styles.safeArea}>
+          <StatusBar style="dark" />
+          <View style={styles.content}>
+            <View style={styles.card}>
+              <Text style={styles.title}>Ups, algo salio mal</Text>
+              <Text style={styles.subtitle}>
+                Ocurrio un error inesperado. Intenta nuevamente en unos instantes.
+              </Text>
+            </View>
+          </View>
+        </SafeAreaView>
+      );
+    }
+
     return (
       <SafeAreaView style={styles.safeArea}>
         <StatusBar style="dark" />
