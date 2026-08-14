@@ -157,11 +157,12 @@ export default function JugadoresScreen({ navigation }) {
     sexo: "Todos",
     categorias: [],
     localidades: userLocalidad ? [userLocalidad] : [],
-    soloDisponiblesHoy: false,
+    soloDisponiblesHoy: true,
   });
   const [draftSexo, setDraftSexo] = useState("Todos");
   const [draftCategorias, setDraftCategorias] = useState([]);
-  const [draftSoloDisponiblesHoy, setDraftSoloDisponiblesHoy] = useState(false);
+  const [draftSoloDisponiblesHoy, setDraftSoloDisponiblesHoy] = useState(true);
+  const hasOwnAvailability = hasConfiguredAvailability(userData?.availability || {});
 
   const hasActiveFilters =
     query.trim().length > 0 ||
@@ -169,12 +170,12 @@ export default function JugadoresScreen({ navigation }) {
     appliedFilters.categorias.length > 0 ||
     appliedFilters.localidades.length > 0 ||
     proximityFilter.enabled ||
-    appliedFilters.soloDisponiblesHoy;
+    !appliedFilters.soloDisponiblesHoy;
 
   const hasActiveSearchFilters =
     appliedFilters.sexo !== "Todos" ||
     appliedFilters.categorias.length > 0 ||
-    appliedFilters.soloDisponiblesHoy;
+    !appliedFilters.soloDisponiblesHoy;
 
   useEffect(() => {
     let isCancelled = false;
@@ -534,19 +535,79 @@ export default function JugadoresScreen({ navigation }) {
           onPress={() => setIsAvailabilityVisible(true)}
           style={({ pressed }) => [
             styles.availabilityButton,
+            !hasOwnAvailability ? styles.availabilityButtonPending : null,
             pressed ? styles.availabilityButtonPressed : null,
           ]}
         >
-          <View style={styles.availabilityIconWrap}>
-            <Ionicons color="#2F7F96" name="calendar-outline" size={19} />
-            <Ionicons color="#2F7F96" name="time-outline" size={11} style={styles.availabilityTimeIcon} />
+          <View
+            style={[
+              styles.availabilityIconWrap,
+              !hasOwnAvailability ? styles.availabilityIconWrapPending : null,
+            ]}
+          >
+            <Ionicons
+              color={hasOwnAvailability ? "#2F7F96" : "#B87407"}
+              name="calendar-outline"
+              size={19}
+            />
+            <Ionicons
+              color={hasOwnAvailability ? "#2F7F96" : "#B87407"}
+              name="time-outline"
+              size={11}
+              style={styles.availabilityTimeIcon}
+            />
           </View>
           <View style={styles.availabilityCopy}>
-            <Text style={styles.availabilityTitle}>Disponibilidad</Text>
-            <Text style={styles.availabilityText}>Actualiza tus dias y horarios para jugar</Text>
+            <Text style={styles.availabilityTitle}>
+              {hasOwnAvailability ? "Disponibilidad cargada" : "Cargá tu disponibilidad"}
+            </Text>
+            <Text style={styles.availabilityText}>
+              {hasOwnAvailability
+                ? "Editá tus dias y horarios cuando quieras"
+                : 'Así aparecés en "Disponibles Hoy" y otros jugadores te encuentran'}
+            </Text>
           </View>
           <Ionicons color={colors.primaryDark} name="chevron-forward" size={18} />
         </Pressable>
+
+        <View style={styles.quickFilterRow}>
+          <Pressable
+            onPress={() =>
+              setAppliedFilters((current) => ({ ...current, soloDisponiblesHoy: true }))
+            }
+            style={[
+              styles.quickFilterChip,
+              appliedFilters.soloDisponiblesHoy ? styles.quickFilterChipActive : null,
+            ]}
+          >
+            <Text
+              style={[
+                styles.quickFilterChipText,
+                appliedFilters.soloDisponiblesHoy ? styles.quickFilterChipTextActive : null,
+              ]}
+            >
+              Disponibles Hoy
+            </Text>
+          </Pressable>
+          <Pressable
+            onPress={() =>
+              setAppliedFilters((current) => ({ ...current, soloDisponiblesHoy: false }))
+            }
+            style={[
+              styles.quickFilterChip,
+              !appliedFilters.soloDisponiblesHoy ? styles.quickFilterChipActive : null,
+            ]}
+          >
+            <Text
+              style={[
+                styles.quickFilterChipText,
+                !appliedFilters.soloDisponiblesHoy ? styles.quickFilterChipTextActive : null,
+              ]}
+            >
+              Todos
+            </Text>
+          </Pressable>
+        </View>
 
         <View style={styles.topSearchRow}>
           <View style={styles.searchWrap}>
@@ -730,12 +791,12 @@ export default function JugadoresScreen({ navigation }) {
                 onPress={() => {
                   setDraftSexo("Todos");
                   setDraftCategorias([]);
-                  setDraftSoloDisponiblesHoy(false);
+                  setDraftSoloDisponiblesHoy(true);
                   setAppliedFilters((current) => ({
                     ...current,
                     sexo: "Todos",
                     categorias: [],
-                    soloDisponiblesHoy: false,
+                    soloDisponiblesHoy: true,
                   }));
                   setPlayerSearchFiltersVisible(false);
                 }}
@@ -867,6 +928,10 @@ const styles = StyleSheet.create({
     opacity: 0.92,
     transform: [{ scale: 0.99 }],
   },
+  availabilityButtonPending: {
+    backgroundColor: "#FFF8E8",
+    borderColor: "#F2D89C",
+  },
   availabilityIconWrap: {
     alignItems: "center",
     backgroundColor: "#EAF6F8",
@@ -876,6 +941,36 @@ const styles = StyleSheet.create({
     marginRight: spacing.sm,
     position: "relative",
     width: 36,
+  },
+  availabilityIconWrapPending: {
+    backgroundColor: "#FCEDCF",
+  },
+  quickFilterRow: {
+    flexDirection: "row",
+    gap: spacing.xs,
+    marginBottom: spacing.sm,
+  },
+  quickFilterChip: {
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 999,
+    borderWidth: 1,
+    justifyContent: "center",
+    minHeight: 38,
+    paddingHorizontal: spacing.md,
+  },
+  quickFilterChipActive: {
+    backgroundColor: "#E9F7EF",
+    borderColor: "#B8DEC8",
+  },
+  quickFilterChipText: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  quickFilterChipTextActive: {
+    color: "#1F6E4B",
   },
   availabilityTimeIcon: {
     position: "absolute",
