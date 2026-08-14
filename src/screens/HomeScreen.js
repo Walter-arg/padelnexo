@@ -524,6 +524,7 @@ export default function HomeScreen({ navigation, route }) {
   const currentUser = userData ? { ...DEFAULT_USER, ...userData } : null;
   const canManageFinances = isApprovedOrganizer(currentUser) && hasActivePlan(currentUser);
   const planStatusSummary = useMemo(() => getPlanStatusSummary(currentUser || {}), [currentUser]);
+  const showOrganizerBanner = currentUser?.planStatus !== "active";
   const canOpenAdminPanel = canAccessAdminPanel(currentUser || {});
   const [playersPreview, setPlayersPreview] = useState([]);
   const [leaguesPreview, setLeaguesPreview] = useState([]);
@@ -978,18 +979,20 @@ export default function HomeScreen({ navigation, route }) {
           )}
         </View>
 
-        <Pressable
-          onPress={() => Linking.openURL("https://www.padelnexo.com.ar/funcionalidades")}
-          style={({ pressed }) => [styles.organizerBanner, pressed && styles.organizerBannerPressed]}
-        >
-          <View style={styles.organizerBannerContent}>
-            <Text style={styles.organizerBannerTitle}>¿Organizás torneos o ligas?</Text>
-            <Text style={styles.organizerBannerSubtitle}>
-              Conocé los planes para organizadores en PadelNexo
-            </Text>
-          </View>
-          <Text style={styles.organizerBannerArrow}>→</Text>
-        </Pressable>
+        {showOrganizerBanner ? (
+          <Pressable
+            onPress={() => Linking.openURL("https://www.padelnexo.com.ar/funcionalidades")}
+            style={({ pressed }) => [styles.organizerBanner, pressed && styles.organizerBannerPressed]}
+          >
+            <View style={styles.organizerBannerContent}>
+              <Text style={styles.organizerBannerTitle}>¿Organizás torneos o ligas?</Text>
+              <Text style={styles.organizerBannerSubtitle}>
+                Conocé los planes para organizadores en PadelNexo
+              </Text>
+            </View>
+            <Text style={styles.organizerBannerArrow}>→</Text>
+          </Pressable>
+        ) : null}
 
         {user && currentUser && canManageFinances ? (
           <Pressable
