@@ -129,6 +129,16 @@ function buildLeagueScheduleLabel(league = {}) {
   return [dayLabel, timeLabel].filter(Boolean).join(" - ");
 }
 
+function belongsToOrganizer(item = {}, organizerId = "") {
+  if (!organizerId) {
+    return false;
+  }
+
+  return [item.organizerId, item.createdBy]
+    .filter(Boolean)
+    .some((ownerId) => normalizeText(ownerId) === normalizeText(organizerId));
+}
+
 function shouldShowLeagueInHomeCarousel(league = {}) {
   const status = normalizeText(league.status || "active");
 
@@ -755,10 +765,14 @@ export default function HomeScreen({ navigation, route }) {
     setIsProfileVisible(false);
   };
 
-  const homeTurnosPreview = useMemo(
-    () => buildTurnosHomePreview(turnosComplexesPreview),
-    [turnosComplexesPreview]
-  );
+  const isOrganizerAccount = isApprovedOrganizer(currentUser);
+  const homeTurnosPreview = useMemo(() => {
+    const source = isOrganizerAccount
+      ? turnosComplexesPreview.filter((complex) => belongsToOrganizer(complex, userData?.uid))
+      : turnosComplexesPreview;
+
+    return buildTurnosHomePreview(source);
+  }, [isOrganizerAccount, turnosComplexesPreview, userData?.uid]);
   const homeTurnosSlides = homeTurnosPreview.slides;
   const categorySummary = useMemo(() => {
     const category = currentUser?.category || "tu categoria";
@@ -786,10 +800,14 @@ export default function HomeScreen({ navigation, route }) {
 
     return { title: "Torneos en movimiento", subtitle: "" };
   }, [currentUser?.category, homeTurnosPreview.title, playersPreview, selectedMenuItem.key, userData?.uid]);
-  const homeLeagueSlides = useMemo(
-    () => leaguesPreview.filter(shouldShowLeagueInHomeCarousel).slice(0, 8),
-    [leaguesPreview]
-  );
+  const homeLeagueSlides = useMemo(() => {
+    const visibleLeagues = leaguesPreview.filter(shouldShowLeagueInHomeCarousel);
+    const ownLeagues = isOrganizerAccount
+      ? visibleLeagues.filter((league) => belongsToOrganizer(league, userData?.uid))
+      : visibleLeagues;
+
+    return ownLeagues.slice(0, 8);
+  }, [isOrganizerAccount, leaguesPreview, userData?.uid]);
   const replacementRequestsPreview = useMemo(
     () => collectHomeReplacementRequests(leaguesPreview, userData, canManageFinances).slice(0, 8),
     [canManageFinances, leaguesPreview, userData]
@@ -798,18 +816,20 @@ export default function HomeScreen({ navigation, route }) {
     () => (currentUser ? calculateProfileCompletion(currentUser) : 0),
     [currentUser]
   );
-  const homeTournamentSlides = useMemo(
-    () =>
-      tournamentsPreview
-        .filter(shouldShowTournamentInHomeCarousel)
-        .sort((first, second) => {
-          const firstValue = Number(first.startDateMillis || first.createdAtMillis || 0);
-          const secondValue = Number(second.startDateMillis || second.createdAtMillis || 0);
-          return firstValue - secondValue;
-        })
-        .slice(0, 8),
-    [tournamentsPreview]
-  );
+  const homeTournamentSlides = useMemo(() => {
+    const visibleTournaments = tournamentsPreview.filter(shouldShowTournamentInHomeCarousel);
+    const ownTournaments = isOrganizerAccount
+      ? visibleTournaments.filter((tournament) => belongsToOrganizer(tournament, userData?.uid))
+      : visibleTournaments;
+
+    return ownTournaments
+      .sort((first, second) => {
+        const firstValue = Number(first.startDateMillis || first.createdAtMillis || 0);
+        const secondValue = Number(second.startDateMillis || second.createdAtMillis || 0);
+        return firstValue - secondValue;
+      })
+      .slice(0, 8);
+  }, [isOrganizerAccount, tournamentsPreview, userData?.uid]);
   const playerPreviewRows = useMemo(
     () =>
       playersPreview
