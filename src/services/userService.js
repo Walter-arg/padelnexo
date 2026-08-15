@@ -1,6 +1,5 @@
 import {
   collection,
-  deleteDoc,
   doc,
   getDoc,
   getDocs,
@@ -17,6 +16,7 @@ import {
   buildAvailabilityFromLegacy,
   normalizeAvailability,
 } from "./availabilityService";
+import { callAdminAction } from "./adminActionsClient";
 import {
   getOrganizerRequest,
   normalizeComplex,
@@ -311,61 +311,12 @@ export async function removeUserProfilePhoto(uid) {
   return getUserProfile(uid);
 }
 
-export async function hideUserProfile(uid) {
-  const activeDb = await ensureDb();
-
-  if (!activeDb) {
-    throw new Error("Firestore no esta disponible en este momento.");
-  }
-
-  const userRef = doc(activeDb, "users", uid);
-
-  await updateDoc(userRef, {
-    accountDeleted: true,
-    deletedAt: serverTimestamp(),
-  });
-}
-
-export async function deleteUserProfileData(uid) {
-  const activeDb = await ensureDb();
-  const activeStorage = await ensureStorage();
-
-  if (!activeDb) {
-    throw new Error("Firestore no esta disponible en este momento.");
-  }
-
-  const userRef = doc(activeDb, "users", uid);
-  const organizerRequestRef = doc(activeDb, "organizerRequests", uid);
-  const privateRef = doc(activeDb, "users", uid, "private", "contact");
-  const imageRef = activeStorage ? ref(activeStorage, `profileImages/${uid}`) : null;
-
-  try {
-    if (imageRef) {
-      await deleteObject(imageRef);
-    }
-  } catch (error) {
-    if (error?.code !== "storage/object-not-found") {
-      devLog("[userService] Error al eliminar foto durante baja de cuenta:", error);
-    }
-  }
-
-  try {
-    await deleteDoc(organizerRequestRef);
-  } catch (error) {
-    devLog("[userService] No se pudo eliminar organizerRequest:", error);
-  }
-
-  try {
-    await deleteDoc(privateRef);
-  } catch (error) {
-    devLog("[userService] No se pudo eliminar datos privados de contacto:", error);
-  }
-
-  try {
-    await deleteDoc(userRef);
-  } catch (error) {
-    devLog("[userService] No se pudo eliminar perfil de usuario:", error);
-  }
+// Corre server-side (Cloud Function con Admin SDK) para no depender de que
+// el cliente siga autenticado durante todo el borrado: limpia los datos
+// privados y deja el perfil como "Usuario eliminado" (en vez de borrarlo
+// del todo) para no romper referencias en ligas/torneos donde ya jugo.
+export async function deleteOwnAccount() {
+  await callAdminAction("deleteOwnAccount");
 }
 
 async function normalizeProfileImage(uid, profileDoc) {

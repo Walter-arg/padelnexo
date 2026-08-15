@@ -1,8 +1,6 @@
 import {
   createUserWithEmailAndPassword,
-  deleteUser,
   GoogleAuthProvider,
-  reauthenticateWithCredential,
   sendEmailVerification,
   signInWithEmailAndPassword,
   signInWithCredential,
@@ -51,19 +49,6 @@ export async function loginWithGoogleIdToken(idToken) {
   }
 }
 
-async function reauthenticateWithGoogleIdToken(idToken) {
-  if (!auth.currentUser) {
-    throw new Error("No hay una sesion activa.");
-  }
-
-  if (!idToken) {
-    throw new Error("No pudimos obtener la autorizacion de Google.");
-  }
-
-  const credential = GoogleAuthProvider.credential(idToken);
-  await reauthenticateWithCredential(auth.currentUser, credential);
-}
-
 export async function logoutUser() {
   try {
     await signOut(auth);
@@ -100,36 +85,6 @@ export async function resetPassword(email) {
   }
 }
 
-export async function deleteCurrentUserAccount(reauthenticate) {
-  try {
-    if (!auth.currentUser) {
-      throw new Error("No hay una sesion activa.");
-    }
-
-    try {
-      await deleteUser(auth.currentUser);
-    } catch (error) {
-      if (error?.code !== "auth/requires-recent-login" || !reauthenticate) {
-        throw error;
-      }
-
-      const idToken = await reauthenticate();
-      await reauthenticateWithGoogleIdToken(idToken);
-      await deleteUser(auth.currentUser);
-    }
-  } catch (error) {
-    devLog("[authService] deleteCurrentUserAccount error:", error?.code, error?.message);
-    throw new Error(
-      getFirebaseErrorMessage(
-        error,
-        error?.code === "auth/requires-recent-login"
-          ? "Para eliminar tu cuenta necesitamos que vuelvas a iniciar sesion."
-          : "No pudimos eliminar tu cuenta en este momento."
-      )
-    );
-  }
-}
-
 export async function resendVerificationEmail() {
   if (!auth.currentUser) {
     throw new Error("No hay una sesion activa.");
@@ -155,6 +110,5 @@ export const authService = {
   requestPasswordReset: resetPassword,
   resetPassword,
   logout: logoutUser,
-  deleteCurrentUserAccount,
 };
 

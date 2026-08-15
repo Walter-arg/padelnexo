@@ -5,7 +5,6 @@ import { onAuthStateChanged } from "../../services/firebaseAuth";
 import { auth } from "../../services/firebaseConfig";
 import devLog from "../utils/devLog";
 import {
-  deleteCurrentUserAccount,
   loginWithGoogleIdToken,
   loginUser,
   logoutUser,
@@ -16,9 +15,8 @@ import {
 import { sendEmailVerification } from "../../services/firebaseAuth";
 import {
   createUserProfile,
-  deleteUserProfileData,
+  deleteOwnAccount,
   getUserProfile,
-  hideUserProfile,
   recordUserLogin,
   removeUserProfilePhoto,
   updateUserProfile,
@@ -34,11 +32,7 @@ import {
   isPendingOrganizer,
 } from "../services/roleService";
 import { registerForPushNotificationsAsync } from "../services/pushNotificationsService";
-import {
-  clearGoogleSignInSession,
-  requestGoogleIdToken,
-  requestGoogleIdTokenSilently,
-} from "../services/googleSignInService";
+import { clearGoogleSignInSession } from "../services/googleSignInService";
 
 const AuthContext = createContext(null);
 const LAST_LOGIN_EMAIL_KEY = "@padelnexo:last-login-email";
@@ -426,33 +420,10 @@ export function AuthProvider({ children }) {
         setLoading(true);
 
         try {
-          const uid = auth.currentUser.uid;
-          await hideUserProfile(uid);
-          await deleteCurrentUserAccount(async () => {
-            const silentToken = await requestGoogleIdTokenSilently();
-
-            if (silentToken) {
-              return silentToken;
-            }
-
-            return requestGoogleIdToken({ forceAccountSelection: false });
-          });
-          await deleteUserProfileData(uid);
+          await deleteOwnAccount();
           await clearGoogleSignInSession();
           setUser(null);
           setUserData(null);
-        } catch (error) {
-          try {
-            if (auth.currentUser?.uid) {
-              await updateUserProfile(auth.currentUser.uid, {
-                accountDeleted: false,
-              });
-            }
-          } catch (revertError) {
-            devLog("[AuthContext] No se pudo revertir accountDeleted:", revertError);
-          }
-
-          throw error;
         } finally {
           setLoading(false);
         }

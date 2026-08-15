@@ -96,6 +96,10 @@ exports.deleteComplexRequestAsAdmin = lazyOnRequest(
 );
 exports.listAdminUsersData = lazyOnRequest("./adminActions", "listAdminUsersData");
 
+// Autoeliminacion de cuenta: solo exige un ID token valido (no admin), el
+// propio caller es el que se borra a si mismo.
+exports.deleteOwnAccount = lazyOnRequest("./accountActions", "deleteOwnAccount");
+
 // Revisa una vez por dia los planes de organizador: pasa a "expired" los
 // que ya vencieron, y avisa por email a los que vencen en menos de 3 dias.
 exports.checkPlanExpirations = onSchedule(
