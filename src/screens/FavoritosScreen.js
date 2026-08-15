@@ -6,7 +6,6 @@ import PlayerCard from "../components/PlayerCard";
 import SectionHeader from "../components/SectionHeader";
 import { colors, spacing } from "../config/theme";
 import { useAuth } from "../context/AuthContext";
-import { playersMock } from "../data/playersMock";
 import {
   getFavoritePlayers,
   registerPlayersForFavorites,
@@ -27,7 +26,7 @@ export default function FavoritosScreen({ navigation }) {
     const loadFavorites = async () => {
       try {
         const players = await listPlayers();
-        registerPlayersForFavorites(currentUserId, players.length > 0 ? players : playersMock);
+        registerPlayersForFavorites(currentUserId, players);
 
         if (!isCancelled) {
           setFavoritePlayers(getFavoritePlayers(currentUserId));
@@ -35,7 +34,6 @@ export default function FavoritosScreen({ navigation }) {
         }
       } catch (error) {
         if (!isCancelled) {
-          registerPlayersForFavorites(currentUserId, playersMock);
           setFavoritePlayers(getFavoritePlayers(currentUserId));
           setIsLoading(false);
         }

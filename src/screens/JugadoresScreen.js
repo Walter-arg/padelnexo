@@ -21,7 +21,6 @@ import SectionFilterBar from "../components/SectionFilterBar";
 import SectionHeader from "../components/SectionHeader";
 import { colors, spacing } from "../config/theme";
 import { useAuth } from "../context/AuthContext";
-import { playersMock } from "../data/playersMock";
 import { playerCategories } from "../data/profileOptions";
 import { hasConfiguredAvailability, isAvailableToday } from "../services/availabilityService";
 import {
@@ -118,8 +117,9 @@ export default function JugadoresScreen({ navigation }) {
   const { updateProfile, userData } = useAuth();
   const currentUserId = userData?.uid;
   const [query, setQuery] = useState("");
-  const [playersSource, setPlayersSource] = useState(playersMock);
+  const [playersSource, setPlayersSource] = useState([]);
   const [playersLoading, setPlayersLoading] = useState(true);
+  const [playersLoadError, setPlayersLoadError] = useState(false);
   const [isAvailabilityVisible, setIsAvailabilityVisible] = useState(false);
   const [availabilitySaving, setAvailabilitySaving] = useState(false);
   const [locationActionsVisible, setLocationActionsVisible] = useState(false);
@@ -189,11 +189,12 @@ export default function JugadoresScreen({ navigation }) {
           return;
         }
 
-        const sourcePlayers = players.length > 0 ? players : playersMock;
-        setPlayersSource(registerPlayersForFavorites(currentUserId, sourcePlayers));
+        setPlayersSource(registerPlayersForFavorites(currentUserId, players));
+        setPlayersLoadError(false);
       } catch (error) {
         if (!isCancelled) {
-          setPlayersSource(registerPlayersForFavorites(currentUserId, playersMock));
+          setPlayersSource(registerPlayersForFavorites(currentUserId, []));
+          setPlayersLoadError(true);
         }
       } finally {
         if (!isCancelled) {
@@ -659,12 +660,22 @@ export default function JugadoresScreen({ navigation }) {
           ListEmptyComponent={
             <View style={styles.emptyCard}>
               <Text style={styles.emptyTitle}>
-                {playersLoading ? "Cargando jugadores..." : "No encontramos resultados"}
+                {playersLoading
+                  ? "Cargando jugadores..."
+                  : playersLoadError
+                    ? "No pudimos cargar los jugadores"
+                    : hasActiveFilters
+                      ? "No encontramos resultados"
+                      : "Todavia no hay jugadores por aca"}
               </Text>
               <Text style={styles.emptyText}>
                 {playersLoading
                   ? "Estamos sincronizando perfiles desde la comunidad."
-                  : "Ajusta la busqueda o los filtros para descubrir mas perfiles."}
+                  : playersLoadError
+                    ? "Revisa tu conexion e intenta de nuevo."
+                    : hasActiveFilters
+                      ? "Ajusta la busqueda o los filtros para descubrir mas perfiles."
+                      : "Invita a tus amigos a sumarse a PadelNexo para verlos aca."}
               </Text>
             </View>
           }

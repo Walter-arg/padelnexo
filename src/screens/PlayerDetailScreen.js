@@ -10,7 +10,6 @@ import ReportModal from "../components/ReportModal";
 import SectionHeader from "../components/SectionHeader";
 import { colors, spacing } from "../config/theme";
 import { useAuth } from "../context/AuthContext";
-import { playersMock } from "../data/playersMock";
 import { createInvitation } from "../services/invitationsService";
 import { submitReport } from "../services/reportsService";
 import { hasProfileImage } from "../utils/defaultProfileImage";
@@ -35,11 +34,7 @@ export default function PlayerDetailScreen({ navigation, route }) {
     message: "",
     tone: "default",
   });
-  const playerId = route?.params?.playerId;
-  const playerFromParams = route?.params?.player;
-  const player =
-    playerFromParams ||
-    playersMock.find((item) => item.id === playerId);
+  const player = route?.params?.player;
   const hasImage = hasProfileImage(player?.foto);
   const publicPhone = player?.isPhonePublic
     ? formatPhoneNumber(player?.countryCode, player?.phone)
