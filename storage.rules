@@ -1,0 +1,53 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function isAuth() {
+      return request.auth != null;
+    }
+
+    function isUser(uid) {
+      return isAuth() && request.auth.uid == uid;
+    }
+
+    // Fotos de perfil: lectura publica (se muestran en listados de
+    // jugadores), solo el dueño puede subir/reemplazar la suya.
+    match /profileImages/{userId} {
+      allow read: if true;
+      allow write: if isUser(userId);
+    }
+
+    // Logos de organizadores: lectura publica, solo el dueño puede subirlo.
+    // Antes cualquier usuario autenticado podia sobreescribir el logo de
+    // cualquier organizador porque no se validaba el uid contra la ruta.
+    match /organizerLogos/{userId} {
+      allow read: if true;
+      allow write: if isUser(userId);
+    }
+
+    // Portadas de torneos: se muestran publicamente en el listado.
+    match /tournaments/covers/{organizerId}/{fileName} {
+      allow read: if true;
+      allow write: if isUser(organizerId);
+    }
+
+    // Comprobantes de inscripcion a torneos: el organizador a veces los
+    // sube en nombre del jugador, asi que queda abierto a cualquier
+    // autenticado (igual que antes), pero ya no expuesto via el catch-all
+    // junto con el resto del bucket.
+    match /tournaments/{tournamentId}/registrations/{registrationId}/{fileName} {
+      allow read, write: if isAuth();
+    }
+
+    // Comprobantes de pago de ligas: el organizador sube comprobantes en
+    // nombre de los participantes (incluida carga por lote).
+    match /league-payment-proofs/{leagueId}/{allPaths=**} {
+      allow read, write: if isAuth();
+    }
+
+    // Comprobantes de pago de turnos.
+    match /turno-payment-proofs/{playerId}/{fileName} {
+      allow read, write: if isAuth();
+    }
+  }
+}
