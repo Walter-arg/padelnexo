@@ -482,6 +482,9 @@ export async function createUserProfile(uid, payload) {
     fechaNacimiento: payload.fechaNacimiento || "",
     chatHabilitado: (calcularEdad(payload.fechaNacimiento) ?? 0) >= 14,
     createdAt: serverTimestamp(),
+    ...(payload.termsAccepted
+      ? { termsAcceptedAt: serverTimestamp(), termsVersion: payload.termsVersion || "1.0" }
+      : {}),
   });
 
   await setDoc(privateRef, {

@@ -248,6 +248,8 @@ export default function RegisterScreen({ navigation }) {
         avatarColor: avatarColors[0],
         avatarUrl: "",
         fechaNacimiento: dateToFechaNacimiento(birthDate),
+        termsAccepted: true,
+        termsVersion: "1.0",
       });
 
       showFeedback("Registro listo", "Tu cuenta ya quedo creada en Firebase.", "success");
