@@ -1,11 +1,29 @@
+import Constants from "expo-constants";
+import * as Notifications from "expo-notifications";
+import { Platform } from "react-native";
+
 import { arrayUnion, doc, getDoc, serverTimestamp, setDoc } from "../../services/firebaseFirestore";
 
 import { db } from "../../services/firebaseConfig";
 import devLog from "../utils/devLog";
 
-// expo-notifications requiere modulos nativos que solo existen en builds nativos (EAS Build).
-// En Expo Go no hay soporte para push tokens. Las funciones de registro son no-ops
-// en este entorno y se activaran automaticamente en el build de produccion/desarrollo nativo.
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+    shouldShowBanner: true,
+    shouldShowList: true,
+  }),
+});
+
+if (Platform.OS === "android") {
+  Notifications.setNotificationChannelAsync("default", {
+    name: "default",
+    importance: Notifications.AndroidImportance.DEFAULT,
+    lightColor: "#2E7D52",
+    vibrationPattern: [0, 250, 250, 250],
+  }).catch(() => {});
+}
 
 export async function saveUserPushToken(uid, expoPushToken) {
   if (!uid || !expoPushToken) {
@@ -24,8 +42,43 @@ export async function saveUserPushToken(uid, expoPushToken) {
 }
 
 export async function registerForPushNotificationsAsync(uid) {
-  devLog("[pushNotificationsService] Push notifications disponibles solo en builds nativos (EAS Build)");
-  return null;
+  if (!uid || Platform.OS === "web") {
+    return null;
+  }
+
+  try {
+    const { status: existingStatus } = await Notifications.getPermissionsAsync();
+    let finalStatus = existingStatus;
+
+    if (existingStatus !== "granted") {
+      const { status } = await Notifications.requestPermissionsAsync();
+      finalStatus = status;
+    }
+
+    if (finalStatus !== "granted") {
+      devLog("[pushNotificationsService] Permiso de notificaciones no concedido");
+      return null;
+    }
+
+    const projectId =
+      Constants.expoConfig?.extra?.eas?.projectId || Constants.easConfig?.projectId;
+
+    if (!projectId) {
+      devLog("[pushNotificationsService] Falta el projectId de EAS, no se puede pedir el push token");
+      return null;
+    }
+
+    const { data: expoPushToken } = await Notifications.getExpoPushTokenAsync({ projectId });
+
+    await saveUserPushToken(uid, expoPushToken);
+
+    return expoPushToken;
+  } catch (error) {
+    // En Expo Go (sin build nativo) esta llamada falla siempre: se degrada
+    // a no-op igual que antes, y funciona de verdad en builds EAS reales.
+    devLog("[pushNotificationsService] No se pudo registrar el push token:", error?.message || error);
+    return null;
+  }
 }
 
 export async function getUserPushTokens(uid) {
