@@ -23,6 +23,7 @@ import { colors, spacing } from "../config/theme";
 import { useAuth } from "../context/AuthContext";
 import AppButton from "./AppButton";
 import AppInput from "./AppInput";
+import AppleSignInButton from "./AppleSignInButton";
 import CountryCodeSelector from "./CountryCodeSelector";
 import FeedbackModal from "./FeedbackModal";
 import GoogleSignInButton from "./GoogleSignInButton";
@@ -153,7 +154,8 @@ function isValidLocalidad(localidad, inputValue) {
 }
 
 export default function LoginModal({ onClose, onLogin, visible }) {
-  const { login, loginWithGoogle, register, sendResetPassword, lastLoginEmail } = useAuth();
+  const { login, loginWithGoogle, loginWithApple, register, sendResetPassword, lastLoginEmail } =
+    useAuth();
   const insets = useSafeAreaInsets();
   const [feedback, setFeedback] = useState({
     visible: false,
@@ -523,6 +525,30 @@ export default function LoginModal({ onClose, onLogin, visible }) {
     });
   };
 
+  const handleAppleToken = async (identityToken, fullName) => {
+    try {
+      await loginWithApple(identityToken, fullName);
+      onLogin?.();
+      onClose();
+    } catch (error) {
+      setFeedback({
+        visible: true,
+        title: getLoginErrorTitle(error.message),
+        message: error.message,
+        tone: "danger",
+      });
+    }
+  };
+
+  const handleAppleError = (error) => {
+    setFeedback({
+      visible: true,
+      title: "No pudimos ingresar con Apple",
+      message: error?.message || "Intenta nuevamente en unos instantes.",
+      tone: "danger",
+    });
+  };
+
   const title =
     mode === "login"
       ? "Ingresar a tu cuenta"
@@ -559,6 +585,7 @@ export default function LoginModal({ onClose, onLogin, visible }) {
           {mode === "login" ? (
             <View style={styles.googleBlock}>
               <Text style={styles.googleBlockTitle}>Ingreso rapido</Text>
+              <AppleSignInButton onError={handleAppleError} onSuccess={handleAppleToken} />
               <GoogleSignInButton
                 onError={handleGoogleError}
                 onMissingConfig={handleGoogleConfigMissing}
@@ -1041,6 +1068,7 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
   },
   dateField: {
+    backgroundColor: colors.surface,
     borderColor: colors.border,
     borderRadius: 14,
     borderWidth: 1,

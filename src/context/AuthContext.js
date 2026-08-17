@@ -6,6 +6,7 @@ import { auth } from "../../services/firebaseConfig";
 import devLog from "../utils/devLog";
 import {
   loginWithGoogleIdToken,
+  loginWithAppleIdentityToken,
   loginUser,
   logoutUser,
   registerUser,
@@ -144,6 +145,16 @@ function buildGoogleProfilePayload(firebaseUser = {}) {
     ...fallbackProfile,
     name: firebaseUser.displayName || fallbackProfile.name,
     avatarUrl: firebaseUser.photoURL || "",
+  };
+}
+
+function buildAppleProfilePayload(firebaseUser = {}, fullName = "") {
+  const email = firebaseUser.email || "";
+  const fallbackProfile = buildMissingProfilePayload(email);
+
+  return {
+    ...fallbackProfile,
+    name: fullName || firebaseUser.displayName || fallbackProfile.name,
   };
 }
 
@@ -343,6 +354,35 @@ export function AuthProvider({ children }) {
           setUserData(profile);
 
           return googleUser;
+        } finally {
+          setLoading(false);
+        }
+      },
+      loginWithApple: async (identityToken, fullName = "") => {
+        setLoading(true);
+
+        try {
+          const credentials = await loginWithAppleIdentityToken(identityToken);
+          const appleUser = credentials.user;
+          const email = appleUser.email || "";
+          let profile = await getUserProfile(appleUser.uid, email);
+
+          if (!profile) {
+            profile = await createUserProfile(
+              appleUser.uid,
+              buildAppleProfilePayload(appleUser, fullName)
+            );
+          }
+
+          await assertProfileCanAccess(profile);
+
+          setLastLoginEmail("");
+          await AsyncStorage.removeItem(LAST_LOGIN_EMAIL_KEY);
+
+          setUser(appleUser);
+          setUserData(profile);
+
+          return appleUser;
         } finally {
           setLoading(false);
         }

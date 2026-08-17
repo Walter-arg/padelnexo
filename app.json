@@ -81,6 +81,7 @@
     "plugins": [
       "@react-native-firebase/app",
       "@react-native-firebase/crashlytics",
+      "expo-apple-authentication",
       "expo-web-browser",
       [
         "expo-location",

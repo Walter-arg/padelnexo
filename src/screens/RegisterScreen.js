@@ -704,6 +704,7 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
   },
   dateField: {
+    backgroundColor: colors.surface,
     borderColor: colors.border,
     borderRadius: 14,
     borderWidth: 1,

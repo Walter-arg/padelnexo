@@ -502,13 +502,6 @@ export default function JugadoresScreen({ navigation }) {
                   ))}
                 </View>
 
-                <Text style={styles.modalLabel}>Complejo</Text>
-                <View style={styles.placeholderField}>
-                  <Ionicons color={colors.muted} name="business-outline" size={16} />
-                  <Text style={styles.placeholderFieldText}>
-                    Selector de complejo disponible proximamente para esta seccion
-                  </Text>
-                </View>
               </View>
             )}
             userLocation={userLocalidad}
@@ -1191,24 +1184,6 @@ const styles = StyleSheet.create({
   },
   filterChipTextActive: {
     color: colors.primaryDark,
-  },
-  placeholderField: {
-    alignItems: "center",
-    backgroundColor: "#F7FBF9",
-    borderColor: colors.border,
-    borderRadius: 18,
-    borderWidth: 1,
-    flexDirection: "row",
-    minHeight: 44,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-  },
-  placeholderFieldText: {
-    color: colors.muted,
-    flex: 1,
-    fontSize: 13,
-    fontWeight: "600",
-    marginLeft: spacing.sm,
   },
   searchFiltersCard: {
     backgroundColor: colors.surface,

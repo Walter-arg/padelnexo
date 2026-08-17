@@ -1,6 +1,7 @@
 import {
   createUserWithEmailAndPassword,
   GoogleAuthProvider,
+  OAuthProvider,
   sendEmailVerification,
   signInWithEmailAndPassword,
   signInWithCredential,
@@ -45,6 +46,23 @@ export async function loginWithGoogleIdToken(idToken) {
     devLog("[authService] loginWithGoogleIdToken error:", error?.code, error?.message);
     throw new Error(
       getFirebaseErrorMessage(error, "No pudimos ingresar con Google en este momento.")
+    );
+  }
+}
+
+export async function loginWithAppleIdentityToken(identityToken) {
+  if (!identityToken) {
+    throw new Error("No pudimos obtener la autorizacion de Apple.");
+  }
+
+  try {
+    const provider = new OAuthProvider("apple.com");
+    const credential = provider.credential({ idToken: identityToken });
+    return await signInWithCredential(auth, credential);
+  } catch (error) {
+    devLog("[authService] loginWithAppleIdentityToken error:", error?.code, error?.message);
+    throw new Error(
+      getFirebaseErrorMessage(error, "No pudimos ingresar con Apple en este momento.")
     );
   }
 }
@@ -106,6 +124,7 @@ export async function resendVerificationEmail() {
 export const authService = {
   login: loginUser,
   loginWithGoogleIdToken,
+  loginWithAppleIdentityToken,
   register: registerUser,
   requestPasswordReset: resetPassword,
   resetPassword,
