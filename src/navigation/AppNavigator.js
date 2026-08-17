@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { AppState, Animated, Easing, Image, Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import { colors, spacing } from "../config/theme";
 import { useAuth } from "../context/AuthContext";
@@ -138,29 +139,35 @@ function EmailVerificationBanner({ email, onResend, onDismiss }) {
   };
 
   return (
-    <View style={styles.verificationBanner}>
-      <View style={styles.verificationBannerContent}>
-        <Text style={styles.verificationBannerText} numberOfLines={2}>
-          {sent
-            ? "Email reenviado. Revisá tu bandeja."
-            : `Verificá el email enviado a ${email}`}
-        </Text>
-        {error ? (
-          <Text style={styles.verificationBannerError}>{error}</Text>
-        ) : null}
-        {!sent ? (
-          <Pressable onPress={handleResend} disabled={sending}>
-            <Text style={styles.verificationBannerResend}>
-              {sending ? "Enviando..." : "Reenviar"}
-            </Text>
-          </Pressable>
-        ) : null}
+    <SafeAreaView edges={["top"]} style={styles.verificationBannerSafeArea}>
+      <View style={styles.verificationBanner}>
+        <View style={styles.verificationBannerContent}>
+          <Text style={styles.verificationBannerText} numberOfLines={2}>
+            {sent
+              ? "Email reenviado. Revisá tu bandeja."
+              : `Verificá el email enviado a ${email} (opcional)`}
+          </Text>
+          {error ? (
+            <Text style={styles.verificationBannerError}>{error}</Text>
+          ) : null}
+          {!sent ? (
+            <Pressable onPress={handleResend} disabled={sending}>
+              <Text style={styles.verificationBannerResend}>
+                {sending ? "Enviando..." : "Reenviar"}
+              </Text>
+            </Pressable>
+          ) : null}
+        </View>
+        <Pressable onPress={onDismiss} style={styles.verificationBannerClose} hitSlop={8}>
+          <Text style={styles.verificationBannerCloseText}>✕</Text>
+        </Pressable>
       </View>
-      <Pressable onPress={onDismiss} style={styles.verificationBannerClose} hitSlop={8}>
-        <Text style={styles.verificationBannerCloseText}>✕</Text>
-      </Pressable>
-    </View>
+    </SafeAreaView>
   );
+}
+
+function getBannerDismissedKey(uid) {
+  return `emailVerificationBannerDismissed:${uid}`;
 }
 
 export default function AppNavigator() {
@@ -169,6 +176,24 @@ export default function AppNavigator() {
 
   const isEmailPasswordUser = user?.providerData?.[0]?.providerId === "password";
   const showBanner = Boolean(user && !emailVerified && isEmailPasswordUser && !bannerDismissed);
+
+  useEffect(() => {
+    if (!user?.uid) return;
+    AsyncStorage.getItem(getBannerDismissedKey(user.uid))
+      .then((value) => {
+        if (value === "true") {
+          setBannerDismissed(true);
+        }
+      })
+      .catch(() => {});
+  }, [user?.uid]);
+
+  const handleDismissBanner = () => {
+    setBannerDismissed(true);
+    if (user?.uid) {
+      AsyncStorage.setItem(getBannerDismissedKey(user.uid), "true").catch(() => {});
+    }
+  };
 
   useEffect(() => {
     if (!showBanner) return;
@@ -190,7 +215,7 @@ export default function AppNavigator() {
         <EmailVerificationBanner
           email={user?.email || ""}
           onResend={resendVerificationEmail}
-          onDismiss={() => setBannerDismissed(true)}
+          onDismiss={handleDismissBanner}
         />
       ) : null}
       <Stack.Navigator
@@ -442,6 +467,9 @@ const styles = StyleSheet.create({
   },
   navigatorRoot: {
     flex: 1,
+  },
+  verificationBannerSafeArea: {
+    backgroundColor: "#FEF9E7",
   },
   verificationBanner: {
     alignItems: "center",

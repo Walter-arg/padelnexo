@@ -156,7 +156,7 @@ export default function JugadoresScreen({ navigation }) {
   const [appliedFilters, setAppliedFilters] = useState({
     sexo: "Todos",
     categorias: [],
-    localidades: userLocalidad ? [userLocalidad] : [],
+    localidades: [],
     soloDisponiblesHoy: true,
   });
   const [draftSexo, setDraftSexo] = useState("Todos");
@@ -447,6 +447,7 @@ export default function JugadoresScreen({ navigation }) {
         <View style={styles.filterLocationRow}>
           <SectionFilterBar
             containerStyle={styles.headerFilterBar}
+            disablePersistedDefaults
             extraSummary={hasActiveFilters ? "Activo" : undefined}
             hideLeadingIcon
             onApply={handleApplyFilters}

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
-import DateTimePicker from "@react-native-community/datetimepicker";
+import DateTimePicker, { DateTimePickerAndroid } from "@react-native-community/datetimepicker";
 import {
   Alert,
   KeyboardAvoidingView,
@@ -185,6 +185,7 @@ export default function LoginModal({ onClose, onLogin, visible }) {
   const [isDominantHandVisible, setIsDominantHandVisible] = useState(false);
   const [birthDate, setBirthDate] = useState(null);
   const [datePickerVisible, setDatePickerVisible] = useState(false);
+  const [tempBirthDate, setTempBirthDate] = useState(null);
 
   useEffect(() => {
     if (!visible) {
@@ -727,7 +728,26 @@ export default function LoginModal({ onClose, onLogin, visible }) {
                 <View style={styles.compactField}>
                   <Text style={[styles.centeredLabel, styles.dateLabel]}>Fecha de nacimiento</Text>
                   <Pressable
-                    onPress={() => setDatePickerVisible(true)}
+                    onPress={() => {
+                      const initialDate = birthDate || new Date(2000, 0, 1);
+                      if (Platform.OS === "android") {
+                        DateTimePickerAndroid.open({
+                          value: initialDate,
+                          mode: "date",
+                          display: "spinner",
+                          maximumDate: new Date(),
+                          minimumDate: new Date(1900, 0, 1),
+                          onChange: (event, selectedDate) => {
+                            if (event.type === "set" && selectedDate) {
+                              setBirthDate(selectedDate);
+                            }
+                          },
+                        });
+                      } else {
+                        setTempBirthDate(initialDate);
+                        setDatePickerVisible(true);
+                      }
+                    }}
                     style={({ pressed }) => [
                       styles.dateField,
                       pressed ? styles.dateFieldPressed : null,
@@ -740,17 +760,29 @@ export default function LoginModal({ onClose, onLogin, visible }) {
                     </Text>
                   </Pressable>
                   {datePickerVisible && (
-                    <DateTimePicker
-                      display="default"
-                      maximumDate={new Date()}
-                      minimumDate={new Date(1900, 0, 1)}
-                      mode="date"
-                      onChange={(_, selectedDate) => {
-                        if (Platform.OS !== "ios") setDatePickerVisible(false);
-                        if (selectedDate) setBirthDate(selectedDate);
-                      }}
-                      value={birthDate || new Date(2000, 0, 1)}
-                    />
+                    <>
+                      <DateTimePicker
+                        display="spinner"
+                        maximumDate={new Date()}
+                        minimumDate={new Date(1900, 0, 1)}
+                        mode="date"
+                        onChange={(_, selectedDate) => {
+                          if (selectedDate) setTempBirthDate(selectedDate);
+                        }}
+                        value={tempBirthDate || new Date(2000, 0, 1)}
+                      />
+                      <Pressable
+                        onPress={() => {
+                          if (tempBirthDate) {
+                            setBirthDate(tempBirthDate);
+                          }
+                          setDatePickerVisible(false);
+                        }}
+                        style={styles.dateConfirmButton}
+                      >
+                        <Text style={styles.dateConfirmButtonText}>Listo</Text>
+                      </Pressable>
+                    </>
                   )}
                 </View>
               </>
@@ -1026,6 +1058,19 @@ const styles = StyleSheet.create({
   datePlaceholder: {
     color: colors.muted,
     fontSize: 15,
+  },
+  dateConfirmButton: {
+    alignItems: "center",
+    backgroundColor: colors.primary,
+    borderRadius: 14,
+    justifyContent: "center",
+    marginTop: spacing.xs,
+    minHeight: 42,
+  },
+  dateConfirmButtonText: {
+    color: "#fff",
+    fontSize: 15,
+    fontWeight: "700",
   },
   centeredLabel: {
     textAlign: "center",

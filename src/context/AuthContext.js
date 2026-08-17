@@ -12,7 +12,6 @@ import {
   resendVerificationEmail,
   resetPassword,
 } from "../services/authService";
-import { sendEmailVerification } from "../../services/firebaseAuth";
 import {
   createUserProfile,
   deleteOwnAccount,
@@ -273,7 +272,6 @@ export function AuthProvider({ children }) {
           const credentials = await registerUser(payload.email, payload.password);
           const profile = await createUserProfile(credentials.user.uid, payload);
           await persistLastLoginEmail(payload.email);
-          sendEmailVerification(credentials.user).catch(() => {});
 
           setUser(credentials.user);
           setEmailVerified(false);

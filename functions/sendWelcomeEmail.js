@@ -1,11 +1,37 @@
+const admin = require("firebase-admin");
 const { logger } = require("firebase-functions/v2");
 
-function buildWelcomeEmailHtml(displayName) {
+let adminApp = null;
+
+function getAdminApp() {
+  if (!adminApp) {
+    adminApp = admin.apps.length ? admin.app() : admin.initializeApp();
+  }
+  return adminApp;
+}
+
+function buildWelcomeEmailHtml(displayName, verificationLink) {
   const firstName = displayName ? displayName.trim().split(" ")[0] : null;
   const greeting = firstName ? `¡Hola, ${firstName}!` : "¡Bienvenido a PadelNexo!";
   const intro = firstName
     ? `Nos alegra que te hayas sumado a la comunidad. Ya sos parte de PadelNexo.`
     : `Nos alegra que te hayas sumado a la comunidad de pádel amateur más grande de Argentina.`;
+
+  const verificationBlock = verificationLink
+    ? `
+              <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:28px;">
+                <tr>
+                  <td align="center" style="background:#F6FBF8;border-radius:12px;padding:20px;">
+                    <p style="margin:0 0 12px;font-size:13px;color:#5F7D72;line-height:1.6;">
+                      Si querés, podés verificar tu email (es opcional, no lo necesitás para usar la app):
+                    </p>
+                    <a href="${verificationLink}" style="display:inline-block;background:#0B8457;color:#ffffff;font-size:14px;font-weight:700;text-decoration:none;padding:12px 24px;border-radius:10px;">
+                      Verificar mi email
+                    </a>
+                  </td>
+                </tr>
+              </table>`
+    : "";
 
   return `<!DOCTYPE html>
 <html lang="es">
@@ -48,7 +74,7 @@ function buildWelcomeEmailHtml(displayName) {
                     🤝 &nbsp;Conectar con otros jugadores de tu categoría
                   </td>
                 </tr>
-              </table>
+              </table>${verificationBlock}
             </td>
           </tr>
           <tr>
@@ -83,6 +109,14 @@ exports.sendWelcomeEmail = async (user) => {
     return;
   }
 
+  let verificationLink = null;
+  try {
+    getAdminApp();
+    verificationLink = await admin.auth().generateEmailVerificationLink(email);
+  } catch (error) {
+    logger.error("[sendWelcomeEmail] No se pudo generar el link de verificacion:", error?.message);
+  }
+
   try {
     const response = await fetch("https://api.resend.com/emails", {
       method: "POST",
@@ -94,7 +128,7 @@ exports.sendWelcomeEmail = async (user) => {
         from: "PadelNexo <noreply@padelnexo.com.ar>",
         to: [email],
         subject: "¡Bienvenido a PadelNexo!",
-        html: buildWelcomeEmailHtml(displayName),
+        html: buildWelcomeEmailHtml(displayName, verificationLink),
       }),
     });
 
