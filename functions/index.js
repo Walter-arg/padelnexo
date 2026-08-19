@@ -50,6 +50,15 @@ exports.mercadoPagoSyncTurnoPayment = lazyOnRequest(
 );
 exports.mercadoPagoWebhook = lazyOnRequest("./mercadoPagoCheckoutPro", "mercadoPagoWebhook");
 
+// Recibe los eventos de suscripcion de RevenueCat (compra, renovacion,
+// vencimiento) y sincroniza plan/planStatus en Firestore. El Authorization
+// header se valida contra el secreto configurado como "Authorization" en el
+// webhook del dashboard de RevenueCat.
+exports.revenueCatWebhook = lazyOnRequest("./revenueCatWebhook", "revenueCatWebhook", {
+  invoker: "public",
+  secrets: ["REVENUECAT_WEBHOOK_AUTH"],
+});
+
 // OAuth queda desacoplado del flujo actual de Checkout Pro.
 exports.mercadoPagoOAuthStart = lazyOnRequest("./mercadoPagoOAuth", "mercadoPagoOAuthStart");
 exports.mercadoPagoOAuthRedirect = lazyOnRequest("./mercadoPagoOAuth", "mercadoPagoOAuthRedirect");

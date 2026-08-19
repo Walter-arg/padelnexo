@@ -315,6 +315,7 @@ const assignOrganizerPlan = onRequest(
       planStatus: isTrial ? "trial" : "active",
       planExpiresAt,
       planExpirationWarningSentAt: null,
+      planSource: "manual",
       planUpdatedAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     };
