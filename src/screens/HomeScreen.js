@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
-  Linking,
   Pressable,
   ScrollView,
   StatusBar,
@@ -18,6 +17,7 @@ import BottomQuickActionsBar, {
 } from "../components/BottomQuickActionsBar";
 import CircularMenu from "../components/CircularMenu";
 import LoginModal from "../components/LoginModal";
+import PlansPaywallModal from "../components/PlansPaywallModal";
 import ProfileModal from "../components/ProfileModal";
 import { heroPhrases } from "../data/profileOptions";
 import { canAccessAdminPanel } from "../config/admin";
@@ -524,6 +524,7 @@ export default function HomeScreen({ navigation, route }) {
   const { user, userData, refreshUserData } = useAuth();
   const [isLoginVisible, setIsLoginVisible] = useState(false);
   const [isProfileVisible, setIsProfileVisible] = useState(false);
+  const [isPlansVisible, setIsPlansVisible] = useState(false);
   const [selectedMenuItem, setSelectedMenuItem] = useState(MENU_ITEMS[0]);
   const [phraseIndex, setPhraseIndex] = useState(0);
   const phraseOpacity = useRef(new Animated.Value(1)).current;
@@ -742,6 +743,14 @@ export default function HomeScreen({ navigation, route }) {
       };
     }, [userData?.uid])
   );
+
+  const handleOrganizerBannerPress = () => {
+    if (!currentUser) {
+      setIsLoginVisible(true);
+      return;
+    }
+    setIsPlansVisible(true);
+  };
 
   const handleItemPress = (item) => {
     if (!currentUser) {
@@ -1001,7 +1010,7 @@ export default function HomeScreen({ navigation, route }) {
 
         {showOrganizerBanner ? (
           <Pressable
-            onPress={() => Linking.openURL("https://www.padelnexo.com.ar/funcionalidades")}
+            onPress={handleOrganizerBannerPress}
             style={({ pressed }) => [styles.organizerBanner, pressed && styles.organizerBannerPressed]}
           >
             <View style={styles.organizerBannerContent}>
@@ -1561,6 +1570,11 @@ export default function HomeScreen({ navigation, route }) {
         onSave={handleProfileSave}
         user={currentUser}
         visible={isProfileVisible}
+      />
+      <PlansPaywallModal
+        onClose={() => setIsPlansVisible(false)}
+        onPurchaseSuccess={() => refreshUserData()}
+        visible={isPlansVisible}
       />
       <BottomQuickActionsBar />
     </SafeAreaView>

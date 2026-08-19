@@ -41,6 +41,7 @@ import {
 } from "./src/services/leaguesService";
 import { clearPendingTournamentMercadoPagoAttempt } from "./src/services/tournamentsService";
 import { cancelPendingMercadoPagoReservation } from "./src/services/turnosService";
+import { configurePurchases } from "./src/services/purchasesService";
 import { ensureDb } from "./services/firebaseConfig";
 
 // Si el modulo nativo de Crashlytics no esta compilado en el binario
@@ -617,6 +618,10 @@ export default function App() {
   const [isCheckoutBootstrapping, setIsCheckoutBootstrapping] = useState(true);
   const [updateRequired, setUpdateRequired] = useState(false);
   const [updateSuggested, setUpdateSuggested] = useState(false);
+
+  useEffect(() => {
+    configurePurchases();
+  }, []);
 
   useEffect(() => {
     const checkAppVersion = async () => {

@@ -33,6 +33,7 @@ import {
 } from "../services/roleService";
 import { registerForPushNotificationsAsync } from "../services/pushNotificationsService";
 import { clearGoogleSignInSession } from "../services/googleSignInService";
+import { loginPurchasesUser, logoutPurchasesUser } from "../services/purchasesService";
 
 const AuthContext = createContext(null);
 const LAST_LOGIN_EMAIL_KEY = "@padelnexo:last-login-email";
@@ -205,10 +206,13 @@ export function AuthProvider({ children }) {
         setUserData(null);
         setLoading(false);
         setInitializing(false);
+        logoutPurchasesUser();
         return;
       }
 
       try {
+        loginPurchasesUser(firebaseUser.uid);
+
         if (firebaseUser.email) {
           await persistLastLoginEmail(firebaseUser.email);
         }
