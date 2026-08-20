@@ -167,6 +167,7 @@ export function AuthProvider({ children }) {
   const [initializing, setInitializing] = useState(true);
   const [emailVerified, setEmailVerified] = useState(false);
   const lastRegisteredPushUidRef = useRef("");
+  const isRegisteringRef = useRef(false);
 
   const persistLastLoginEmail = async (email) => {
     const normalizedEmail = (email || "").trim().toLowerCase();
@@ -207,6 +208,20 @@ export function AuthProvider({ children }) {
         setLoading(false);
         setInitializing(false);
         logoutPurchasesUser();
+        return;
+      }
+
+      if (isRegisteringRef.current) {
+        // El flujo explicito de register() ya se encarga de crear el perfil
+        // (con nombre/apellido reales) y de hacer setUserData al terminar.
+        // Si este handler tambien buscara/crearia el perfil aca, hay una
+        // carrera real: puede llegar antes de que el perfil real se haya
+        // guardado y crear uno de respaldo con el nombre derivado del email,
+        // pisando despues al correcto.
+        setLoading(false);
+        if (isMounted) {
+          setInitializing(false);
+        }
         return;
       }
 
@@ -282,6 +297,7 @@ export function AuthProvider({ children }) {
       initializing,
       register: async (payload) => {
         setLoading(true);
+        isRegisteringRef.current = true;
 
         try {
           const credentials = await registerUser(payload.email, payload.password);
@@ -297,6 +313,7 @@ export function AuthProvider({ children }) {
             profile,
           };
         } finally {
+          isRegisteringRef.current = false;
           setLoading(false);
         }
       },
