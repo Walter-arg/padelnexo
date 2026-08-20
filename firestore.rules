@@ -238,8 +238,10 @@ service cloud.firestore {
 
     // Bloqueos entre usuarios
     match /userBlocks/{blockId} {
-      allow read, write: if isAuth() && resource.data.userId == request.auth.uid;
-      allow create: if isAuth();
+      allow read: if isAuth() &&
+        (resource.data.blockerId == request.auth.uid || resource.data.blockedId == request.auth.uid);
+      allow create: if isAuth() && request.resource.data.blockerId == request.auth.uid;
+      allow update, delete: if isAuth() && resource.data.blockerId == request.auth.uid;
     }
 
     // Configuracion de la app (version minima, etc.)
