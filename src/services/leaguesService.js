@@ -1126,7 +1126,7 @@ export async function updateLeaguePlayers(leagueId, players = []) {
   });
 }
 
-function buildScheduleLabel(scheduleConfig = {}) {
+export function buildScheduleLabel(scheduleConfig = {}) {
   const timeSlots = Array.isArray(scheduleConfig.timeSlots) ? scheduleConfig.timeSlots.filter(Boolean) : [];
   const timeLabel = timeSlots.join(" / ");
 

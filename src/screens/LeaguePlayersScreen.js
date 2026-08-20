@@ -25,8 +25,10 @@ import { colors, spacing } from "../config/theme";
 import { useAuth } from "../context/AuthContext";
 import { sendChatMessage } from "../services/chatService";
 import {
+  buildScheduleLabel,
   canManageLeague,
   getLeagueById,
+  isLeagueParticipant,
   listLeagueRegistrationRequests,
   updateLeagueRegistrationRequestStatus,
   updateLeaguePlayers,
@@ -44,6 +46,30 @@ function normalizePairNumber(value) {
   const parsedValue = Number.parseInt(value, 10);
 
   return Number.isInteger(parsedValue) && parsedValue > 0 ? parsedValue : null;
+}
+
+function formatCurrency(value = 0) {
+  const amount = Number(value || 0);
+
+  return amount.toLocaleString("es-AR", {
+    currency: "ARS",
+    maximumFractionDigits: 0,
+    style: "currency",
+  });
+}
+
+function buildLeagueSummaryText(league) {
+  const scheduleLabel = buildScheduleLabel(league?.scheduleConfig || {});
+  const paymentConfig = league?.paymentConfig || {};
+  const registrationLine = paymentConfig.registrationFeeEnabled
+    ? `Inscripcion: ${formatCurrency(paymentConfig.registrationFeeAmount)} (unica vez)`
+    : "Inscripcion: no requiere";
+  const roundPriceLine =
+    Number(paymentConfig.roundPricePerPlayer || 0) > 0
+      ? `Precio por fecha: ${formatCurrency(paymentConfig.roundPricePerPlayer)} por jugador`
+      : "Precio por fecha: sin costo";
+
+  return [`Dia y horario: ${scheduleLabel}`, registrationLine, roundPriceLine].join("\n");
 }
 
 function normalizeSexValue(value = "") {
@@ -301,9 +327,12 @@ export default function LeaguePlayersScreen({ navigation, route }) {
       navigation.navigate("PlayerDetail", {
         player: registeredProfile,
         playerId: registeredProfile.id,
+        leagueId: league?.id || "",
+        leagueName: league?.nombre || fallbackLeagueName || "",
+        isLeagueMember: isLeagueParticipant(league, { uid: registeredProfile.id }),
       });
     },
-    [getRegisteredProfileForPlayer, navigation]
+    [fallbackLeagueName, getRegisteredProfileForPlayer, league, navigation]
   );
 
   const filteredRegisteredPlayers = useMemo(() => {
@@ -1014,6 +1043,9 @@ export default function LeaguePlayersScreen({ navigation, route }) {
     const contacts = [request.requester, request.partner].filter(
       (player) => player?.linkedUserId || player?.id
     );
+    const text = `Tu inscripcion a ${leagueName} fue confirmada por el organizador.\n\n${buildLeagueSummaryText(
+      league
+    )}`;
 
     await Promise.all(
       contacts.map((player) =>
@@ -1022,7 +1054,28 @@ export default function LeaguePlayersScreen({ navigation, route }) {
           currentUserName: organizerName,
           otherUserId: player.linkedUserId || player.id,
           otherUserName: formatPlayerShortName(player),
-          text: `Tu inscripcion a ${leagueName} fue confirmada por el organizador.`,
+          text,
+        }).catch(() => null)
+      )
+    );
+  };
+
+  const notifyLeagueRegistrationRejected = async (request) => {
+    const organizerId = userData?.uid || "";
+    const organizerName = userData?.name || "Organizador";
+    const leagueName = league?.nombre || fallbackLeagueName || "la liga";
+    const contacts = [request.requester, request.partner].filter(
+      (player) => player?.linkedUserId || player?.id
+    );
+
+    await Promise.all(
+      contacts.map((player) =>
+        sendChatMessage({
+          currentUserId: organizerId,
+          currentUserName: organizerName,
+          otherUserId: player.linkedUserId || player.id,
+          otherUserName: formatPlayerShortName(player),
+          text: `Tu inscripcion a ${leagueName} no fue aceptada por el organizador.`,
         }).catch(() => null)
       )
     );
@@ -1066,6 +1119,7 @@ export default function LeaguePlayersScreen({ navigation, route }) {
   const handleRejectRegistrationRequest = async (request) => {
     try {
       await updateLeagueRegistrationRequestStatus(request.id, "rejected");
+      await notifyLeagueRegistrationRejected(request);
       setRegistrationRequests((current) =>
         current.map((item) => (item.id === request.id ? { ...item, status: "rejected" } : item))
       );

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Alert, Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Image, Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -13,6 +13,7 @@ import { useAuth } from "../context/AuthContext";
 import { createInvitation } from "../services/invitationsService";
 import { submitReport } from "../services/reportsService";
 import { hasProfileImage } from "../utils/defaultProfileImage";
+import { buildWhatsAppPhoneNumber } from "../utils/whatsapp";
 
 function formatPhoneNumber(countryCode = "+54", phone = "") {
   const cleanPhone = String(phone || "").trim();
@@ -35,9 +36,15 @@ export default function PlayerDetailScreen({ navigation, route }) {
     tone: "default",
   });
   const player = route?.params?.player;
+  const leagueId = route?.params?.leagueId || "";
+  const leagueName = route?.params?.leagueName || "";
+  const isLeagueMember = Boolean(route?.params?.isLeagueMember);
   const hasImage = hasProfileImage(player?.foto);
   const publicPhone = player?.isPhonePublic
     ? formatPhoneNumber(player?.countryCode, player?.phone)
+    : "";
+  const whatsAppNumber = player?.isPhonePublic
+    ? buildWhatsAppPhoneNumber(player?.phone, player?.countryCode)
     : "";
 
   const handleInvite = async () => {
@@ -46,19 +53,62 @@ export default function PlayerDetailScreen({ navigation, route }) {
     }
 
     try {
-      await createInvitation({
-        senderId: userData.uid,
-        senderName: userData.name,
-        recipientId: player.id,
-        recipientName: player.nombre,
+      if (leagueId) {
+        await createInvitation({
+          senderId: userData.uid,
+          senderName: userData.name,
+          recipientId: player.id,
+          recipientName: player.nombre,
+          type: "league_invitation",
+          title: "Invitacion a liga",
+          subtitle: `${userData.name || "El organizador"} te invito a sumarte a ${leagueName || "una liga"}.`,
+          metadata: { leagueId, leagueName },
+        });
+      } else {
+        await createInvitation({
+          senderId: userData.uid,
+          senderName: userData.name,
+          recipientId: player.id,
+          recipientName: player.nombre,
+        });
+      }
+      setFeedback({
+        visible: true,
+        title: "Invitacion enviada",
+        message: `Le enviamos una invitacion a ${player.nombre}.`,
+        tone: "default",
       });
-      Alert.alert("Invitacion enviada", `Le enviamos una invitacion a ${player.nombre}.`);
     } catch (error) {
-      Alert.alert(
-        "No pudimos enviar la invitacion",
-        "Intenta nuevamente en unos instantes."
-      );
+      setFeedback({
+        visible: true,
+        title: "No pudimos enviar la invitacion",
+        message: "Intenta nuevamente en unos instantes.",
+        tone: "danger",
+      });
     }
+  };
+
+  const handleSendMessage = () => {
+    if (!player?.id) {
+      return;
+    }
+
+    navigation.navigate("Mensajes", { playerId: player.id, playerName: player.nombre });
+  };
+
+  const handleOpenWhatsApp = () => {
+    if (!whatsAppNumber) {
+      return;
+    }
+
+    Linking.openURL(`https://wa.me/${whatsAppNumber}`).catch(() => {
+      setFeedback({
+        visible: true,
+        title: "No pudimos abrir WhatsApp",
+        message: "Intenta nuevamente en unos instantes.",
+        tone: "danger",
+      });
+    });
   };
 
   const handleSubmitProfileReport = async (description) => {
@@ -176,7 +226,30 @@ export default function PlayerDetailScreen({ navigation, route }) {
           </View>
         ) : null}
 
-        <AppButton onPress={handleInvite} style={styles.inviteButton} title="Invitar" />
+        {leagueId ? (
+          <AppButton
+            disabled={isLeagueMember}
+            onPress={handleInvite}
+            style={styles.inviteButton}
+            title={isLeagueMember ? `Ya participa de ${leagueName || "la liga"}` : `Invitar a ${leagueName || "la liga"}`}
+          />
+        ) : (
+          <AppButton onPress={handleInvite} style={styles.inviteButton} title="Invitar" />
+        )}
+        <AppButton
+          onPress={handleSendMessage}
+          style={styles.inviteButton}
+          title="Enviar mensaje"
+          variant="secondary"
+        />
+        {whatsAppNumber ? (
+          <AppButton
+            onPress={handleOpenWhatsApp}
+            style={styles.inviteButton}
+            title="Enviar WhatsApp"
+            variant="secondary"
+          />
+        ) : null}
       </ScrollView>
       <ReportModal
         onCancel={() => setReportVisible(false)}
