@@ -19,6 +19,7 @@ import {
 import { db } from "../../services/firebaseConfig";
 import { ADMIN_EMAIL } from "../config/admin";
 import { getConversationBlockStatus } from "./blockingService";
+import { getUserPushTokens, sendExpoPushNotificationAsync } from "./pushNotificationsService";
 
 export const SYSTEM_NOTIFICATION_USER_ID = "padelnexo-system";
 export const SYSTEM_NOTIFICATION_USER_NAME = "PadelNexo";
@@ -142,6 +143,17 @@ export async function sendChatMessage({
       [otherUserId]: otherUserName || "Jugador",
     },
   });
+
+  getUserPushTokens(otherUserId)
+    .then((tokens) =>
+      sendExpoPushNotificationAsync({
+        tokens,
+        title: currentUserName || "Nuevo mensaje",
+        body: normalizedText,
+        data: { type: "chat_message", conversationId, senderId: currentUserId },
+      })
+    )
+    .catch(() => null);
 }
 
 export function subscribeToUserConversations({ currentUserId, onData, onError }) {
