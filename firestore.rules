@@ -236,10 +236,14 @@ service cloud.firestore {
         (resource.data.reporterId == request.auth.uid || esAdmin());
     }
 
-    // Bloqueos entre usuarios
+    // Bloqueos entre usuarios. El id del doc es "{blockerId}__{blockedId}",
+    // por eso el chequeo de lectura se hace sobre el propio blockId (no sobre
+    // resource.data): getConversationBlockStatus necesita poder leer un
+    // bloqueo que puede no existir todavia (caso normal, sin bloqueo), y
+    // resource.data es null en ese caso -- si la regla dependiera de eso,
+    // la lectura fallaria con permission-denied incluso sin ningun bloqueo.
     match /userBlocks/{blockId} {
-      allow read: if isAuth() &&
-        (resource.data.blockerId == request.auth.uid || resource.data.blockedId == request.auth.uid);
+      allow read: if isAuth() && request.auth.uid in blockId.split("__");
       allow create: if isAuth() && request.resource.data.blockerId == request.auth.uid;
       allow update, delete: if isAuth() && resource.data.blockerId == request.auth.uid;
     }
