@@ -6,6 +6,41 @@ function serverTimestamp() {
   return admin.firestore.FieldValue.serverTimestamp();
 }
 
+// Borra por completo las conversaciones (y sus mensajes) donde el usuario
+// participo, y los bloqueos donde figura como bloqueador o bloqueado.
+async function deleteUserChatData(db, userId) {
+  const conversationsSnapshot = await db
+    .collection("conversations")
+    .where("participants", "array-contains", userId)
+    .get();
+
+  for (const conversationDoc of conversationsSnapshot.docs) {
+    const messagesSnapshot = await conversationDoc.ref.collection("messages").get();
+    const messagesBatch = db.batch();
+
+    messagesSnapshot.docs.forEach((messageDoc) => messagesBatch.delete(messageDoc.ref));
+
+    if (!messagesSnapshot.empty) {
+      await messagesBatch.commit();
+    }
+
+    await conversationDoc.ref.delete();
+  }
+
+  const [blockedByUser, blockedUser] = await Promise.all([
+    db.collection("userBlocks").where("blockerId", "==", userId).get(),
+    db.collection("userBlocks").where("blockedId", "==", userId).get(),
+  ]);
+
+  const blocksBatch = db.batch();
+  blockedByUser.docs.forEach((blockDoc) => blocksBatch.delete(blockDoc.ref));
+  blockedUser.docs.forEach((blockDoc) => blocksBatch.delete(blockDoc.ref));
+
+  if (!blockedByUser.empty || !blockedUser.empty) {
+    await blocksBatch.commit();
+  }
+}
+
 async function verifyCallerToken(req) {
   const authHeader = String(req.headers?.authorization || "");
   const idToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
@@ -29,7 +64,9 @@ async function verifyCallerToken(req) {
 // usuario de Auth, si no las reglas de seguridad rechazan la escritura).
 // En vez de borrar el documento de users/{uid} por completo, lo dejamos
 // como un perfil "tumba" (Usuario eliminado) para no romper referencias
-// en ligas/torneos en curso que ya tienen el nombre guardado.
+// en ligas/torneos en curso que ya tienen el nombre guardado. Las
+// conversaciones/mensajes y bloqueos si se borran por completo (incluye
+// el lado del otro participante), a diferencia del perfil.
 const deleteOwnAccount = onRequest({ invoker: "public" }, async (req, res) => {
   if (handlePreflight(req, res)) {
     return;
@@ -55,6 +92,8 @@ const deleteOwnAccount = onRequest({ invoker: "public" }, async (req, res) => {
     } catch (error) {
       // La foto puede no existir, seguimos igual con el resto del borrado.
     }
+
+    await deleteUserChatData(db, userId);
 
     const batch = db.batch();
 

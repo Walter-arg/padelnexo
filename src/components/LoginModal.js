@@ -4,6 +4,7 @@ import DateTimePicker, { DateTimePickerAndroid } from "@react-native-community/d
 import {
   Alert,
   KeyboardAvoidingView,
+  Linking,
   Modal,
   Platform,
   Pressable,
@@ -188,6 +189,7 @@ export default function LoginModal({ onClose, onLogin, visible }) {
   const [birthDate, setBirthDate] = useState(null);
   const [datePickerVisible, setDatePickerVisible] = useState(false);
   const [tempBirthDate, setTempBirthDate] = useState(null);
+  const [termsAccepted, setTermsAccepted] = useState(false);
 
   useEffect(() => {
     if (!visible) {
@@ -219,6 +221,7 @@ export default function LoginModal({ onClose, onLogin, visible }) {
       setIsDominantHandVisible(false);
       setBirthDate(null);
       setDatePickerVisible(false);
+      setTermsAccepted(false);
     }
   }, [lastLoginEmail, visible]);
 
@@ -427,6 +430,16 @@ export default function LoginModal({ onClose, onLogin, visible }) {
         return;
       }
 
+      if (!termsAccepted) {
+        setFeedback({
+          visible: true,
+          title: "Falta aceptar los t\u00e9rminos",
+          message: "Ten\u00e9s que aceptar los T\u00e9rminos y Condiciones y la Pol\u00edtica de Privacidad para registrarte.",
+          tone: "danger",
+        });
+        return;
+      }
+
       const normalizedLocalidad = {
         nombre: localidad.nombre,
         provincia: localidad.provincia,
@@ -453,6 +466,8 @@ export default function LoginModal({ onClose, onLogin, visible }) {
           avatarColor: avatarColors[0],
           avatarUrl: "",
           fechaNacimiento: dateToFechaNacimiento(birthDate),
+          termsAccepted: true,
+          termsVersion: "1.0",
         });
         onLogin?.();
         onClose();
@@ -858,6 +873,35 @@ export default function LoginModal({ onClose, onLogin, visible }) {
               />
             ) : null}
 
+            {mode === "register" ? (
+              <Pressable
+                onPress={() => setTermsAccepted((current) => !current)}
+                style={styles.termsRow}
+              >
+                <Ionicons
+                  color={colors.primary}
+                  name={termsAccepted ? "checkbox" : "square-outline"}
+                  size={20}
+                />
+                <Text style={styles.termsText}>
+                  Acepto los{" "}
+                  <Text
+                    onPress={() => Linking.openURL("https://www.padelnexo.com.ar/terminos")}
+                    style={styles.termsLink}
+                  >
+                    Términos y Condiciones
+                  </Text>{" "}
+                  y la{" "}
+                  <Text
+                    onPress={() => Linking.openURL("https://www.padelnexo.com.ar/politica-privacidad")}
+                    style={styles.termsLink}
+                  >
+                    Política de Privacidad
+                  </Text>
+                </Text>
+              </Pressable>
+            ) : null}
+
             <AppButton title={actionLabel} onPress={handleSubmit} style={styles.submit} />
 
             {mode === "login" ? (
@@ -954,6 +998,23 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xs,
     textAlign: "center",
     textTransform: "uppercase",
+  },
+  termsRow: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    gap: 8,
+    marginTop: spacing.xs,
+    paddingHorizontal: 4,
+  },
+  termsText: {
+    color: colors.muted,
+    flex: 1,
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  termsLink: {
+    color: colors.primary,
+    fontWeight: "700",
   },
   submit: {
     marginTop: spacing.sm,

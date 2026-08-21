@@ -7,3 +7,4 @@ LOGO PADEL NEXO.png
 .env
 .vscode/mcp.json
 .firebase/
+firebase-debug.log
