@@ -4,6 +4,7 @@ import {
   arrayRemove,
   collection,
   doc,
+  getDoc,
   getDocs,
   increment,
   onSnapshot,
@@ -144,15 +145,24 @@ export async function sendChatMessage({
     },
   });
 
-  getUserPushTokens(otherUserId)
-    .then((tokens) =>
-      sendExpoPushNotificationAsync({
-        tokens,
-        title: currentUserName || "Nuevo mensaje",
-        body: normalizedText,
-        data: { type: "chat_message", conversationId, senderId: currentUserId },
-      })
-    )
+  getDoc(doc(db, "users", otherUserId))
+    .then((otherUserSnapshot) => {
+      // Si el destinatario no puede usar el chat (menor sin edad verificada),
+      // tampoco tiene sentido avisarle por push de un mensaje que no va a
+      // poder ver al entrar a la app.
+      if (otherUserSnapshot.data()?.chatHabilitado !== true) {
+        return null;
+      }
+
+      return getUserPushTokens(otherUserId).then((tokens) =>
+        sendExpoPushNotificationAsync({
+          tokens,
+          title: currentUserName || "Nuevo mensaje",
+          body: normalizedText,
+          data: { type: "chat_message", conversationId, senderId: currentUserId },
+        })
+      );
+    })
     .catch(() => null);
 }
 
