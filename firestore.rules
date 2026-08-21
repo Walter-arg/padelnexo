@@ -176,22 +176,26 @@ service cloud.firestore {
     }
 
     match /conversations/{conversationId} {
+      // El id de la conversacion siempre es "{uidA}__{uidB}" (ver
+      // buildConversationId en chatService.js), asi que chequear membresia
+      // contra el propio id (en vez de resource.data / get()) funciona
+      // tanto si el documento ya existe como si todavia no existe -- una
+      // conversacion nueva se lee (para escuchar mensajes) antes de que
+      // exista, y resource/get() son null en ese caso.
       allow read: if isAuth() &&
-        request.auth.uid in resource.data.participants &&
-        (puedeUsarChat() || esConversacionDelSistema(resource.data.participants));
+        request.auth.uid in conversationId.split("__") &&
+        (puedeUsarChat() || esConversacionDelSistema(conversationId.split("__")));
       allow write: if isAuth() &&
         puedeUsarChat() &&
-        (request.auth.uid in resource.data.participants ||
-         (esConversacionDelSistema(resource.data.participants) &&
+        (request.auth.uid in conversationId.split("__") ||
+         (esConversacionDelSistema(conversationId.split("__")) &&
           request.resource.data.lastMessageSenderId == "padelnexo-system"));
       allow create: if isAuth() && puedeUsarChat();
 
       match /messages/{messageId} {
         allow read: if isAuth() &&
-          request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.participants &&
-          (puedeUsarChat() || esConversacionDelSistema(
-            get(/databases/$(database)/documents/conversations/$(conversationId)).data.participants
-          ));
+          request.auth.uid in conversationId.split("__") &&
+          (puedeUsarChat() || esConversacionDelSistema(conversationId.split("__")));
         allow create: if isAuth() && puedeUsarChat();
       }
     }
