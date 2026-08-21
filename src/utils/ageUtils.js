@@ -1,4 +1,4 @@
-export const EDAD_MINIMA_MENSAJES = 14;
+export const EDAD_MINIMA_MENSAJES = 13;
 
 export function calcularEdad(fechaNacimiento) {
   if (!fechaNacimiento) return null;
