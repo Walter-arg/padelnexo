@@ -156,6 +156,7 @@ export default function MensajesScreen({ navigation, route }) {
   const listRef = useRef(null);
   const conversationListReadyRef = useRef(false);
   const [isConversationListLoading, setIsConversationListLoading] = useState(true);
+  const [conversationListError, setConversationListError] = useState("");
 
   const handleMessageAction = (action) => {
     if (!action?.type) {
@@ -179,6 +180,7 @@ export default function MensajesScreen({ navigation, route }) {
           conversationListReadyRef.current = true;
           setIsConversationListLoading(false);
         }
+        setConversationListError("");
         setConversationList(
           nextConversations.map((item) => ({
             ...item,
@@ -186,11 +188,15 @@ export default function MensajesScreen({ navigation, route }) {
           }))
         );
       },
-      onError: () => {
+      onError: (error) => {
+        devLog("[MensajesScreen] Error al cargar conversaciones", error);
         if (!conversationListReadyRef.current) {
           conversationListReadyRef.current = true;
           setIsConversationListLoading(false);
         }
+        setConversationListError(
+          `${error?.code || "error"}: ${error?.message || "No pudimos cargar tus conversaciones."}`
+        );
         setConversationList([]);
       },
     });
@@ -218,7 +224,10 @@ export default function MensajesScreen({ navigation, route }) {
       currentUserId,
       otherUserId: activeConversation.playerId,
       onData: setConversationMessages,
-      onError: () => setConversationMessages([]),
+      onError: (error) => {
+        devLog("[MensajesScreen] Error al cargar mensajes de la conversacion", error);
+        setConversationMessages([]);
+      },
     });
 
     return unsubscribe;
@@ -843,6 +852,9 @@ export default function MensajesScreen({ navigation, route }) {
         <View pointerEvents="none" style={styles.backgroundRacketRight} />
         <View pointerEvents="none" style={styles.backgroundBall} />
         <Text style={styles.subtitle}>Conversaciones activas con la comunidad</Text>
+        {conversationListError ? (
+          <Text style={styles.conversationListErrorText}>{conversationListError}</Text>
+        ) : null}
         {conversationList.length > 0 ? (
           <View style={styles.selectionToolbar}>
             <Pressable
@@ -1101,6 +1113,15 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "700",
     marginBottom: spacing.xs,
+    textAlign: "center",
+  },
+  conversationListErrorText: {
+    backgroundColor: "#FDECEC",
+    borderRadius: 12,
+    color: "#B43A32",
+    fontSize: 12,
+    marginBottom: spacing.sm,
+    padding: spacing.sm,
     textAlign: "center",
   },
   globalWarningText: {
