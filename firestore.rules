@@ -176,15 +176,25 @@ service cloud.firestore {
     }
 
     match /conversations/{conversationId} {
-      // El id de la conversacion siempre es "{uidA}__{uidB}" (ver
-      // buildConversationId en chatService.js), asi que chequear membresia
-      // contra el propio id (en vez de resource.data / get()) funciona
-      // tanto si el documento ya existe como si todavia no existe -- una
-      // conversacion nueva se lee (para escuchar mensajes) antes de que
-      // exista, y resource/get() son null en ese caso.
-      allow read: if isAuth() &&
-        request.auth.uid in conversationId.split("__") &&
-        (puedeUsarChat() || esConversacionDelSistema(conversationId.split("__")));
+      // subscribeToUserConversations trae TODAS las conversaciones de un
+      // usuario con una sola query (array-contains). Esa query nunca puede
+      // matchear un documento que no existe, asi que resource.data siempre
+      // esta poblado aca -- por eso alcanza con chequear participants ahi
+      // directamente. Importante: NO usar conversationId.split(...) para
+      // este caso. Se probo que evaluar una expresion sobre el propio id del
+      // documento (en vez de sus datos) en una query que devuelve muchos
+      // resultados distintos (mas de ~10-15, algo normal para una cuenta
+      // real con historial) hace que Firestore rechace toda la consulta con
+      // permission-denied -- es una limitacion real de la plataforma con ese
+      // patron, no algo que dependa de puedeUsarChat() ni de la cantidad de
+      // get() usados.
+      //
+      // La lectura NO exige puedeUsarChat(): ese chequeo era ademas otro
+      // get() extra por documento, agravando el problema de arriba. Leer tus
+      // propias conversaciones no necesita revalidar la edad; eso solo
+      // importa para poder crear una nueva o mandar un mensaje (una sola
+      // escritura sobre un unico documento, sin este problema de limite).
+      allow read: if isAuth() && request.auth.uid in resource.data.participants;
       allow write: if isAuth() &&
         puedeUsarChat() &&
         (request.auth.uid in conversationId.split("__") ||
@@ -193,9 +203,7 @@ service cloud.firestore {
       allow create: if isAuth() && puedeUsarChat();
 
       match /messages/{messageId} {
-        allow read: if isAuth() &&
-          request.auth.uid in conversationId.split("__") &&
-          (puedeUsarChat() || esConversacionDelSistema(conversationId.split("__")));
+        allow read: if isAuth() && request.auth.uid in conversationId.split("__");
         allow create: if isAuth() && puedeUsarChat();
       }
     }
