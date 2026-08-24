@@ -893,7 +893,7 @@ export default function LoginModal({ onClose, onLogin, visible }) {
                   </Text>{" "}
                   y la{" "}
                   <Text
-                    onPress={() => Linking.openURL("https://www.padelnexo.com.ar/politica-privacidad")}
+                    onPress={() => Linking.openURL("https://www.padelnexo.com.ar/privacidad")}
                     style={styles.termsLink}
                   >
                     Política de Privacidad

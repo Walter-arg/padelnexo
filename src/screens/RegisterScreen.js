@@ -508,14 +508,14 @@ export default function RegisterScreen({ navigation }) {
             <Text style={styles.legalText}>
               Acepto los{" "}
               <Text
-                onPress={() => Linking.openURL("https://www.padelnexo.com.ar/terminos-condiciones")}
+                onPress={() => Linking.openURL("https://www.padelnexo.com.ar/terminos")}
                 style={styles.legalLink}
               >
                 Terminos y Condiciones
               </Text>
               {" "}y la{" "}
               <Text
-                onPress={() => Linking.openURL("https://www.padelnexo.com.ar/politica-privacidad")}
+                onPress={() => Linking.openURL("https://www.padelnexo.com.ar/privacidad")}
                 style={styles.legalLink}
               >
                 Politica de Privacidad
