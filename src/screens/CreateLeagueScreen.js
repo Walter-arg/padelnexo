@@ -18,7 +18,6 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import AppButton from "../components/AppButton";
 import AppInput from "../components/AppInput";
 import FeedbackModal from "../components/FeedbackModal";
-import LocationPicker from "../components/LocationPicker";
 import OrganizerRequestModal from "../components/OrganizerRequestModal";
 import SectionHeader from "../components/SectionHeader";
 import SelectField from "../components/SelectField";
@@ -723,7 +722,6 @@ export default function CreateLeagueScreen({ navigation, route }) {
               }
             : null
         );
-        setBaseLocationInput("");
       } catch (error) {
         if (isMounted) {
           showFeedback(

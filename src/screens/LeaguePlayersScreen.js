@@ -3,7 +3,9 @@ import {
   ActivityIndicator,
   FlatList,
   Image,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -338,17 +340,23 @@ export default function LeaguePlayersScreen({ navigation, route }) {
   const filteredRegisteredPlayers = useMemo(() => {
     const normalizedQuery = normalizeText(query);
 
-    return registeredPlayers.filter((player) => {
-      if (!normalizedQuery) {
-        return true;
-      }
+    return registeredPlayers
+      .filter((player) => {
+        if (!normalizedQuery) {
+          return true;
+        }
 
-      return (
-        normalizeText(`${player.nombre || ""} ${player.apellido || ""}`).includes(normalizedQuery) ||
-        normalizeText(player.categoria).includes(normalizedQuery) ||
-        normalizeText(player.ciudad).includes(normalizedQuery)
+        return (
+          normalizeText(`${player.nombre || ""} ${player.apellido || ""}`).includes(normalizedQuery) ||
+          normalizeText(player.categoria).includes(normalizedQuery) ||
+          normalizeText(player.ciudad).includes(normalizedQuery)
+        );
+      })
+      .sort((a, b) =>
+        normalizeText(`${a.nombre || ""} ${a.apellido || ""}`).localeCompare(
+          normalizeText(`${b.nombre || ""} ${b.apellido || ""}`)
+        )
       );
-    });
   }, [query, registeredPlayers]);
 
   const persistPlayers = async (nextPlayers, successMessage) => {
@@ -1300,7 +1308,7 @@ export default function LeaguePlayersScreen({ navigation, route }) {
                   </View>
                 ) : (
                   <View style={styles.searchResultsWrap}>
-                    {filteredRegisteredPlayers.slice(0, 12).map((player) => (
+                    {filteredRegisteredPlayers.map((player) => (
                       <View key={player.id}>{renderRegisteredPlayer({ item: player })}</View>
                     ))}
                   </View>
@@ -1326,7 +1334,10 @@ export default function LeaguePlayersScreen({ navigation, route }) {
         transparent
         visible={guestModalVisible}
       >
-        <View style={styles.modalOverlay}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          style={styles.modalOverlay}
+        >
           <Pressable
             onPress={() => {
               setGuestModalVisible(false);
@@ -1371,7 +1382,7 @@ export default function LeaguePlayersScreen({ navigation, route }) {
               </Pressable>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       <Modal

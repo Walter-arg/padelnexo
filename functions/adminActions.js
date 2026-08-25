@@ -503,8 +503,17 @@ const approveOrganizerRequest = onRequest(
     const userUpdate = {
       organizerStatus: ORGANIZER_STATUS.APPROVED,
       role: ORGANIZER_ROLE,
-      complejos,
     };
+
+    // Solo copiamos los complejos de la solicitud la primera vez que se
+    // aprueba. Si ya tiene complejos propios (porque ya fue aprobado antes
+    // y los edito despues), una re-aprobacion no debe pisarlos con la
+    // version vieja y congelada de la solicitud original.
+    const hasExistingComplexes = Array.isArray(userData.complejos) && userData.complejos.length > 0;
+
+    if (!hasExistingComplexes) {
+      userUpdate.complejos = complejos;
+    }
 
     // Trial automatico solo si todavia no tiene ningun plan (primera vez
     // que se aprueba). Si ya tenia uno, no lo pisamos.

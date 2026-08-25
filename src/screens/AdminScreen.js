@@ -1502,13 +1502,21 @@ export default function AdminScreen({ navigation, route }) {
                 ))}
 
                 <View style={styles.modalActions}>
-                  <AppButton title="Aprobar" onPress={handleApprove} style={styles.compactButton} />
-                  <AppButton
-                    title="Rechazar"
-                    onPress={handleReject}
-                    style={styles.compactButton}
-                    variant="secondary"
-                  />
+                  {selectedRequest.status !== ORGANIZER_STATUS.APPROVED ? (
+                    <>
+                      <AppButton
+                        title="Aprobar"
+                        onPress={handleApprove}
+                        style={styles.compactButton}
+                      />
+                      <AppButton
+                        title="Rechazar"
+                        onPress={handleReject}
+                        style={styles.compactButton}
+                        variant="secondary"
+                      />
+                    </>
+                  ) : null}
                   <AppButton
                     title="Cerrar"
                     onPress={() => setSelectedRequest(null)}
