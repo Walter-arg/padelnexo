@@ -378,29 +378,24 @@ async function syncOrganizerApproval(uid, profileDoc) {
 
   const hasUserComplexes =
     Array.isArray(profileDoc.complejos) && profileDoc.complejos.length > 0;
+  // Este fallback es solo para tener algo que mostrar a un organizador viejo
+  // que nunca llego a tener complejos propios guardados. A proposito NUNCA se
+  // persiste: escribirlo de vuelta en Firestore pisaria ediciones reales del
+  // organizador si esta lectura llegara a evaluar mal el estado (esto causo
+  // perdida real de datos en produccion).
   const complejos = hasUserComplexes ? profileDoc.complejos : organizerRequest.complejos || [];
-  const shouldSyncUserDoc =
-    profileDoc.role !== "organizer" ||
-    profileDoc.organizerStatus !== "approved" ||
-    !hasUserComplexes;
+  const needsRoleSync =
+    profileDoc.role !== "organizer" || profileDoc.organizerStatus !== "approved";
 
-  if (shouldSyncUserDoc) {
+  if (needsRoleSync) {
     const activeDb = await ensureDb();
 
-    if (!activeDb) {
-      return {
-        ...profileDoc,
+    if (activeDb) {
+      await updateDoc(doc(activeDb, "users", uid), {
         role: "organizer",
         organizerStatus: "approved",
-        complejos,
-      };
+      });
     }
-
-    await updateDoc(doc(activeDb, "users", uid), {
-      role: "organizer",
-      organizerStatus: "approved",
-      complejos,
-    });
   }
 
   return {
