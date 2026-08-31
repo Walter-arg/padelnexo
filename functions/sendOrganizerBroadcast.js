@@ -115,44 +115,52 @@ async function sendOrganizerBroadcast(req, res) {
       throw new HttpError(400, "titulo_y_mensaje_requeridos");
     }
 
-    if (!["todos", "liga", "torneo"].includes(destino)) {
+    if (!["liga", "torneo", "todas_ligas", "todos_torneos"].includes(destino)) {
       throw new HttpError(400, "destino_invalido");
     }
 
-    const [ligasSnapshot, torneosSnapshot] = await Promise.all([
-      db.collection("leagues").where("organizerId", "==", organizerId).get(),
-      db.collection("tournaments").where("organizerId", "==", organizerId).get(),
-    ]);
-    const ligas = ligasSnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-    const torneos = torneosSnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-
     let targetIds = [];
-    let destinoNombre = "Todos los jugadores";
+    let destinoNombre = "";
 
     if (destino === "liga") {
-      const liga = ligas.find((item) => item.id === destinoId);
+      const ligaSnapshot = await db.collection("leagues").doc(destinoId).get();
+      const liga = ligaSnapshot.exists ? ligaSnapshot.data() : null;
 
-      if (!liga) {
+      if (!liga || liga.organizerId !== organizerId) {
         throw new HttpError(404, "liga_no_encontrada");
       }
 
       targetIds = getLeaguePlayerIds(liga);
       destinoNombre = liga.nombre || "Liga";
     } else if (destino === "torneo") {
-      const torneo = torneos.find((item) => item.id === destinoId);
+      const torneoSnapshot = await db.collection("tournaments").doc(destinoId).get();
+      const torneo = torneoSnapshot.exists ? torneoSnapshot.data() : null;
 
-      if (!torneo) {
+      if (!torneo || torneo.organizerId !== organizerId) {
         throw new HttpError(404, "torneo_no_encontrado");
       }
 
       targetIds = await getTournamentPlayerIds(db, destinoId);
       destinoNombre = torneo.nombre || "Torneo";
+    } else if (destino === "todas_ligas") {
+      const ligasSnapshot = await db
+        .collection("leagues")
+        .where("organizerId", "==", organizerId)
+        .get();
+
+      targetIds = ligasSnapshot.docs.flatMap((doc) => getLeaguePlayerIds(doc.data()));
+      destinoNombre = "Todas mis ligas";
     } else {
+      const torneosSnapshot = await db
+        .collection("tournaments")
+        .where("organizerId", "==", organizerId)
+        .get();
       const torneoIdsArrays = await Promise.all(
-        torneos.map((torneo) => getTournamentPlayerIds(db, torneo.id))
+        torneosSnapshot.docs.map((doc) => getTournamentPlayerIds(db, doc.id))
       );
 
-      targetIds = [...ligas.flatMap(getLeaguePlayerIds), ...torneoIdsArrays.flat()];
+      targetIds = torneoIdsArrays.flat();
+      destinoNombre = "Todos mis torneos";
     }
 
     const uniqueTargetIds = [...new Set(targetIds)];
@@ -170,7 +178,7 @@ async function sendOrganizerBroadcast(req, res) {
       titulo: safeTitulo,
       mensaje: safeMensaje,
       destino,
-      destinoId: destino !== "todos" ? destinoId : null,
+      destinoId: ["liga", "torneo"].includes(destino) ? destinoId : null,
       destinoNombre,
       recipientCount: uniqueTargetIds.length,
       sentAt: admin.firestore.FieldValue.serverTimestamp(),
