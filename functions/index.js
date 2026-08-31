@@ -24,6 +24,10 @@ function lazyOnRequest(modulePath, exportName, options = { invoker: "public" }) 
   });
 }
 
+exports.debugComplejosTemp = lazyOnRequest("./_debugComplejosTemp", "debugComplejosTemp");
+
+exports.sendOrganizerBroadcast = lazyOnRequest("./sendOrganizerBroadcast", "sendOrganizerBroadcast");
+
 exports.mercadoPagoCreateLeaguePreference = lazyOnRequest(
   "./mercadoPagoCheckoutPro",
   "mercadoPagoCreateLeaguePreference"
