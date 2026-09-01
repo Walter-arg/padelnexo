@@ -302,7 +302,7 @@ export default function ProfileModal({
       });
       setSelectedLocation(parsedLocalidad);
     }
-  }, [user?.uid, visible]);
+  }, [user?.uid, user?.role, user?.organizerStatus, visible]);
 
   useEffect(() => {
     if (!visible || !isApprovedAccount) {
