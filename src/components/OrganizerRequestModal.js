@@ -9,6 +9,7 @@ import {
   Text,
   View,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 
 import { colors, spacing } from "../config/theme";
 import { useAuth } from "../context/AuthContext";
@@ -712,15 +713,22 @@ export default function OrganizerRequestModal({
                       />
 
                       <View style={styles.locationStatusRow}>
+                        <Ionicons
+                          color={complex.coordinates ? "#1E7A43" : colors.danger}
+                          name={complex.coordinates ? "checkmark-circle" : "alert-circle"}
+                          size={16}
+                        />
                         <Text
                           style={[
                             styles.locationStatusText,
-                            complex.coordinates ? styles.locationStatusTextReady : null,
+                            complex.coordinates
+                              ? styles.locationStatusTextReady
+                              : styles.locationStatusTextMissing,
                           ]}
                         >
                           {complex.coordinates
-                            ? "Ubicacion exacta cargada"
-                            : "Ubicacion exacta pendiente"}
+                            ? "Ubicacion exacta OK"
+                            : "Sin ubicacion exacta"}
                         </Text>
                         <Pressable
                           disabled={locatingComplexIndex !== null}
@@ -1045,7 +1053,10 @@ const styles = StyleSheet.create({
     fontWeight: "800",
   },
   locationStatusTextReady: {
-    color: colors.primaryDark,
+    color: "#1E7A43",
+  },
+  locationStatusTextMissing: {
+    color: colors.danger,
   },
   locationButton: {
     backgroundColor: colors.primaryDark,
