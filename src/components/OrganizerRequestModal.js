@@ -17,6 +17,7 @@ import AppButton from "./AppButton";
 import AppInput from "./AppInput";
 import CountryCodeSelector from "./CountryCodeSelector";
 import FeedbackModal from "./FeedbackModal";
+import LocationPicker from "./LocationPicker";
 import {
   geocodeAddress,
   getCoordinatesFromObject,
@@ -282,6 +283,19 @@ export default function OrganizerRequestModal({
           ...nuevosComplejos[index].localidad,
           [subfield]: value,
         },
+      };
+      return { ...current, complejos: nuevosComplejos };
+    });
+  };
+
+  const handleComplejoLocalidadSelect = (index, location) => {
+    setForm((current) => {
+      const nuevosComplejos = [...current.complejos];
+      nuevosComplejos[index] = {
+        ...nuevosComplejos[index],
+        localidad: location
+          ? { nombre: location.nombre || "", provincia: location.provincia || "" }
+          : { ...nuevosComplejos[index].localidad, provincia: "" },
       };
       return { ...current, complejos: nuevosComplejos };
     });
@@ -672,25 +686,28 @@ export default function OrganizerRequestModal({
                         value={complex.direccion}
                       />
 
-                      <AppInput
-                        autoCapitalize="words"
+                      <LocationPicker
                         label="Localidad"
                         labelStyle={styles.centeredLabel}
                         onChangeText={(value) =>
                           handleComplejoLocalidadChange(index, "nombre", value)
                         }
+                        onSelect={(location) => handleComplejoLocalidadSelect(index, location)}
                         placeholder="Ej. Córdoba"
+                        selectedLocation={
+                          complex.localidad?.nombre && complex.localidad?.provincia
+                            ? complex.localidad
+                            : null
+                        }
                         value={complex.localidad?.nombre || ""}
                       />
 
                       <AppInput
                         autoCapitalize="words"
+                        editable={false}
                         label="Provincia"
                         labelStyle={styles.centeredLabel}
-                        onChangeText={(value) =>
-                          handleComplejoLocalidadChange(index, "provincia", value)
-                        }
-                        placeholder="Ej. Córdoba"
+                        placeholder="Se completa al elegir la localidad"
                         value={complex.localidad?.provincia || ""}
                       />
 
