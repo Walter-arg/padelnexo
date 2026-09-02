@@ -302,7 +302,31 @@ export default function ProfileModal({
       });
       setSelectedLocation(parsedLocalidad);
     }
-  }, [user?.uid, user?.role, user?.organizerStatus, visible]);
+  }, [user?.uid, visible]);
+
+  // Efecto propio y acotado: solo corrige role/organizerStatus si cambian
+  // mientras el modal ya esta abierto (por ejemplo, la aprobacion de
+  // organizador terminando de sincronizarse justo despues de montar). A
+  // proposito NO reconstruye el resto del perfil: hacerlo ahi arriba llego a
+  // pisar logo/foto/Mercado Pago con datos viejos si ese effect grande se
+  // disparaba en un mal momento y despues se apretaba "Guardar".
+  useEffect(() => {
+    if (!visible || !user) {
+      return;
+    }
+
+    setProfile((current) => {
+      if (current.role === user.role && current.organizerStatus === user.organizerStatus) {
+        return current;
+      }
+
+      return {
+        ...current,
+        role: user.role,
+        organizerStatus: user.organizerStatus,
+      };
+    });
+  }, [user?.organizerStatus, user?.role, visible]);
 
   useEffect(() => {
     if (!visible || !isApprovedAccount) {
