@@ -147,8 +147,13 @@ function buildInitialState(user, mode) {
       ? user.complejos.map(mapComplexToForm)
       : [createEmptyComplexForm()];
 
+  const nameParts = String(user?.name || "").trim().split(/\s+/).filter(Boolean);
+  const inferredFirstName = user?.firstName || nameParts[0] || "";
+  const inferredLastName = user?.lastName || nameParts.slice(1).join(" ") || "";
+
   return {
-    nombre: user?.name || "",
+    nombre: inferredFirstName,
+    apellido: inferredLastName,
     dni: "",
     telefono: user?.phone || "",
     countryCode: user?.countryCode || "+54",
@@ -503,12 +508,22 @@ export default function OrganizerRequestModal({
       }
 
       if (!form.nombre.trim()) {
-        showFeedback("Falta tu nombre", "Ingresa nombre y apellido para continuar.", "danger");
+        showFeedback("Falta tu nombre", "Ingresa tu nombre para continuar.", "danger");
         return false;
       }
 
       if (!NAME_REGEX.test(form.nombre.trim())) {
         showFeedback("Nombre invalido", "Usa solo letras y espacios.", "danger");
+        return false;
+      }
+
+      if (!form.apellido.trim()) {
+        showFeedback("Falta tu apellido", "Ingresa tu apellido para continuar.", "danger");
+        return false;
+      }
+
+      if (!NAME_REGEX.test(form.apellido.trim())) {
+        showFeedback("Apellido invalido", "Usa solo letras y espacios.", "danger");
         return false;
       }
 
@@ -616,7 +631,7 @@ export default function OrganizerRequestModal({
         : isAddComplexRequestMode
           ? await submitComplexRequest(complejos)
           : await submitOrganizerRequest({
-              nombre: form.nombre,
+              nombre: [form.nombre.trim(), form.apellido.trim()].filter(Boolean).join(" "),
               dni: form.dni,
               telefono: form.telefono,
               countryCode: form.countryCode,
@@ -667,11 +682,19 @@ export default function OrganizerRequestModal({
                 <Text style={styles.sectionTitle}>DATOS PERSONALES</Text>
                 <AppInput
                   autoCapitalize="words"
-                  label="Nombre y Apellido"
+                  label="Nombre"
                   labelStyle={styles.centeredLabel}
                   onChangeText={(value) => updateField("nombre", sanitizeOrganizerName(value))}
-                  placeholder="Tu nombre completo"
+                  placeholder="Tu nombre"
                   value={form.nombre}
+                />
+                <AppInput
+                  autoCapitalize="words"
+                  label="Apellido"
+                  labelStyle={styles.centeredLabel}
+                  onChangeText={(value) => updateField("apellido", sanitizeOrganizerName(value))}
+                  placeholder="Tu apellido"
+                  value={form.apellido}
                 />
                 <AppInput
                   keyboardType="number-pad"

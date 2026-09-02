@@ -1312,9 +1312,23 @@ export default function ProfileModal({
         mode={organizerModalMode}
         onClose={() => setIsOrganizerModalVisible(false)}
         onSaved={(updatedProfile) => {
+          // updatedProfile trae "name" (nombre completo) pero no firstName/
+          // lastName por separado — hay que derivarlos igual que en el
+          // effect de sincronizacion principal, si no la pestaña "Mis datos"
+          // (que edita firstName/lastName, no name) los muestra vacios, y
+          // guardar desde ahi terminaria borrando el nombre real.
+          const firstName =
+            updatedProfile?.firstName ||
+            (updatedProfile?.name ? updatedProfile.name.split(" ")[0] : "");
+          const lastName =
+            updatedProfile?.lastName ||
+            (updatedProfile?.name ? updatedProfile.name.split(" ").slice(1).join(" ") : "");
+
           setProfile({
             ...defaultProfile,
             ...updatedProfile,
+            firstName,
+            lastName,
           });
         }}
         user={user}
