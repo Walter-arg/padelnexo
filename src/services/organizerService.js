@@ -144,6 +144,11 @@ export function normalizeComplex(complex = {}) {
     totalCanchas: canchas.length,
     direccion: complex.direccion?.trim() || "",
     coordinates: getComplexCoordinates(complex),
+    localidad: {
+      nombre: complex.localidad?.nombre?.trim() || "",
+      provincia: complex.localidad?.provincia?.trim() || "",
+      pais: complex.localidad?.pais || "Argentina",
+    },
   };
 }
 
