@@ -1283,7 +1283,7 @@ export default function ProfileModal({
             ...updatedProfile,
           });
         }}
-        user={profile}
+        user={user}
         visible={isOrganizerModalVisible}
       />
       <FeedbackModal
