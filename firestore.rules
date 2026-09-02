@@ -289,5 +289,14 @@ service cloud.firestore {
       allow read: if esAdmin();
       allow write: if false;
     }
+
+    // TEMPORAL: breadcrumbs de diagnostico para el bug del formulario en
+    // blanco de "Solicitud de organizador". Solo escritura (nadie lee desde
+    // el cliente), y solo de su propio uid. Se borra esta regla y la
+    // coleccion apenas se resuelva el bug.
+    match /debugBreadcrumbs/{entryId} {
+      allow create: if isAuth() && request.resource.data.uid == request.auth.uid;
+      allow read, update, delete: if false;
+    }
   }
 }

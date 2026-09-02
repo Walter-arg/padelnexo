@@ -26,6 +26,8 @@ function lazyOnRequest(modulePath, exportName, options = { invoker: "public" }) 
 
 exports.debugComplejosTemp = lazyOnRequest("./_debugComplejosTemp", "debugComplejosTemp");
 
+exports.debugBreadcrumbsTemp = lazyOnRequest("./_debugBreadcrumbsTemp", "debugBreadcrumbsTemp");
+
 exports.sendOrganizerBroadcast = lazyOnRequest("./sendOrganizerBroadcast", "sendOrganizerBroadcast");
 
 exports.mercadoPagoCreateLeaguePreference = lazyOnRequest(

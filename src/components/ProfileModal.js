@@ -28,6 +28,7 @@ import {
 import { colors, spacing } from "../config/theme";
 import { useAuth } from "../context/AuthContext";
 import devLog from "../utils/devLog";
+import { logBreadcrumb } from "../utils/debugBreadcrumb";
 import {
   dateToFechaNacimiento,
   fechaNacimientoToDate,
@@ -275,6 +276,14 @@ export default function ProfileModal({
   };
 
   useEffect(() => {
+    logBreadcrumb("profile_modal_component_mounted", {});
+    return () => {
+      logBreadcrumb("profile_modal_component_unmounted", {});
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
     if (!visible) {
       setDatePickerVisible(false);
       setTempDate(null);
@@ -282,6 +291,14 @@ export default function ProfileModal({
     }
 
     if (user) {
+      logBreadcrumb("profile_big_sync_effect", {
+        userRole: user.role,
+        userOrganizerStatus: user.organizerStatus,
+        hasOrganizerLogo: Boolean(user.organizerLogoUrl),
+        hasFotoURL: Boolean(user.fotoURL),
+        mercadoPagoEnabled: Boolean(user.mercadoPagoConfig?.enabled),
+      });
+
       const parsedLocalidad = normalizeLocalidad(user.localidad, {
         provincia: user.province || user.location?.provincia || "",
         pais: user.location?.pais || "Argentina",
@@ -319,6 +336,13 @@ export default function ProfileModal({
       if (current.role === user.role && current.organizerStatus === user.organizerStatus) {
         return current;
       }
+
+      logBreadcrumb("profile_role_sync_effect_applied", {
+        fromRole: current.role,
+        toRole: user.role,
+        fromOrganizerStatus: current.organizerStatus,
+        toOrganizerStatus: user.organizerStatus,
+      });
 
       return {
         ...current,
@@ -760,6 +784,12 @@ export default function ProfileModal({
                 <AppButton
                   title="Solicitar acceso como organizador"
                   onPress={() => {
+                    logBreadcrumb("solicitar_acceso_button_pressed", {
+                      profileRole: profile.role,
+                      profileOrganizerStatus: profile.organizerStatus,
+                      userRole: user?.role,
+                      userOrganizerStatus: user?.organizerStatus,
+                    });
                     // Chequeo contra el dato real (no el estado local de esta
                     // pantalla, que puede quedar viejo un instante): un
                     // organizador ya aprobado nunca debe poder abrir el
@@ -843,6 +873,10 @@ export default function ProfileModal({
                     <Text style={styles.complexesTitle}>Tus complejos</Text>
                     <Pressable
                       onPress={() => {
+                        logBreadcrumb("editar_complejos_button_pressed", {
+                          userRole: user?.role,
+                          userOrganizerStatus: user?.organizerStatus,
+                        });
                         setOrganizerModalMode("edit");
                         setIsOrganizerModalVisible(true);
                       }}
