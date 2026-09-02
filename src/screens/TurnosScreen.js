@@ -373,6 +373,19 @@ function getAvailableCourtSlots(court = {}, day = {}) {
   return getReservableCourtSlots(court, day).filter((slot) => !reservedSlots.has(slot));
 }
 
+// Variante "expandida": permite al organizador asignar cualquier horario del
+// dia (no solo los que puso como disponibles), para casos puntuales fuera de
+// lo configurado. Solo se usa en el modo de asignacion manual del organizador.
+function getExpandedReservableSlots(day = {}) {
+  return HALF_HOUR_SLOTS.filter((slot) => !isPastSlotForDay(day, slot));
+}
+
+function getExpandedAvailableSlots(court = {}, day = {}) {
+  const reservedSlots = new Set(court?.reservedSlotsByDate?.[String(day.dateMillis)] || []);
+
+  return getExpandedReservableSlots(day).filter((slot) => !reservedSlots.has(slot));
+}
+
 function parseSlotToMinutes(slot = "") {
   const [hours, minutes] = String(slot || "")
     .split(":")
@@ -403,6 +416,12 @@ function buildSlotBlocks(slot = "", durationMinutes = 60) {
   return Array.from({ length: blockCount }, (_, index) =>
     formatSlotFromMinutes(startMinutes + index * 30)
   );
+}
+
+function isDurationAvailableExpanded(court = {}, day = {}, slot = "", durationMinutes = 60) {
+  const reservedSlotSet = new Set(court?.reservedSlotsByDate?.[String(day.dateMillis)] || []);
+
+  return buildSlotBlocks(slot, durationMinutes).every((slotBlock) => !reservedSlotSet.has(slotBlock));
 }
 
 function isDurationAvailable(court = {}, day = {}, slot = "", durationMinutes = 60) {
@@ -571,6 +590,7 @@ export default function TurnosScreen({ navigation, route }) {
   const [selectedDayId, setSelectedDayId] = useState("");
   const [selectedSlot, setSelectedSlot] = useState("");
   const [selectedDuration, setSelectedDuration] = useState(90);
+  const [showAllBookingSlots, setShowAllBookingSlots] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState("efectivo");
   const [receiptAsset, setReceiptAsset] = useState(null);
   const [summaryVisible, setSummaryVisible] = useState(false);
@@ -807,12 +827,24 @@ export default function TurnosScreen({ navigation, route }) {
     () => days.find((day) => day.id === selectedDayId) || days[0],
     [days, selectedDayId]
   );
+  const canShowAllBookingSlots = canManageTurnos && assignmentModeOpen;
+  const isShowingAllBookingSlots = canShowAllBookingSlots && showAllBookingSlots;
   const availableSlots = useMemo(
-    () => getAvailableCourtSlots(selectedCourt, selectedDay),
-    [selectedCourt, selectedDay]
+    () =>
+      isShowingAllBookingSlots
+        ? getExpandedAvailableSlots(selectedCourt, selectedDay)
+        : getAvailableCourtSlots(selectedCourt, selectedDay),
+    [isShowingAllBookingSlots, selectedCourt, selectedDay]
   );
   const allCourtSlots = useMemo(
-    () => getReservableCourtSlots(selectedCourt, selectedDay),
+    () =>
+      isShowingAllBookingSlots
+        ? getExpandedReservableSlots(selectedDay)
+        : getReservableCourtSlots(selectedCourt, selectedDay),
+    [isShowingAllBookingSlots, selectedCourt, selectedDay]
+  );
+  const configuredSlotSet = useMemo(
+    () => new Set(getReservableCourtSlots(selectedCourt, selectedDay)),
     [selectedCourt, selectedDay]
   );
   const complexAvailabilityByDay = useMemo(
@@ -1093,6 +1125,7 @@ export default function TurnosScreen({ navigation, route }) {
     setSelectedDuration(90);
     setSelectedReservationPlayer(null);
     setSummaryVisible(false);
+    setShowAllBookingSlots(false);
   };
 
   const closeReservationsManagement = () => {
@@ -1121,9 +1154,11 @@ export default function TurnosScreen({ navigation, route }) {
 
   const handleSelectSlot = (slot) => {
     setSelectedSlot(slot);
-    const nextDuration = isDurationAvailable(selectedCourt, selectedDay, slot, 90)
-      ? 90
-      : DURATIONS.find((duration) => isDurationAvailable(selectedCourt, selectedDay, slot, duration));
+    const checkDuration = (duration) =>
+      isShowingAllBookingSlots
+        ? isDurationAvailableExpanded(selectedCourt, selectedDay, slot, duration)
+        : isDurationAvailable(selectedCourt, selectedDay, slot, duration);
+    const nextDuration = checkDuration(90) ? 90 : DURATIONS.find((duration) => checkDuration(duration));
 
     setSelectedDuration(nextDuration || 90);
     setSummaryVisible(false);
@@ -1753,7 +1788,11 @@ export default function TurnosScreen({ navigation, route }) {
       return;
     }
 
-    if (!isDurationAvailable(selectedCourt, selectedDay, selectedSlot, selectedDuration)) {
+    if (
+      !(isShowingAllBookingSlots
+        ? isDurationAvailableExpanded(selectedCourt, selectedDay, selectedSlot, selectedDuration)
+        : isDurationAvailable(selectedCourt, selectedDay, selectedSlot, selectedDuration))
+    ) {
       showFeedback(
         "Turno no disponible",
         "La duracion elegida se superpone con otra reserva.",
@@ -1789,7 +1828,11 @@ export default function TurnosScreen({ navigation, route }) {
       return;
     }
 
-    if (!isDurationAvailable(selectedCourt, selectedDay, selectedSlot, selectedDuration)) {
+    if (
+      !(isShowingAllBookingSlots
+        ? isDurationAvailableExpanded(selectedCourt, selectedDay, selectedSlot, selectedDuration)
+        : isDurationAvailable(selectedCourt, selectedDay, selectedSlot, selectedDuration))
+    ) {
       showFeedback(
         "Turno no disponible",
         "La duracion elegida se superpone con otra reserva.",
@@ -2661,19 +2704,37 @@ export default function TurnosScreen({ navigation, route }) {
                 </Text>
               </Pressable>
             </View>
-            <View style={styles.mercadoPagoStatusCard}>
+            <View
+              style={[
+                styles.mercadoPagoStatusCard,
+                selectedComplexMercadoPagoConfig.enabled
+                  ? styles.mercadoPagoStatusCardEnabled
+                  : styles.mercadoPagoStatusCardDisabled,
+              ]}
+            >
               <View style={styles.mercadoPagoStatusHeader}>
                 <Ionicons
-                  color={selectedComplexMercadoPagoConfig.enabled ? "#1A7F5A" : "#7B8794"}
+                  color={selectedComplexMercadoPagoConfig.enabled ? "#1A7F5A" : colors.danger}
                   name="wallet-outline"
                   size={18}
                 />
-                <Text style={styles.mercadoPagoStatusTitle}>Mercado Pago</Text>
+                <Text
+                  style={[
+                    styles.mercadoPagoStatusTitle,
+                    selectedComplexMercadoPagoConfig.enabled
+                      ? styles.mercadoPagoStatusTitleEnabled
+                      : styles.mercadoPagoStatusTitleDisabled,
+                  ]}
+                >
+                  {selectedComplexMercadoPagoConfig.enabled
+                    ? "Cobros con Mercado Pago habilitado"
+                    : "Cobros con Mercado Pago no esta activo"}
+                </Text>
               </View>
               <Text style={styles.mercadoPagoStatusText}>
                 {selectedComplexMercadoPagoConfig.enabled
-                  ? "Los turnos nuevos de esta sede ya quedan preparados para cobrar tambien con Mercado Pago."
-                  : "Activalo desde el perfil del organizador para cobrar tambien con Mercado Pago en reservas nuevas."}
+                  ? "Vinculaste Mercado Pago: quien reserve un turno nuevo de esta sede va a poder pagarlo directo con Mercado Pago."
+                  : "Todavia no esta vinculado. Activalo desde tu perfil para que quien reserve pueda pagar con Mercado Pago."}
               </Text>
             </View>
             <Pressable
@@ -2820,11 +2881,21 @@ export default function TurnosScreen({ navigation, route }) {
                 </View>
               ))}
             </View>
-            <Text style={styles.sectionLabel}>Elegi un turno</Text>
+            <View style={styles.sectionLabelRow}>
+              <Text style={styles.sectionLabel}>Elegi un turno</Text>
+              {canShowAllBookingSlots ? (
+                <Pressable onPress={() => setShowAllBookingSlots((current) => !current)}>
+                  <Text style={styles.toggleAllSlotsText}>
+                    {showAllBookingSlots ? "Ocultar horarios no disponibles" : "Ver horarios no disponibles"}
+                  </Text>
+                </Pressable>
+              ) : null}
+            </View>
             <View style={styles.slotsGrid}>
               {allCourtSlots.map((slot) => {
                 const isSelected = slot === selectedSlot;
                 const isAvailable = availableSlotSet.has(slot);
+                const isUnconfigured = isShowingAllBookingSlots && !configuredSlotSet.has(slot);
 
                 return (
                   <Pressable
@@ -2833,6 +2904,7 @@ export default function TurnosScreen({ navigation, route }) {
                     onPress={() => handleSelectSlot(slot)}
                     style={({ pressed }) => [
                       styles.slotChip,
+                      isUnconfigured && isAvailable ? styles.slotChipUnconfigured : null,
                       isSelected ? styles.slotChipActive : null,
                       !isAvailable ? styles.slotChipDisabled : null,
                       pressed && isAvailable ? styles.pressedState : null,
@@ -4074,6 +4146,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.sm,
   },
+  mercadoPagoStatusCardEnabled: {
+    backgroundColor: colors.surfaceAlt,
+    borderColor: colors.primaryDark,
+  },
+  mercadoPagoStatusCardDisabled: {
+    backgroundColor: "#FDEDED",
+    borderColor: colors.danger,
+  },
   mercadoPagoStatusHeader: {
     alignItems: "center",
     flexDirection: "row",
@@ -4085,6 +4165,12 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "800",
     marginLeft: 6,
+  },
+  mercadoPagoStatusTitleEnabled: {
+    color: "#1A7F5A",
+  },
+  mercadoPagoStatusTitleDisabled: {
+    color: colors.danger,
   },
   mercadoPagoStatusText: {
     color: colors.muted,
@@ -4442,6 +4528,18 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xs,
     marginTop: spacing.md,
   },
+  sectionLabelRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-between",
+  },
+  toggleAllSlotsText: {
+    color: colors.primaryDark,
+    fontSize: 12,
+    fontWeight: "800",
+    marginTop: spacing.md,
+  },
   sectionLabelInline: {
     color: colors.text,
     fontSize: 14,
@@ -4653,6 +4751,10 @@ const styles = StyleSheet.create({
     backgroundColor: "#EEF1EF",
     borderColor: "#D8E0DC",
     opacity: 0.62,
+  },
+  slotChipUnconfigured: {
+    borderColor: "#C7CFCB",
+    borderStyle: "dashed",
   },
   slotText: {
     color: colors.text,
