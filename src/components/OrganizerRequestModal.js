@@ -168,7 +168,13 @@ export default function OrganizerRequestModal({
     submitOrganizerRequest,
     updateOrganizerComplexes,
   } = useAuth();
-  const [form, setForm] = useState(buildInitialState(user, mode));
+  // Blindaje: pase lo que pase (remount, tap fantasma, lo que sea), una
+  // cuenta que YA es organizador aprobado nunca debe poder ver ni enviar el
+  // formulario en blanco de "Solicitud de organizador". Si el modo que llega
+  // por props es "request" pero el usuario real ya esta aprobado, se trata
+  // como "edit" directamente aca, antes de cualquier otra cosa.
+  const effectiveMode = mode === "request" && isApprovedOrganizer(user) ? "edit" : mode;
+  const [form, setForm] = useState(buildInitialState(user, effectiveMode));
   const [expandedComplexes, setExpandedComplexes] = useState({ 0: true });
   const [pendingSavedProfile, setPendingSavedProfile] = useState(null);
   const [locatingComplexIndex, setLocatingComplexIndex] = useState(null);
@@ -181,7 +187,7 @@ export default function OrganizerRequestModal({
 
   useEffect(() => {
     if (visible) {
-      setForm(buildInitialState(user, mode));
+      setForm(buildInitialState(user, effectiveMode));
       setExpandedComplexes({ 0: true });
       setPendingSavedProfile(null);
       setFeedback({
@@ -191,10 +197,10 @@ export default function OrganizerRequestModal({
         tone: "default",
       });
     }
-  }, [mode, user?.uid, visible]);
+  }, [effectiveMode, user?.uid, visible]);
 
-  const isEditMode = mode === "edit";
-  const isAddComplexRequestMode = mode === "add-complex-request";
+  const isEditMode = effectiveMode === "edit";
+  const isAddComplexRequestMode = effectiveMode === "add-complex-request";
 
   const title = isEditMode
     ? "Editar complejos"
