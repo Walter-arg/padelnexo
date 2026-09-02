@@ -19,6 +19,7 @@ import AppInput from "./AppInput";
 import CountryCodeSelector from "./CountryCodeSelector";
 import FeedbackModal from "./FeedbackModal";
 import LocationPicker from "./LocationPicker";
+import { isApprovedOrganizer } from "../services/roleService";
 import {
   geocodeAddress,
   getCoordinatesFromObject,
@@ -436,6 +437,18 @@ export default function OrganizerRequestModal({
 
   const validateForm = () => {
     if (!isEditMode && !isAddComplexRequestMode) {
+      // Nunca debe poder enviarse una solicitud "desde cero" si la cuenta
+      // ya es organizador aprobado (evita pisar el perfil real con datos en
+      // blanco si el modal llega a abrirse en el modo equivocado).
+      if (isApprovedOrganizer(user)) {
+        showFeedback(
+          "Ya sos organizador",
+          "Tu cuenta ya esta aprobada. Cerra esta pantalla y usa 'Editar' en Tus complejos.",
+          "danger"
+        );
+        return false;
+      }
+
       if (!form.nombre.trim()) {
         showFeedback("Falta tu nombre", "Ingresa nombre y apellido para continuar.", "danger");
         return false;

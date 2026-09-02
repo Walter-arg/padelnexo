@@ -736,6 +736,16 @@ export default function ProfileModal({
                 <AppButton
                   title="Solicitar acceso como organizador"
                   onPress={() => {
+                    // Chequeo contra el dato real (no el estado local de esta
+                    // pantalla, que puede quedar viejo un instante): un
+                    // organizador ya aprobado nunca debe poder abrir el
+                    // formulario de solicitud en blanco.
+                    if (isApprovedOrganizer(user)) {
+                      setOrganizerModalMode("edit");
+                      setIsOrganizerModalVisible(true);
+                      return;
+                    }
+
                     if (!emailVerified) {
                       Alert.alert(
                         "Email no verificado",
