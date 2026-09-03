@@ -1011,7 +1011,19 @@ export default function OrganizerRequestModal({
         confirmLabel={feedback.tone === "success" ? "Continuar" : "Entendido"}
         message={feedback.message}
         onClose={() => {
-          const shouldClose = feedback.tone === "success";
+          // No usar feedback.tone === "success" aca: ese tono tambien se usa
+          // para avisos menores dentro del formulario (ej. "Ubicacion
+          // guardada" al usar la ubicacion actual de un complejo), que no
+          // implican que el formulario se haya enviado. La unica señal
+          // confiable de un submit real es pendingSavedProfile, que solo se
+          // setea despues de que updateOrganizerComplexes/submitComplexRequest/
+          // submitOrganizerRequest resuelven con exito.
+          const shouldClose = pendingSavedProfile != null;
+          logBreadcrumb("organizer_modal_feedback_dismissed", {
+            tone: feedback.tone,
+            title: feedback.title,
+            shouldClose,
+          });
           setFeedback((current) => ({ ...current, visible: false }));
           if (shouldClose) {
             onSaved?.(pendingSavedProfile);
