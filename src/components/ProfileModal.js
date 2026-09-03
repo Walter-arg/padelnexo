@@ -28,7 +28,7 @@ import {
 import { colors, spacing } from "../config/theme";
 import { useAuth } from "../context/AuthContext";
 import devLog from "../utils/devLog";
-import { logBreadcrumb } from "../utils/debugBreadcrumb";
+import { getLocalBreadcrumbs, logBreadcrumb } from "../utils/debugBreadcrumb";
 import {
   dateToFechaNacimiento,
   fechaNacimientoToDate,
@@ -578,6 +578,15 @@ export default function ProfileModal({
       return;
     }
 
+    logBreadcrumb("handle_save_pressed", {
+      profileRole: profile.role,
+      profileOrganizerStatus: profile.organizerStatus,
+      profileFirstName: profile.firstName,
+      profileLastName: profile.lastName,
+      profileHasOrganizerLogo: Boolean(profile.organizerLogoUrl),
+      profileMercadoPagoEnabled: Boolean(profile.mercadoPagoConfig?.enabled),
+    });
+
     try {
       setLoading(true);
       devLog("[ProfileModal] Guardando perfil");
@@ -613,8 +622,14 @@ export default function ProfileModal({
         country: normalizedLocalidad.pais,
         localidad: normalizedLocalidad,
       });
+      logBreadcrumb("handle_save_succeeded", {
+        sentName: fullName,
+        sentOrganizerLogoUrl: profile.organizerLogoUrl,
+        sentMercadoPagoEnabled: Boolean(profile.mercadoPagoConfig?.enabled),
+      });
       onSave?.(updatedProfile);
     } catch (error) {
+      logBreadcrumb("handle_save_error", { message: error?.message || "" });
       devLog("[ProfileModal] Error al guardar perfil:", error);
       showFeedback(
         "No pudimos guardar el perfil",
@@ -1281,6 +1296,34 @@ export default function ProfileModal({
               <View style={styles.supportLinkRow}>
                 <Pressable
                   onPress={() => Linking.openURL("mailto:soporte.padelnexo@gmail.com")}
+                  onLongPress={async () => {
+                    // TEMPORAL: mantener presionado muestra el registro de
+                    // diagnostico guardado en el telefono (no depende de la
+                    // red). Borrar junto con el resto del debug breadcrumb.
+                    const entries = await getLocalBreadcrumbs();
+
+                    if (!entries.length) {
+                      Alert.alert("Registro vacio", "No hay eventos guardados todavia.");
+                      return;
+                    }
+
+                    const startT = entries[0].t;
+                    const lines = entries.map((entry) => {
+                      const seconds = ((entry.t - startT) / 1000).toFixed(1);
+                      const detailsText = Object.entries(entry.details || {})
+                        .map(([key, value]) => `${key}=${value}`)
+                        .join(" ");
+                      return `+${seconds}s ${entry.event} ${detailsText}`;
+                    });
+
+                    Alert.alert(
+                      `Registro (${entries.length})`,
+                      lines.join("\n"),
+                      [
+                        { text: "Cerrar", style: "cancel" },
+                      ]
+                    );
+                  }}
                   style={({ pressed }) => [
                     styles.supportLinkButton,
                     pressed && styles.confirmButtonPressed,

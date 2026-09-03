@@ -181,7 +181,7 @@ export default function OrganizerRequestModal({
   // como "edit" directamente aca, antes de cualquier otra cosa.
   const effectiveMode = mode === "request" && isApprovedOrganizer(user) ? "edit" : mode;
 
-  if (mode !== effectiveMode) {
+  if (visible && mode !== effectiveMode) {
     logBreadcrumb("organizer_modal_self_corrected", {
       rawMode: mode,
       effectiveMode,
@@ -595,7 +595,19 @@ export default function OrganizerRequestModal({
   };
 
   const handleSubmit = async () => {
+    logBreadcrumb("organizer_modal_submit_pressed", {
+      rawMode: mode,
+      effectiveMode,
+      isEditMode,
+      isAddComplexRequestMode,
+      formNombre: form.nombre,
+      formApellido: form.apellido,
+      userRole: user?.role,
+      userOrganizerStatus: user?.organizerStatus,
+    });
+
     if (!validateForm()) {
+      logBreadcrumb("organizer_modal_submit_blocked_by_validation", {});
       return;
     }
 
