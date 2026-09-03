@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Linking,
@@ -730,6 +731,11 @@ export default function ProfileModal({
             <View style={styles.handle} />
             <Text style={styles.title}>Tu perfil</Text>
 
+            {!user ? (
+              <View style={styles.loadingProfileContainer}>
+                <ActivityIndicator color={colors.primary} size="large" />
+              </View>
+            ) : (
             <ScrollView
               contentContainerStyle={styles.scrollContent}
               showsVerticalScrollIndicator={false}
@@ -1347,6 +1353,7 @@ export default function ProfileModal({
                 </Pressable>
               </View>
             </ScrollView>
+            )}
           </View>
         </KeyboardAvoidingView>
       </Modal>
@@ -1490,6 +1497,11 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingBottom: spacing.xl + 36,
+  },
+  loadingProfileContainer: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: spacing.xl * 2,
   },
   handle: {
     alignSelf: "center",
