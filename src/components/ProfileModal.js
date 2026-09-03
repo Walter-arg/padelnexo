@@ -29,7 +29,6 @@ import {
 import { colors, spacing } from "../config/theme";
 import { useAuth } from "../context/AuthContext";
 import devLog from "../utils/devLog";
-import { getLocalBreadcrumbs, logBreadcrumb } from "../utils/debugBreadcrumb";
 import {
   dateToFechaNacimiento,
   fechaNacimientoToDate,
@@ -277,14 +276,6 @@ export default function ProfileModal({
   };
 
   useEffect(() => {
-    logBreadcrumb("profile_modal_component_mounted", {});
-    return () => {
-      logBreadcrumb("profile_modal_component_unmounted", {});
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
     if (!visible) {
       setDatePickerVisible(false);
       setTempDate(null);
@@ -292,14 +283,6 @@ export default function ProfileModal({
     }
 
     if (user) {
-      logBreadcrumb("profile_big_sync_effect", {
-        userRole: user.role,
-        userOrganizerStatus: user.organizerStatus,
-        hasOrganizerLogo: Boolean(user.organizerLogoUrl),
-        hasFotoURL: Boolean(user.fotoURL),
-        mercadoPagoEnabled: Boolean(user.mercadoPagoConfig?.enabled),
-      });
-
       const parsedLocalidad = normalizeLocalidad(user.localidad, {
         provincia: user.province || user.location?.provincia || "",
         pais: user.location?.pais || "Argentina",
@@ -337,13 +320,6 @@ export default function ProfileModal({
       if (current.role === user.role && current.organizerStatus === user.organizerStatus) {
         return current;
       }
-
-      logBreadcrumb("profile_role_sync_effect_applied", {
-        fromRole: current.role,
-        toRole: user.role,
-        fromOrganizerStatus: current.organizerStatus,
-        toOrganizerStatus: user.organizerStatus,
-      });
 
       return {
         ...current,
@@ -579,15 +555,6 @@ export default function ProfileModal({
       return;
     }
 
-    logBreadcrumb("handle_save_pressed", {
-      profileRole: profile.role,
-      profileOrganizerStatus: profile.organizerStatus,
-      profileFirstName: profile.firstName,
-      profileLastName: profile.lastName,
-      profileHasOrganizerLogo: Boolean(profile.organizerLogoUrl),
-      profileMercadoPagoEnabled: Boolean(profile.mercadoPagoConfig?.enabled),
-    });
-
     try {
       setLoading(true);
       devLog("[ProfileModal] Guardando perfil");
@@ -623,14 +590,8 @@ export default function ProfileModal({
         country: normalizedLocalidad.pais,
         localidad: normalizedLocalidad,
       });
-      logBreadcrumb("handle_save_succeeded", {
-        sentName: fullName,
-        sentOrganizerLogoUrl: profile.organizerLogoUrl,
-        sentMercadoPagoEnabled: Boolean(profile.mercadoPagoConfig?.enabled),
-      });
       onSave?.(updatedProfile);
     } catch (error) {
-      logBreadcrumb("handle_save_error", { message: error?.message || "" });
       devLog("[ProfileModal] Error al guardar perfil:", error);
       showFeedback(
         "No pudimos guardar el perfil",
@@ -805,12 +766,6 @@ export default function ProfileModal({
                 <AppButton
                   title="Solicitar acceso como organizador"
                   onPress={() => {
-                    logBreadcrumb("solicitar_acceso_button_pressed", {
-                      profileRole: profile.role,
-                      profileOrganizerStatus: profile.organizerStatus,
-                      userRole: user?.role,
-                      userOrganizerStatus: user?.organizerStatus,
-                    });
                     // Chequeo contra el dato real (no el estado local de esta
                     // pantalla, que puede quedar viejo un instante): un
                     // organizador ya aprobado nunca debe poder abrir el
@@ -894,10 +849,6 @@ export default function ProfileModal({
                     <Text style={styles.complexesTitle}>Tus complejos</Text>
                     <Pressable
                       onPress={() => {
-                        logBreadcrumb("editar_complejos_button_pressed", {
-                          userRole: user?.role,
-                          userOrganizerStatus: user?.organizerStatus,
-                        });
                         setOrganizerModalMode("edit");
                         setIsOrganizerModalVisible(true);
                       }}
@@ -1302,34 +1253,6 @@ export default function ProfileModal({
               <View style={styles.supportLinkRow}>
                 <Pressable
                   onPress={() => Linking.openURL("mailto:soporte.padelnexo@gmail.com")}
-                  onLongPress={async () => {
-                    // TEMPORAL: mantener presionado muestra el registro de
-                    // diagnostico guardado en el telefono (no depende de la
-                    // red). Borrar junto con el resto del debug breadcrumb.
-                    const entries = await getLocalBreadcrumbs();
-
-                    if (!entries.length) {
-                      Alert.alert("Registro vacio", "No hay eventos guardados todavia.");
-                      return;
-                    }
-
-                    const startT = entries[0].t;
-                    const lines = entries.map((entry) => {
-                      const seconds = ((entry.t - startT) / 1000).toFixed(1);
-                      const detailsText = Object.entries(entry.details || {})
-                        .map(([key, value]) => `${key}=${value}`)
-                        .join(" ");
-                      return `+${seconds}s ${entry.event} ${detailsText}`;
-                    });
-
-                    Alert.alert(
-                      `Registro (${entries.length})`,
-                      lines.join("\n"),
-                      [
-                        { text: "Cerrar", style: "cancel" },
-                      ]
-                    );
-                  }}
                   style={({ pressed }) => [
                     styles.supportLinkButton,
                     pressed && styles.confirmButtonPressed,

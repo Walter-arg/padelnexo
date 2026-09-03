@@ -20,7 +20,6 @@ import CountryCodeSelector from "./CountryCodeSelector";
 import FeedbackModal from "./FeedbackModal";
 import LocationPicker from "./LocationPicker";
 import { isApprovedOrganizer } from "../services/roleService";
-import { logBreadcrumb } from "../utils/debugBreadcrumb";
 import {
   geocodeAddress,
   getCoordinatesFromObject,
@@ -181,15 +180,6 @@ export default function OrganizerRequestModal({
   // como "edit" directamente aca, antes de cualquier otra cosa.
   const effectiveMode = mode === "request" && isApprovedOrganizer(user) ? "edit" : mode;
 
-  if (visible && mode !== effectiveMode) {
-    logBreadcrumb("organizer_modal_self_corrected", {
-      rawMode: mode,
-      effectiveMode,
-      userRole: user?.role,
-      userOrganizerStatus: user?.organizerStatus,
-    });
-  }
-
   const [form, setForm] = useState(buildInitialState(user, effectiveMode));
   const [expandedComplexes, setExpandedComplexes] = useState({ 0: true });
   const [pendingSavedProfile, setPendingSavedProfile] = useState(null);
@@ -202,24 +192,7 @@ export default function OrganizerRequestModal({
   });
 
   useEffect(() => {
-    logBreadcrumb("organizer_modal_component_mounted", {
-      rawModeAtMount: mode,
-    });
-    return () => {
-      logBreadcrumb("organizer_modal_component_unmounted", {});
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
     if (visible) {
-      logBreadcrumb("organizer_modal_form_reset_effect", {
-        rawMode: mode,
-        effectiveMode,
-        userRole: user?.role,
-        userOrganizerStatus: user?.organizerStatus,
-        userComplejosCount: Array.isArray(user?.complejos) ? user.complejos.length : -1,
-      });
       setForm(buildInitialState(user, effectiveMode));
       setExpandedComplexes({ 0: true });
       setPendingSavedProfile(null);
@@ -343,24 +316,9 @@ export default function OrganizerRequestModal({
   };
 
   const handleSetComplexCurrentLocation = async (index) => {
-    logBreadcrumb("usar_ubicacion_actual_start", {
-      index,
-      rawMode: mode,
-      effectiveMode,
-      userRole: user?.role,
-      userOrganizerStatus: user?.organizerStatus,
-    });
     try {
       setLocatingComplexIndex(index);
       const coordinates = await requestCurrentLocation();
-
-      logBreadcrumb("usar_ubicacion_actual_permission_resolved", {
-        index,
-        rawMode: mode,
-        effectiveMode,
-        userRole: user?.role,
-        userOrganizerStatus: user?.organizerStatus,
-      });
 
       setForm((current) => {
         const complejos = [...current.complejos];
@@ -381,10 +339,6 @@ export default function OrganizerRequestModal({
         "success"
       );
     } catch (error) {
-      logBreadcrumb("usar_ubicacion_actual_error", {
-        index,
-        message: error?.message || "",
-      });
       showFeedback(
         "No pudimos obtener ubicacion",
         error?.message || "Revisa el permiso de ubicacion del telefono.",
@@ -595,19 +549,7 @@ export default function OrganizerRequestModal({
   };
 
   const handleSubmit = async () => {
-    logBreadcrumb("organizer_modal_submit_pressed", {
-      rawMode: mode,
-      effectiveMode,
-      isEditMode,
-      isAddComplexRequestMode,
-      formNombre: form.nombre,
-      formApellido: form.apellido,
-      userRole: user?.role,
-      userOrganizerStatus: user?.organizerStatus,
-    });
-
     if (!validateForm()) {
-      logBreadcrumb("organizer_modal_submit_blocked_by_validation", {});
       return;
     }
 
@@ -1019,11 +961,6 @@ export default function OrganizerRequestModal({
           // setea despues de que updateOrganizerComplexes/submitComplexRequest/
           // submitOrganizerRequest resuelven con exito.
           const shouldClose = pendingSavedProfile != null;
-          logBreadcrumb("organizer_modal_feedback_dismissed", {
-            tone: feedback.tone,
-            title: feedback.title,
-            shouldClose,
-          });
           setFeedback((current) => ({ ...current, visible: false }));
           if (shouldClose) {
             onSaved?.(pendingSavedProfile);
