@@ -14,6 +14,14 @@
       },
       "oauth_client": [
         {
+          "client_id": "553114005250-d9kvuvgsfdtm894cr2hhv0fkukdu55q7.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.padelnexo.app",
+            "certificate_hash": "8482258e7c1fd4a3911b40ef0ba076728c86d1e7"
+          }
+        },
+        {
           "client_id": "553114005250-khcbjn19g7l892kaan1v5amv8mv5pns9.apps.googleusercontent.com",
           "client_type": 3
         }
