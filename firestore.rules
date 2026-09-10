@@ -236,7 +236,13 @@ service cloud.firestore {
 
     // Solicitudes de organizador
     match /organizerRequests/{requestId} {
-      allow read: if isAuth() && (resource.data.userId == request.auth.uid || esAdmin());
+      // El id del documento es siempre el uid del solicitante (ver
+      // organizerService.js), asi que para el propio dueño se puede
+      // verificar sin tocar resource.data -- si se dependiera de eso para
+      // un documento que todavia no existe (usuario que nunca pidio ser
+      // organizador), resource seria null y la lectura fallaria con
+      // permission-denied en vez de simplemente no encontrar nada.
+      allow read: if isAuth() && (requestId == request.auth.uid || esAdmin());
       allow create: if isAuth();
       allow update, delete: if isAuth() && resource.data.userId == request.auth.uid;
     }

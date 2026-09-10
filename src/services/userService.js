@@ -353,7 +353,8 @@ async function normalizeProfileImage(uid, profileDoc) {
 
 async function syncOrganizerApproval(uid, profileDoc) {
   const hasOrganizerFlow =
-    profileDoc?.role === "organizer" || profileDoc?.organizerStatus !== "none";
+    profileDoc?.role === "organizer" ||
+    Boolean(profileDoc?.organizerStatus && profileDoc.organizerStatus !== "none");
 
   if (!hasOrganizerFlow) {
     return profileDoc;
