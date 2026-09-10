@@ -2,6 +2,7 @@ import {
   addDoc,
   collection,
   doc,
+  getDoc,
   getDocs,
   onSnapshot,
   query,
@@ -11,6 +12,7 @@ import {
 } from "../../services/firebaseFirestore";
 
 import { db } from "../../services/firebaseConfig";
+import { getUserPushTokens, sendExpoPushNotificationAsync } from "./pushNotificationsService";
 
 function normalizeDate(value) {
   if (value?.toDate) {
@@ -38,19 +40,32 @@ export async function createInvitation({
     return;
   }
 
+  const notificationBody = subtitle || `${senderName || "Jugador"} te invito a coordinar un partido.`;
+
   await addDoc(collection(db, "invitations"), {
     senderId,
     senderName: senderName || "Jugador",
     recipientId,
     recipientName: recipientName || "Jugador",
     title,
-    subtitle: subtitle || `${senderName || "Jugador"} te invito a coordinar un partido.`,
+    subtitle: notificationBody,
     type,
     metadata,
     responseStatus: "pending",
     viewed: false,
     createdAt: serverTimestamp(),
   });
+
+  getUserPushTokens(recipientId)
+    .then((tokens) =>
+      sendExpoPushNotificationAsync({
+        tokens,
+        title,
+        body: notificationBody,
+        data: { type, ...metadata },
+      })
+    )
+    .catch(() => null);
 }
 
 export async function listUserInvitations(currentUserId) {
@@ -137,10 +152,42 @@ export async function respondToInvitation(invitation = {}, accepted = false) {
   });
 
   if (invitation.type === "league_pair_invitation" && invitation.metadata?.requestId) {
-    await updateDoc(doc(db, "leagueRegistrationRequests", invitation.metadata.requestId), {
+    const requestRef = doc(db, "leagueRegistrationRequests", invitation.metadata.requestId);
+
+    await updateDoc(requestRef, {
       status: accepted ? "pending" : "partner_rejected",
       updatedAt: serverTimestamp(),
     });
+
+    if (accepted) {
+      getDoc(requestRef)
+        .then((requestSnapshot) => {
+          const requestData = requestSnapshot.data();
+
+          if (!requestData?.organizerId) {
+            return null;
+          }
+
+          const requesterName = [requestData.requester?.nombre, requestData.requester?.apellido]
+            .filter(Boolean)
+            .join(" ");
+          const partnerName = [requestData.partner?.nombre, requestData.partner?.apellido]
+            .filter(Boolean)
+            .join(" ");
+
+          return getUserPushTokens(requestData.organizerId).then((tokens) =>
+            sendExpoPushNotificationAsync({
+              tokens,
+              title: "Nueva solicitud de inscripcion",
+              body: `${requesterName || "Un jugador"} y ${partnerName || "su pareja"} quieren inscribirse en ${
+                requestData.leagueName || "tu liga"
+              }.`,
+              data: { type: "league_registration_request", leagueId: requestData.leagueId },
+            })
+          );
+        })
+        .catch(() => null);
+    }
   }
 }
 

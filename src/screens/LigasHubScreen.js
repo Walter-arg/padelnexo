@@ -777,7 +777,7 @@ export default function LigasHubScreen({ navigation }) {
       setPartnerPickerQuery("");
       showFeedback(
         "Invitacion enviada",
-        "Cuando tu pareja acepte, el organizador podra confirmar la inscripcion.",
+        "Tu inscripcion no se concreta todavia: le avisamos a tu pareja por notificacion, y recien cuando acepte se enviara la solicitud al organizador. Si no acepta, la inscripcion a esta liga no se realiza.",
         "success"
       );
     } catch (error) {
