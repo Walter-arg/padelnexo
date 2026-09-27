@@ -1140,17 +1140,6 @@ export default function CreateTournamentScreen({ navigation, route }) {
 
   const handlePickCoverImage = async () => {
     try {
-      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-
-      if (!permission.granted) {
-        showFeedback(
-          "Permiso necesario",
-          "Necesitamos acceso a tus fotos para cargar el afiche.",
-          "danger"
-        );
-        return;
-      }
-
       const result = await ImagePicker.launchImageLibraryAsync({
         allowsEditing: true,
         mediaTypes: ImagePicker.MediaTypeOptions.Images,

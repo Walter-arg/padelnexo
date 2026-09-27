@@ -29,8 +29,7 @@
       "permissions": [
         "INTERNET",
         "ACCESS_NETWORK_STATE",
-        "CAMERA",
-        "READ_MEDIA_IMAGES"
+        "CAMERA"
       ],
       "intentFilters": [
         {

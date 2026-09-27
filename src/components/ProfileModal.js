@@ -492,17 +492,6 @@ export default function ProfileModal({
 
   const handlePickImage = async () => {
     try {
-      devLog("[ProfileModal] Solicitando permiso para galeria");
-      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-
-      if (!permission.granted) {
-        showFeedback(
-          "Permiso necesario",
-          "Se necesita permiso para acceder a la galeria."
-        );
-        return;
-      }
-
       devLog("[ProfileModal] Abriendo selector de imagen");
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
@@ -526,13 +515,6 @@ export default function ProfileModal({
 
   const handlePickOrganizerLogo = async () => {
     try {
-      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-
-      if (!permission.granted) {
-        showFeedback("Permiso necesario", "Se necesita permiso para acceder a la galeria.");
-        return;
-      }
-
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,

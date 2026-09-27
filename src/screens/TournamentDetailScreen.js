@@ -758,17 +758,6 @@ function RegistrationTab({
   ]);
 
   const handlePickReceipt = async () => {
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-
-    if (permission.status !== "granted") {
-      showFeedback(
-        "Permiso necesario",
-        "Necesitamos acceso a tus fotos para adjuntar el comprobante.",
-        "danger"
-      );
-      return;
-    }
-
     const result = await ImagePicker.launchImageLibraryAsync({
       allowsEditing: true,
       mediaTypes: ImagePicker.MediaTypeOptions.Images,

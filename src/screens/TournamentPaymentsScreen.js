@@ -600,17 +600,6 @@ export default function TournamentPaymentsScreen({ navigation, route }) {
       return;
     }
 
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-
-    if (permission.status !== "granted") {
-      showFeedback(
-        "Permiso necesario",
-        "Necesitamos acceso a tus fotos para adjuntar el comprobante.",
-        "danger"
-      );
-      return;
-    }
-
     const pickerResult = await ImagePicker.launchImageLibraryAsync({
       allowsEditing: true,
       mediaTypes: ImagePicker.MediaTypeOptions.Images,

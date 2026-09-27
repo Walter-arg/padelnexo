@@ -1628,18 +1628,6 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
       return;
     }
 
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-
-    if (permission.status !== "granted") {
-      setFeedback({
-        visible: true,
-        title: "Permiso necesario",
-        message: "Necesitamos acceso a tus fotos para adjuntar el comprobante.",
-        tone: "danger",
-      });
-      return;
-    }
-
     const pickerResult = await ImagePicker.launchImageLibraryAsync({
       allowsEditing: true,
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
