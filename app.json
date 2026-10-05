@@ -119,6 +119,7 @@
           },
           "ios": {
             "useFrameworks": "dynamic",
+            "forceStaticLinking": ["RNPurchases"],
             "privacyManifests": {
               "NSPrivacyAccessedAPITypes": [
                 {
