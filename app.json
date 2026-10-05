@@ -55,10 +55,12 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.padelnexo.app",
+      "googleServicesFile": "./GoogleService-Info.plist",
       "infoPlist": {
         "NSCameraUsageDescription": "PadelNexo usa la camara para subir comprobantes de pago y actualizar tu foto de perfil.",
         "NSPhotoLibraryUsageDescription": "PadelNexo accede a tus fotos para subir tu foto de perfil y comprobantes de pago.",
-        "NSPhotoLibraryAddUsageDescription": "PadelNexo necesita guardar imagenes en tu galeria."
+        "NSPhotoLibraryAddUsageDescription": "PadelNexo necesita guardar imagenes en tu galeria.",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "extra": {
