@@ -118,6 +118,7 @@
             "compileSdkVersion": 36
           },
           "ios": {
+            "useFrameworks": "static",
             "privacyManifests": {
               "NSPrivacyAccessedAPITypes": [
                 {
