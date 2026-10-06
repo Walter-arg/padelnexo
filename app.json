@@ -80,14 +80,7 @@
     },
     "owner": "waltwr",
     "plugins": [
-      [
-        "@react-native-firebase/app",
-        {
-          "ios": {
-            "disableSPM": true
-          }
-        }
-      ],
+      "@react-native-firebase/app",
       "@react-native-firebase/crashlytics",
       "expo-apple-authentication",
       "expo-web-browser",
@@ -125,7 +118,8 @@
             "compileSdkVersion": 36
           },
           "ios": {
-            "useFrameworks": "static",
+            "useFrameworks": "dynamic",
+            "forceStaticLinking": ["RNPurchases"],
             "privacyManifests": {
               "NSPrivacyAccessedAPITypes": [
                 {
