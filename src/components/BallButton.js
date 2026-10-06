@@ -56,7 +56,14 @@ export default function BallButton({
         <View style={[styles.textureRing, styles.textureRingLeft]} />
         <View style={[styles.textureRing, styles.textureRingRight]} />
         <View style={styles.glow} />
-        <Text style={[styles.label, compact && styles.labelCompact]}>{label}</Text>
+        <Text
+          adjustsFontSizeToFit
+          minimumFontScale={0.75}
+          numberOfLines={1}
+          style={[styles.label, compact && styles.labelCompact]}
+        >
+          {label}
+        </Text>
         <Text style={[styles.subtitle, compact && styles.subtitleCompact]}>{subtitle}</Text>
       </Animated.View>
     </Pressable>

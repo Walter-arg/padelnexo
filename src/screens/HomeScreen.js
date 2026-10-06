@@ -956,7 +956,7 @@ export default function HomeScreen({ navigation, route }) {
       >
         <View style={styles.headerRow}>
           <View style={styles.brandBlock}>
-            <Text numberOfLines={1} style={styles.appName}>
+            <Text adjustsFontSizeToFit minimumFontScale={0.75} numberOfLines={1} style={styles.appName}>
               PadelNexo
             </Text>
             <Text style={styles.appCaption}>Conectando el mundo del padel</Text>
