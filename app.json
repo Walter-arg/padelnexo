@@ -53,7 +53,7 @@
       }
     },
     "ios": {
-      "supportsTablet": true,
+      "supportsTablet": false,
       "bundleIdentifier": "com.padelnexo.app",
       "googleServicesFile": "./GoogleService-Info.plist",
       "infoPlist": {
