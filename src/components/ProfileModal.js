@@ -1274,6 +1274,72 @@ export default function ProfileModal({
             tone={feedback.tone}
             visible={feedback.visible}
           />
+          {isDeleteConfirmVisible ? (
+            <View style={styles.confirmOverlay}>
+              <Pressable
+                onPress={() => setIsDeleteConfirmVisible(false)}
+                style={styles.confirmBackdrop}
+              />
+              <View style={styles.confirmCard}>
+                <Text style={styles.confirmTitle}>Eliminar cuenta</Text>
+                <Text style={styles.confirmText}>
+                  Esta accion eliminara tu acceso a PadelNexo. Quieres continuar?
+                </Text>
+                <View style={styles.confirmActions}>
+                  <Pressable
+                    onPress={() => setIsDeleteConfirmVisible(false)}
+                    style={({ pressed }) => [
+                      styles.confirmSecondaryButton,
+                      pressed && styles.confirmButtonPressed,
+                    ]}
+                  >
+                    <Text style={styles.confirmSecondaryButtonText}>Cancelar</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={handleConfirmDeleteAccount}
+                    style={({ pressed }) => [
+                      styles.confirmPrimaryButton,
+                      pressed && styles.confirmButtonPressed,
+                    ]}
+                  >
+                    <Text style={styles.confirmPrimaryButtonText}>Eliminar</Text>
+                  </Pressable>
+                </View>
+              </View>
+            </View>
+          ) : null}
+          {isLogoutConfirmVisible ? (
+            <View style={styles.confirmOverlay}>
+              <Pressable
+                onPress={() => setIsLogoutConfirmVisible(false)}
+                style={styles.confirmBackdrop}
+              />
+              <View style={styles.confirmCard}>
+                <Text style={styles.confirmTitle}>Cerrar sesion</Text>
+                <Text style={styles.confirmText}>Quieres salir de tu cuenta actual?</Text>
+                <View style={styles.confirmActions}>
+                  <Pressable
+                    onPress={() => setIsLogoutConfirmVisible(false)}
+                    style={({ pressed }) => [
+                      styles.confirmSecondaryButton,
+                      pressed && styles.confirmButtonPressed,
+                    ]}
+                  >
+                    <Text style={styles.confirmSecondaryButtonText}>Cancelar</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={handleConfirmLogout}
+                    style={({ pressed }) => [
+                      styles.confirmPrimaryButton,
+                      pressed && styles.confirmButtonPressed,
+                    ]}
+                  >
+                    <Text style={styles.confirmPrimaryButtonText}>Cerrar sesion</Text>
+                  </Pressable>
+                </View>
+              </View>
+            </View>
+          ) : null}
         </KeyboardAvoidingView>
       </Modal>
 
@@ -1303,82 +1369,6 @@ export default function ProfileModal({
         user={user}
         visible={isOrganizerModalVisible}
       />
-      <Modal
-        animationType="fade"
-        onRequestClose={() => setIsDeleteConfirmVisible(false)}
-        transparent
-        visible={isDeleteConfirmVisible}
-      >
-        <View style={styles.confirmOverlay}>
-          <Pressable
-            onPress={() => setIsDeleteConfirmVisible(false)}
-            style={styles.confirmBackdrop}
-          />
-          <View style={styles.confirmCard}>
-            <Text style={styles.confirmTitle}>Eliminar cuenta</Text>
-            <Text style={styles.confirmText}>
-              Esta accion eliminara tu acceso a PadelNexo. Quieres continuar?
-            </Text>
-            <View style={styles.confirmActions}>
-              <Pressable
-                onPress={() => setIsDeleteConfirmVisible(false)}
-                style={({ pressed }) => [
-                  styles.confirmSecondaryButton,
-                  pressed && styles.confirmButtonPressed,
-                ]}
-              >
-                <Text style={styles.confirmSecondaryButtonText}>Cancelar</Text>
-              </Pressable>
-              <Pressable
-                onPress={handleConfirmDeleteAccount}
-                style={({ pressed }) => [
-                  styles.confirmPrimaryButton,
-                  pressed && styles.confirmButtonPressed,
-                ]}
-              >
-                <Text style={styles.confirmPrimaryButtonText}>Eliminar</Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
-      <Modal
-        animationType="fade"
-        onRequestClose={() => setIsLogoutConfirmVisible(false)}
-        transparent
-        visible={isLogoutConfirmVisible}
-      >
-        <View style={styles.confirmOverlay}>
-          <Pressable
-            onPress={() => setIsLogoutConfirmVisible(false)}
-            style={styles.confirmBackdrop}
-          />
-          <View style={styles.confirmCard}>
-            <Text style={styles.confirmTitle}>Cerrar sesion</Text>
-            <Text style={styles.confirmText}>Quieres salir de tu cuenta actual?</Text>
-            <View style={styles.confirmActions}>
-              <Pressable
-                onPress={() => setIsLogoutConfirmVisible(false)}
-                style={({ pressed }) => [
-                  styles.confirmSecondaryButton,
-                  pressed && styles.confirmButtonPressed,
-                ]}
-              >
-                <Text style={styles.confirmSecondaryButtonText}>Cancelar</Text>
-              </Pressable>
-              <Pressable
-                onPress={handleConfirmLogout}
-                style={({ pressed }) => [
-                  styles.confirmPrimaryButton,
-                  pressed && styles.confirmButtonPressed,
-                ]}
-              >
-                <Text style={styles.confirmPrimaryButtonText}>Cerrar sesion</Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
     </>
   );
 }
