@@ -3,12 +3,54 @@ import { useMemo, useState } from "react";
 
 import { colors, spacing } from "../config/theme";
 
-export default function CountryCodeSelector({ options, value, onChange }) {
+export default function CountryCodeSelector({
+  options,
+  value,
+  onChange,
+  // TEMPORAL: iOS no puede presentar un <Modal> nativo arriba de otro ya
+  // abierto (queda invisible). Cuando este selector se usa DENTRO de otro
+  // modal ya abierto, pasar embedded para que se dibuje como una vista
+  // superpuesta en vez de un Modal propio.
+  embedded = false,
+}) {
   const [visible, setVisible] = useState(false);
 
   const selectedOption = useMemo(
     () => options.find((option) => option.country === value) || options[0],
     [options, value]
+  );
+
+  const optionsList = (
+    <View style={styles.overlay}>
+      <Pressable onPress={() => setVisible(false)} style={styles.backdrop} />
+      <View style={styles.card}>
+        <Text style={styles.title}>Selecciona tu pais</Text>
+        <ScrollView showsVerticalScrollIndicator={false}>
+          {options.map((option) => {
+            const isSelected = option.country === selectedOption?.country;
+
+            return (
+              <Pressable
+                key={`${option.country}-${option.code}`}
+                onPress={() => {
+                  onChange?.(option);
+                  setVisible(false);
+                }}
+                style={[styles.row, isSelected && styles.rowSelected]}
+              >
+                <Text style={styles.rowFlag}>{option.flag}</Text>
+                <View style={styles.rowContent}>
+                  <Text style={[styles.rowCountry, isSelected && styles.rowCountrySelected]}>
+                    {option.country}
+                  </Text>
+                  <Text style={styles.rowCode}>{option.code}</Text>
+                </View>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      </View>
+    </View>
   );
 
   return (
@@ -19,38 +61,13 @@ export default function CountryCodeSelector({ options, value, onChange }) {
         <Text style={styles.chevron}>▾</Text>
       </Pressable>
 
-      <Modal animationType="fade" transparent visible={visible}>
-        <View style={styles.overlay}>
-          <Pressable onPress={() => setVisible(false)} style={styles.backdrop} />
-          <View style={styles.card}>
-            <Text style={styles.title}>Selecciona tu pais</Text>
-            <ScrollView showsVerticalScrollIndicator={false}>
-              {options.map((option) => {
-                const isSelected = option.country === selectedOption?.country;
-
-                return (
-                  <Pressable
-                    key={`${option.country}-${option.code}`}
-                    onPress={() => {
-                      onChange?.(option);
-                      setVisible(false);
-                    }}
-                    style={[styles.row, isSelected && styles.rowSelected]}
-                  >
-                    <Text style={styles.rowFlag}>{option.flag}</Text>
-                    <View style={styles.rowContent}>
-                      <Text style={[styles.rowCountry, isSelected && styles.rowCountrySelected]}>
-                        {option.country}
-                      </Text>
-                      <Text style={styles.rowCode}>{option.code}</Text>
-                    </View>
-                  </Pressable>
-                );
-              })}
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
+      {embedded
+        ? (visible ? optionsList : null)
+        : (
+          <Modal animationType="fade" transparent visible={visible}>
+            {optionsList}
+          </Modal>
+        )}
     </>
   );
 }

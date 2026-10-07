@@ -1067,6 +1067,7 @@ export default function ProfileModal({
                   containerStyle={styles.phoneField}
                   leftElement={
                     <CountryCodeSelector
+                      embedded
                       onChange={(option) => {
                         updateField("countryCode", option.code);
                         updateField("phoneCountry", option.country);
@@ -1152,6 +1153,7 @@ export default function ProfileModal({
                 value={selectedLocation?.provincia || profile.localidad?.provincia || ""}
               />
               <SelectField
+                embedded
                 label="Categoria"
                 labelStyle={styles.centeredLabel}
                 containerStyle={styles.compactField}
@@ -1165,6 +1167,7 @@ export default function ProfileModal({
                 visible={isCategoryVisible}
               />
               <SelectField
+                embedded
                 label="Sexo"
                 labelStyle={styles.centeredLabel}
                 containerStyle={styles.compactField}
@@ -1178,6 +1181,7 @@ export default function ProfileModal({
                 visible={isSexVisible}
               />
               <SelectField
+                embedded
                 label="Lado preferido de juego"
                 labelStyle={styles.centeredLabel}
                 containerStyle={styles.compactField}
@@ -1191,6 +1195,7 @@ export default function ProfileModal({
                 visible={isPreferredSideVisible}
               />
               <SelectField
+                embedded
                 label="Mano habil"
                 labelStyle={styles.centeredLabel}
                 containerStyle={styles.compactField}
@@ -1340,35 +1345,35 @@ export default function ProfileModal({
               </View>
             </View>
           ) : null}
+          <OrganizerRequestModal
+            embedded
+            mode={organizerModalMode}
+            onClose={() => setIsOrganizerModalVisible(false)}
+            onSaved={(updatedProfile) => {
+              // updatedProfile trae "name" (nombre completo) pero no firstName/
+              // lastName por separado — hay que derivarlos igual que en el
+              // effect de sincronizacion principal, si no la pestaña "Mis datos"
+              // (que edita firstName/lastName, no name) los muestra vacios, y
+              // guardar desde ahi terminaria borrando el nombre real.
+              const firstName =
+                updatedProfile?.firstName ||
+                (updatedProfile?.name ? updatedProfile.name.split(" ")[0] : "");
+              const lastName =
+                updatedProfile?.lastName ||
+                (updatedProfile?.name ? updatedProfile.name.split(" ").slice(1).join(" ") : "");
+
+              setProfile({
+                ...defaultProfile,
+                ...updatedProfile,
+                firstName,
+                lastName,
+              });
+            }}
+            user={user}
+            visible={isOrganizerModalVisible}
+          />
         </KeyboardAvoidingView>
       </Modal>
-
-      <OrganizerRequestModal
-        mode={organizerModalMode}
-        onClose={() => setIsOrganizerModalVisible(false)}
-        onSaved={(updatedProfile) => {
-          // updatedProfile trae "name" (nombre completo) pero no firstName/
-          // lastName por separado — hay que derivarlos igual que en el
-          // effect de sincronizacion principal, si no la pestaña "Mis datos"
-          // (que edita firstName/lastName, no name) los muestra vacios, y
-          // guardar desde ahi terminaria borrando el nombre real.
-          const firstName =
-            updatedProfile?.firstName ||
-            (updatedProfile?.name ? updatedProfile.name.split(" ")[0] : "");
-          const lastName =
-            updatedProfile?.lastName ||
-            (updatedProfile?.name ? updatedProfile.name.split(" ").slice(1).join(" ") : "");
-
-          setProfile({
-            ...defaultProfile,
-            ...updatedProfile,
-            firstName,
-            lastName,
-          });
-        }}
-        user={user}
-        visible={isOrganizerModalVisible}
-      />
     </>
   );
 }

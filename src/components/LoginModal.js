@@ -662,6 +662,7 @@ export default function LoginModal({ onClose, onLogin, visible }) {
                     labelStyle={styles.centeredLabel}
                     leftElement={
                       <CountryCodeSelector
+                        embedded
                         onChange={(option) => {
                           setSelectedPhoneCountry(option.country);
                           setCountryCode(option.code);
@@ -724,6 +725,7 @@ export default function LoginModal({ onClose, onLogin, visible }) {
                   value={localidad?.provincia || ""}
                 />
                 <SelectField
+                  embedded
                   label="Categoria del jugador"
                   labelStyle={styles.centeredLabel}
                   onClose={() => setIsCategoryVisible(false)}
@@ -735,6 +737,7 @@ export default function LoginModal({ onClose, onLogin, visible }) {
                   visible={isCategoryVisible}
                 />
                 <SelectField
+                  embedded
                   label={"G\u00e9nero"}
                   labelStyle={styles.centeredLabel}
                   onClose={() => setIsSexVisible(false)}
@@ -746,6 +749,7 @@ export default function LoginModal({ onClose, onLogin, visible }) {
                   visible={isSexVisible}
                 />
                 <SelectField
+                  embedded
                   label="Lado preferido de juego"
                   labelStyle={styles.centeredLabel}
                   onClose={() => setIsPreferredSideVisible(false)}
@@ -757,6 +761,7 @@ export default function LoginModal({ onClose, onLogin, visible }) {
                   visible={isPreferredSideVisible}
                 />
                 <SelectField
+                  embedded
                   label={"Mano h\u00e1bil"}
                   labelStyle={styles.centeredLabel}
                   onClose={() => setIsDominantHandVisible(false)}
@@ -930,6 +935,7 @@ export default function LoginModal({ onClose, onLogin, visible }) {
       </KeyboardAvoidingView>
       <FeedbackModal
         confirmLabel={feedback.tone === "success" ? "Continuar" : "Entendido"}
+        embedded
         message={feedback.message}
         onClose={() => setFeedback((current) => ({ ...current, visible: false }))}
         title={feedback.title}

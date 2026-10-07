@@ -244,6 +244,7 @@ export default function PlansPaywallModal({ visible, onClose, onPurchaseSuccess 
       </View>
 
       <FeedbackModal
+        embedded
         message={feedback?.message}
         onClose={() => setFeedback(null)}
         title={feedback?.title}

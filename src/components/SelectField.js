@@ -15,9 +15,48 @@ export default function SelectField({
   fieldStyle,
   labelStyle,
   renderModalFooter,
+  // TEMPORAL: iOS no puede presentar un <Modal> nativo arriba de otro ya
+  // abierto (queda invisible). Cuando este SelectField se usa DENTRO de otro
+  // modal ya abierto, pasar embedded para que se dibuje como una vista
+  // superpuesta en vez de un Modal propio.
+  embedded = false,
 }) {
   const selectedOption = options.find((option) => option.value === value);
   const displayValue = selectedOption?.label || value || placeholder;
+
+  const optionsList = (
+    <View style={styles.modalOverlay}>
+      <Pressable onPress={onClose} style={styles.modalBackdrop} />
+      <View style={styles.modalCard}>
+        <Text style={styles.modalTitle}>{label}</Text>
+        <ScrollView showsVerticalScrollIndicator={false}>
+          {options.map((option) => {
+            const isSelected = option.value === value;
+
+            return (
+              <Pressable
+                key={option.value}
+                onPress={() => {
+                  onSelect(option.value);
+                  onClose();
+                }}
+                style={[styles.optionRow, isSelected && styles.optionRowSelected]}
+              >
+                <Text
+                  style={[styles.optionText, isSelected && styles.optionTextSelected]}
+                >
+                  {option.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+          {renderModalFooter ? (
+            <View style={styles.modalFooter}>{renderModalFooter()}</View>
+          ) : null}
+        </ScrollView>
+      </View>
+    </View>
+  );
 
   return (
     <>
@@ -31,39 +70,13 @@ export default function SelectField({
         </Pressable>
       </View>
 
-      <Modal animationType="fade" transparent visible={visible}>
-        <View style={styles.modalOverlay}>
-          <Pressable onPress={onClose} style={styles.modalBackdrop} />
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>{label}</Text>
-            <ScrollView showsVerticalScrollIndicator={false}>
-              {options.map((option) => {
-                const isSelected = option.value === value;
-
-                return (
-                  <Pressable
-                    key={option.value}
-                    onPress={() => {
-                      onSelect(option.value);
-                      onClose();
-                    }}
-                    style={[styles.optionRow, isSelected && styles.optionRowSelected]}
-                  >
-                    <Text
-                      style={[styles.optionText, isSelected && styles.optionTextSelected]}
-                    >
-                      {option.label}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-              {renderModalFooter ? (
-                <View style={styles.modalFooter}>{renderModalFooter()}</View>
-              ) : null}
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
+      {embedded
+        ? (visible ? optionsList : null)
+        : (
+          <Modal animationType="fade" transparent visible={visible}>
+            {optionsList}
+          </Modal>
+        )}
     </>
   );
 }

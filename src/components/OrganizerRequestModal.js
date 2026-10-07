@@ -167,6 +167,11 @@ export default function OrganizerRequestModal({
   onSaved,
   user,
   visible,
+  // TEMPORAL: iOS no puede presentar un <Modal> nativo arriba de otro ya
+  // abierto (queda invisible). Cuando este modal se abre DESDE DENTRO de
+  // otro modal ya abierto (ej. ProfileModal), pasar embedded para que se
+  // dibuje como una vista superpuesta en vez de un Modal propio.
+  embedded = false,
 }) {
   const {
     submitComplexRequest,
@@ -618,8 +623,12 @@ export default function OrganizerRequestModal({
     }
   };
 
-  return (
-    <Modal animationType="slide" transparent visible={visible}>
+  if (embedded && !visible) {
+    return null;
+  }
+
+  const content = (
+    <>
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         style={styles.overlay}
@@ -664,6 +673,7 @@ export default function OrganizerRequestModal({
                   labelStyle={styles.centeredLabel}
                   leftElement={
                     <CountryCodeSelector
+                      embedded
                       onChange={(option) => {
                         updateField("countryCode", option.code);
                         updateField("phoneCountry", option.country);
@@ -972,6 +982,16 @@ export default function OrganizerRequestModal({
         tone={feedback.tone}
         visible={feedback.visible}
       />
+    </>
+  );
+
+  if (embedded) {
+    return content;
+  }
+
+  return (
+    <Modal animationType="slide" transparent visible={visible}>
+      {content}
     </Modal>
   );
 }

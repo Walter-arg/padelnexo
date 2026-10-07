@@ -918,6 +918,10 @@ export default function CreateTournamentScreen({ navigation, route }) {
     const validationMessage = validateTemporaryComplex();
 
     if (validationMessage) {
+      // Cerrar el modal de "lugar temporal" antes de avisar: en iOS el
+      // FeedbackModal de esta screen no puede presentarse arriba de este
+      // Modal si se queda abierto.
+      setTemporaryComplexVisible(false);
       showFeedback("Faltan datos", validationMessage, "danger");
       return;
     }
@@ -958,6 +962,7 @@ export default function CreateTournamentScreen({ navigation, route }) {
         "success"
       );
     } catch (error) {
+      setTemporaryComplexVisible(false);
       showFeedback(
         "No pudimos guardar el lugar",
         error?.message || "Intenta nuevamente en unos instantes.",

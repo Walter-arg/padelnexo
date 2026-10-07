@@ -330,33 +330,34 @@ export default function AvailabilityEditor({
               </View>
             </ScrollView>
           </View>
+
+          <CustomTimeSheet
+            dayLabel={resolveDayLabel(selectedDayKey)}
+            embedded
+            from={customFrom}
+            onChangeFrom={setCustomFrom}
+            onChangeTo={setCustomTo}
+            onClose={() => setIsCustomSheetVisible(false)}
+            onConfirm={handleAddCustomSlot}
+            to={customTo}
+            visible={isCustomSheetVisible}
+          />
+
+          <FeedbackModal
+            embedded
+            message={feedback.message}
+            onClose={() =>
+              setFeedback((current) => ({
+                ...current,
+                visible: false,
+              }))
+            }
+            title={feedback.title}
+            tone={feedback.tone}
+            visible={feedback.visible}
+          />
         </View>
       </Modal>
-
-      <CustomTimeSheet
-        dayLabel={resolveDayLabel(selectedDayKey)}
-        from={customFrom}
-        onChangeFrom={setCustomFrom}
-        onChangeTo={setCustomTo}
-        onClose={() => setIsCustomSheetVisible(false)}
-        onConfirm={handleAddCustomSlot}
-        to={customTo}
-        visible={isCustomSheetVisible}
-      />
-
-      <FeedbackModal
-        message={feedback.message}
-        onClose={() =>
-          setFeedback((current) => ({
-            ...current,
-            visible: false,
-          }))
-        }
-        title={feedback.title}
-        tone={feedback.tone}
-        visible={feedback.visible}
-      />
-
     </>
   );
 }

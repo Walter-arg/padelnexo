@@ -248,6 +248,9 @@ export default function TournamentPosterViewerScreen({ navigation, route }) {
         tone: "default",
       });
     } catch (error) {
+      // Cerrar el ReportModal antes de avisar: en iOS el FeedbackModal no
+      // puede presentarse arriba de este Modal si se queda abierto.
+      setReportVisible(false);
       setFeedback({
         visible: true,
         title: "No pudimos enviar el reporte",

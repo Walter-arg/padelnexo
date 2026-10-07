@@ -926,6 +926,10 @@ export default function TournamentRegistrationPanel({
     const trimmedLastName = String(guestLastName || "").trim();
 
     if (!trimmedName) {
+      // Cerrar el modal de "Agregar jugador manual" antes de avisar: en iOS
+      // el FeedbackModal (que vive en la screen) no puede presentarse arriba
+      // de este Modal si se queda abierto.
+      setGuestModalVisible(false);
       showFeedback("Falta el nombre", "Ingresa al menos el nombre del jugador manual.", "danger");
       return;
     }
@@ -2300,6 +2304,7 @@ export default function TournamentRegistrationPanel({
                 value={guestLastName}
               />
               <SelectField
+                embedded
                 label="Categoria"
                 onClose={() => setGuestCategoryPickerVisible(false)}
                 onOpen={() => setGuestCategoryPickerVisible(true)}

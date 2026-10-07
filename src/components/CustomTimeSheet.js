@@ -28,6 +28,11 @@ export default function CustomTimeSheet({
   onConfirm,
   to,
   visible,
+  // TEMPORAL: iOS no puede presentar un <Modal> nativo arriba de otro ya
+  // abierto (queda invisible). Cuando este sheet se usa DENTRO de otro modal
+  // ya abierto, pasar embedded para que se dibuje como una vista superpuesta
+  // en vez de un Modal propio.
+  embedded = false,
 }) {
   const [pickerTarget, setPickerTarget] = useState("");
 
@@ -54,65 +59,73 @@ export default function CustomTimeSheet({
     }
   };
 
-  return (
-    <Modal animationType="slide" onRequestClose={onClose} transparent visible={visible}>
-      <View style={styles.overlay}>
-        <Pressable onPress={onClose} style={styles.backdrop} />
-        <View style={styles.sheet}>
-          <View style={styles.handle} />
-          <Text style={styles.title}>Personalizar horario</Text>
-          <Text style={styles.subtitle}>{dayLabel}</Text>
+  const content = (
+    <View style={styles.overlay}>
+      <Pressable onPress={onClose} style={styles.backdrop} />
+      <View style={styles.sheet}>
+        <View style={styles.handle} />
+        <Text style={styles.title}>Personalizar horario</Text>
+        <Text style={styles.subtitle}>{dayLabel}</Text>
 
-          <View style={styles.columns}>
-            <View style={styles.column}>
-              <Text style={styles.columnLabel}>Desde</Text>
-              <Pressable
-                onPress={() => setPickerTarget("from")}
-                style={({ pressed }) => [
-                  styles.timeButton,
-                  pressed ? styles.optionChipPressed : null,
-                ]}
-              >
-                <Text style={styles.timeButtonText}>{from}</Text>
-                <Ionicons color={colors.primaryDark} name="time-outline" size={18} />
-              </Pressable>
-            </View>
-
-            <View style={styles.column}>
-              <Text style={styles.columnLabel}>Hasta</Text>
-              <Pressable
-                onPress={() => setPickerTarget("to")}
-                style={({ pressed }) => [
-                  styles.timeButton,
-                  pressed ? styles.optionChipPressed : null,
-                ]}
-              >
-                <Text style={styles.timeButtonText}>{to}</Text>
-                <Ionicons color={colors.primaryDark} name="time-outline" size={18} />
-              </Pressable>
-            </View>
+        <View style={styles.columns}>
+          <View style={styles.column}>
+            <Text style={styles.columnLabel}>Desde</Text>
+            <Pressable
+              onPress={() => setPickerTarget("from")}
+              style={({ pressed }) => [
+                styles.timeButton,
+                pressed ? styles.optionChipPressed : null,
+              ]}
+            >
+              <Text style={styles.timeButtonText}>{from}</Text>
+              <Ionicons color={colors.primaryDark} name="time-outline" size={18} />
+            </Pressable>
           </View>
 
-          {pickerTarget ? (
-            <DateTimePicker
-              display={Platform.OS === "ios" ? "spinner" : "clock"}
-              is24Hour
-              mode="time"
-              onChange={handlePickerChange}
-              value={buildDateFromTime(pickerTarget === "from" ? from : to)}
-            />
-          ) : null}
-
-          <View style={styles.actions}>
-            <Pressable onPress={onClose} style={styles.secondaryButton}>
-              <Text style={styles.secondaryButtonText}>Cancelar</Text>
-            </Pressable>
-            <Pressable onPress={onConfirm} style={styles.primaryButton}>
-              <Text style={styles.primaryButtonText}>Agregar</Text>
+          <View style={styles.column}>
+            <Text style={styles.columnLabel}>Hasta</Text>
+            <Pressable
+              onPress={() => setPickerTarget("to")}
+              style={({ pressed }) => [
+                styles.timeButton,
+                pressed ? styles.optionChipPressed : null,
+              ]}
+            >
+              <Text style={styles.timeButtonText}>{to}</Text>
+              <Ionicons color={colors.primaryDark} name="time-outline" size={18} />
             </Pressable>
           </View>
         </View>
+
+        {pickerTarget ? (
+          <DateTimePicker
+            display={Platform.OS === "ios" ? "spinner" : "clock"}
+            is24Hour
+            mode="time"
+            onChange={handlePickerChange}
+            value={buildDateFromTime(pickerTarget === "from" ? from : to)}
+          />
+        ) : null}
+
+        <View style={styles.actions}>
+          <Pressable onPress={onClose} style={styles.secondaryButton}>
+            <Text style={styles.secondaryButtonText}>Cancelar</Text>
+          </Pressable>
+          <Pressable onPress={onConfirm} style={styles.primaryButton}>
+            <Text style={styles.primaryButtonText}>Agregar</Text>
+          </Pressable>
+        </View>
       </View>
+    </View>
+  );
+
+  if (embedded) {
+    return visible ? content : null;
+  }
+
+  return (
+    <Modal animationType="slide" onRequestClose={onClose} transparent visible={visible}>
+      {content}
     </Modal>
   );
 }

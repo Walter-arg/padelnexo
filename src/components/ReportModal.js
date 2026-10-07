@@ -10,6 +10,11 @@ export default function ReportModal({
   submitting = false,
   onCancel,
   onSubmit,
+  // TEMPORAL: iOS no puede presentar un <Modal> nativo arriba de otro ya
+  // abierto (queda invisible). Cuando este modal se usa DENTRO de otro modal
+  // ya abierto, pasar embedded para que se dibuje como una vista superpuesta
+  // en vez de un Modal propio.
+  embedded = false,
 }) {
   const [description, setDescription] = useState("");
 
@@ -23,40 +28,52 @@ export default function ReportModal({
     onCancel?.();
   };
 
-  return (
-    <Modal animationType="fade" onRequestClose={handleCancel} transparent visible={visible}>
-      <View style={styles.overlay}>
-        <Pressable onPress={handleCancel} style={styles.backdrop} />
-        <View style={styles.card}>
-          <Text style={styles.title}>{title}</Text>
-          {targetLabel ? <Text style={styles.target}>{targetLabel}</Text> : null}
-          <TextInput
-            multiline
-            onChangeText={setDescription}
-            placeholder="Contanos brevemente que queres reportar"
-            placeholderTextColor={colors.muted}
-            style={styles.input}
-            textAlignVertical="top"
-            value={description}
-          />
-          <View style={styles.actions}>
-            <Pressable
-              disabled={submitting}
-              onPress={handleCancel}
-              style={({ pressed }) => [styles.secondaryButton, pressed && styles.buttonPressed]}
-            >
-              <Text style={styles.secondaryText}>Cancelar</Text>
-            </Pressable>
-            <Pressable
-              disabled={submitting}
-              onPress={handleSubmit}
-              style={({ pressed }) => [styles.primaryButton, pressed && styles.buttonPressed]}
-            >
-              <Text style={styles.primaryText}>{submitting ? "Enviando..." : "Enviar reporte"}</Text>
-            </Pressable>
-          </View>
+  if (embedded && !visible) {
+    return null;
+  }
+
+  const content = (
+    <View style={styles.overlay}>
+      <Pressable onPress={handleCancel} style={styles.backdrop} />
+      <View style={styles.card}>
+        <Text style={styles.title}>{title}</Text>
+        {targetLabel ? <Text style={styles.target}>{targetLabel}</Text> : null}
+        <TextInput
+          multiline
+          onChangeText={setDescription}
+          placeholder="Contanos brevemente que queres reportar"
+          placeholderTextColor={colors.muted}
+          style={styles.input}
+          textAlignVertical="top"
+          value={description}
+        />
+        <View style={styles.actions}>
+          <Pressable
+            disabled={submitting}
+            onPress={handleCancel}
+            style={({ pressed }) => [styles.secondaryButton, pressed && styles.buttonPressed]}
+          >
+            <Text style={styles.secondaryText}>Cancelar</Text>
+          </Pressable>
+          <Pressable
+            disabled={submitting}
+            onPress={handleSubmit}
+            style={({ pressed }) => [styles.primaryButton, pressed && styles.buttonPressed]}
+          >
+            <Text style={styles.primaryText}>{submitting ? "Enviando..." : "Enviar reporte"}</Text>
+          </Pressable>
         </View>
       </View>
+    </View>
+  );
+
+  if (embedded) {
+    return content;
+  }
+
+  return (
+    <Modal animationType="fade" onRequestClose={handleCancel} transparent visible={visible}>
+      {content}
     </Modal>
   );
 }
