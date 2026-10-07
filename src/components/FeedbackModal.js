@@ -9,47 +9,64 @@ export default function FeedbackModal({
   confirmLabel = "Entendido",
   onClose,
   tone = "default",
+  // TEMPORAL: iOS no puede presentar un <Modal> nativo arriba de otro ya
+  // abierto (queda invisible, aunque este "visible" en React). Cuando este
+  // FeedbackModal se usa DENTRO de otro modal ya abierto, pasar embedded
+  // para que se dibuje como una vista superpuesta en vez de un Modal propio.
+  embedded = false,
 }) {
   const isDanger = tone === "danger";
   const isWarning = tone === "warning";
   const messageParts = String(message || "").split(/(\*\*[^*]+\*\*)/g);
 
+  if (embedded && !visible) {
+    return null;
+  }
+
+  const content = (
+    <View style={styles.overlay}>
+      <Pressable onPress={onClose} style={styles.backdrop} />
+      <View style={[styles.card, isWarning ? styles.cardWarning : null]}>
+        {isWarning ? (
+          <View style={styles.warningIcon}>
+            <Text style={styles.warningIconText}>!</Text>
+          </View>
+        ) : null}
+        <Text style={styles.title}>{title}</Text>
+        <Text style={styles.message}>
+          {messageParts.map((part, index) => {
+            const isBold = part.startsWith("**") && part.endsWith("**");
+            const text = isBold ? part.slice(2, -2) : part;
+
+            return (
+              <Text key={`${text}-${index}`} style={isBold ? styles.messageBold : null}>
+                {text}
+              </Text>
+            );
+          })}
+        </Text>
+        <Pressable
+          onPress={onClose}
+          style={({ pressed }) => [
+            styles.button,
+            isDanger ? styles.buttonDanger : null,
+            isWarning ? styles.buttonWarning : null,
+            pressed ? styles.buttonPressed : null,
+          ]}
+        >
+          <Text style={styles.buttonText}>{confirmLabel}</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+
+  if (embedded) {
+    return content;
+  }
+
   return (
     <Modal animationType="fade" onRequestClose={onClose} transparent visible={visible}>
-      <View style={styles.overlay}>
-        <Pressable onPress={onClose} style={styles.backdrop} />
-        <View style={[styles.card, isWarning ? styles.cardWarning : null]}>
-          {isWarning ? (
-            <View style={styles.warningIcon}>
-              <Text style={styles.warningIconText}>!</Text>
-            </View>
-          ) : null}
-          <Text style={styles.title}>{title}</Text>
-          <Text style={styles.message}>
-            {messageParts.map((part, index) => {
-              const isBold = part.startsWith("**") && part.endsWith("**");
-              const text = isBold ? part.slice(2, -2) : part;
-
-              return (
-                <Text key={`${text}-${index}`} style={isBold ? styles.messageBold : null}>
-                  {text}
-                </Text>
-              );
-            })}
-          </Text>
-          <Pressable
-            onPress={onClose}
-            style={({ pressed }) => [
-              styles.button,
-              isDanger ? styles.buttonDanger : null,
-              isWarning ? styles.buttonWarning : null,
-              pressed ? styles.buttonPressed : null,
-            ]}
-          >
-            <Text style={styles.buttonText}>{confirmLabel}</Text>
-          </Pressable>
-        </View>
-      </View>
+      {content}
     </Modal>
   );
 }

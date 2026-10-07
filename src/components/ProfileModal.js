@@ -1260,6 +1260,20 @@ export default function ProfileModal({
             </ScrollView>
             )}
           </View>
+          <FeedbackModal
+            confirmLabel="Entendido"
+            embedded
+            message={feedback.message}
+            onClose={() =>
+              setFeedback((current) => ({
+                ...current,
+                visible: false,
+              }))
+            }
+            title={feedback.title}
+            tone={feedback.tone}
+            visible={feedback.visible}
+          />
         </KeyboardAvoidingView>
       </Modal>
 
@@ -1288,19 +1302,6 @@ export default function ProfileModal({
         }}
         user={user}
         visible={isOrganizerModalVisible}
-      />
-      <FeedbackModal
-        confirmLabel="Entendido"
-        message={feedback.message}
-        onClose={() =>
-          setFeedback((current) => ({
-            ...current,
-            visible: false,
-          }))
-        }
-        title={feedback.title}
-        tone={feedback.tone}
-        visible={feedback.visible}
       />
       <Modal
         animationType="fade"

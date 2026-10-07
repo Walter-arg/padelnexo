@@ -951,6 +951,7 @@ export default function OrganizerRequestModal({
       </KeyboardAvoidingView>
       <FeedbackModal
         confirmLabel={feedback.tone === "success" ? "Continuar" : "Entendido"}
+        embedded
         message={feedback.message}
         onClose={() => {
           // No usar feedback.tone === "success" aca: ese tono tambien se usa
