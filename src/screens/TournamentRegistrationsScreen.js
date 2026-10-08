@@ -257,6 +257,9 @@ export default function TournamentRegistrationsScreen({ navigation, route }) {
         tone: "success",
       });
     } catch (error) {
+      // Cerrar la confirmacion antes de avisar: en iOS el FeedbackModal no
+      // puede presentarse arriba de este Modal si se queda abierto.
+      setRegistrationToDelete(null);
       setFeedback({
         visible: true,
         title: "No pudimos eliminar la pareja",

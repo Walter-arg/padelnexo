@@ -435,6 +435,9 @@ export default function TournamentPaymentsScreen({ navigation, route }) {
       closeMenu();
       showFeedback("Pago actualizado", "El jugador quedo marcado como impago.", "success");
     } catch (error) {
+      // Cerrar el menu antes de avisar: en iOS el FeedbackModal no puede
+      // presentarse arriba de este Modal si se queda abierto.
+      closeMenu();
       showFeedback(
         "No pudimos actualizar el pago",
         error?.message || "Intenta nuevamente en unos instantes.",
@@ -453,6 +456,7 @@ export default function TournamentPaymentsScreen({ navigation, route }) {
     const playerUserId = String(menuTarget.payment.userId || "").trim();
 
     if (!playerUserId) {
+      closeMenu();
       showFeedback(
         "Sin usuario vinculado",
         "Este jugador no tiene usuario vinculado para recibir mensajes internos.",
@@ -494,6 +498,7 @@ export default function TournamentPaymentsScreen({ navigation, route }) {
         "success"
       );
     } catch (error) {
+      closeMenu();
       showFeedback(
         "No pudimos enviar el recordatorio",
         error?.message === "CHAT_BLOCKED"
@@ -524,6 +529,9 @@ export default function TournamentPaymentsScreen({ navigation, route }) {
       const supported = await Linking.canOpenURL(url);
 
       if (!supported) {
+        // Cerrar el menu antes de avisar: en iOS el FeedbackModal no puede
+        // presentarse arriba de este Modal si se queda abierto.
+        closeMenu();
         showFeedback(
           "WhatsApp no disponible",
           "No pudimos abrir WhatsApp en este dispositivo.",
@@ -535,6 +543,7 @@ export default function TournamentPaymentsScreen({ navigation, route }) {
       await Linking.openURL(url);
       closeMenu();
     } catch (error) {
+      closeMenu();
       showFeedback(
         "No pudimos abrir WhatsApp",
         "Intenta nuevamente en unos instantes.",

@@ -913,6 +913,50 @@ export default function AdminScreen({ navigation, route }) {
     </Pressable>
   );
 
+  // TEMPORAL: iOS no puede presentar un <Modal> nativo arriba de otro ya
+  // abierto (queda invisible). appAlert se usa desde dentro de varios Modals
+  // (selectedUser, selectedRequest, selectedContent, selectedReport) que
+  // siguen abiertos cuando se dispara, asi que este contenido se embebe
+  // dentro de cada uno de ellos en vez de depender de un <Modal> propio.
+  const appAlertCard = (
+    <View style={styles.confirmOverlay}>
+      <Pressable onPress={() => setAppAlert(null)} style={styles.confirmBackdrop} />
+      <View style={styles.confirmCard}>
+        <Text style={styles.confirmTitle}>{appAlert?.title}</Text>
+        {appAlert?.message ? <Text style={styles.confirmText}>{appAlert.message}</Text> : null}
+        <View style={styles.confirmActions}>
+          {(appAlert?.buttons || []).map((button, index) => (
+            <Pressable
+              key={`${button.text}-${index}`}
+              onPress={() => {
+                setAppAlert(null);
+                button.onPress?.();
+              }}
+              style={({ pressed }) => [
+                button.style === "cancel"
+                  ? styles.confirmSecondaryButton
+                  : button.style === "destructive"
+                    ? styles.confirmPrimaryButton
+                    : styles.confirmNeutralButton,
+                pressed && styles.confirmButtonPressed,
+              ]}
+            >
+              <Text
+                style={
+                  button.style === "cancel"
+                    ? styles.confirmSecondaryButtonText
+                    : styles.confirmPrimaryButtonText
+                }
+              >
+                {button.text}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      </View>
+    </View>
+  );
+
   return (
     <>
       <ScreenWrapper>
@@ -1532,6 +1576,7 @@ export default function AdminScreen({ navigation, route }) {
                 </View>
               </ScrollView>
             ) : null}
+            {Boolean(appAlert) ? appAlertCard : null}
           </View>
         </View>
       </Modal>
@@ -1930,48 +1975,48 @@ export default function AdminScreen({ navigation, route }) {
                 </View>
               </ScrollView>
             ) : null}
-          </View>
-        </View>
-      </Modal>
-      <Modal
-        animationType="fade"
-        onRequestClose={() => setUserToDelete(null)}
-        transparent
-        visible={Boolean(userToDelete)}
-      >
-        <View style={styles.confirmOverlay}>
-          <Pressable onPress={() => setUserToDelete(null)} style={styles.confirmBackdrop} />
-          <View style={styles.confirmCard}>
-            <Text style={styles.confirmTitle}>Eliminar jugador</Text>
-            <Text style={styles.confirmText}>
-              Esto borra la cuenta de {userToDelete?.name || "este usuario"} por completo (perfil,
-              foto, acceso a la app) y no se puede deshacer. El email tampoco va a poder usarse
-              para registrarse de nuevo.
-            </Text>
-            <View style={styles.confirmActions}>
-              <Pressable
-                onPress={() => setUserToDelete(null)}
-                style={({ pressed }) => [
-                  styles.confirmSecondaryButton,
-                  pressed && styles.confirmButtonPressed,
-                ]}
-              >
-                <Text style={styles.confirmSecondaryButtonText}>Cancelar</Text>
-              </Pressable>
-              <Pressable
-                disabled={deletingUser}
-                onPress={handleConfirmDeleteUser}
-                style={({ pressed }) => [
-                  styles.confirmPrimaryButton,
-                  pressed && styles.confirmButtonPressed,
-                  deletingUser && styles.primaryButtonDisabled,
-                ]}
-              >
-                <Text style={styles.confirmPrimaryButtonText}>
-                  {deletingUser ? "Eliminando..." : "Eliminar definitivamente"}
+            {/* TEMPORAL: iOS no puede presentar un <Modal> nativo arriba de
+            otro ya abierto (queda invisible). Este Modal se abria desde un
+            boton dentro del Modal "Gestionar usuario", asi que va embebido
+            aca en vez de como Modal propio. */}
+            {userToDelete ? (
+            <View style={styles.confirmOverlay}>
+              <Pressable onPress={() => setUserToDelete(null)} style={styles.confirmBackdrop} />
+              <View style={styles.confirmCard}>
+                <Text style={styles.confirmTitle}>Eliminar jugador</Text>
+                <Text style={styles.confirmText}>
+                  Esto borra la cuenta de {userToDelete?.name || "este usuario"} por completo (perfil,
+                  foto, acceso a la app) y no se puede deshacer. El email tampoco va a poder usarse
+                  para registrarse de nuevo.
                 </Text>
-              </Pressable>
+                <View style={styles.confirmActions}>
+                  <Pressable
+                    onPress={() => setUserToDelete(null)}
+                    style={({ pressed }) => [
+                      styles.confirmSecondaryButton,
+                      pressed && styles.confirmButtonPressed,
+                    ]}
+                  >
+                    <Text style={styles.confirmSecondaryButtonText}>Cancelar</Text>
+                  </Pressable>
+                  <Pressable
+                    disabled={deletingUser}
+                    onPress={handleConfirmDeleteUser}
+                    style={({ pressed }) => [
+                      styles.confirmPrimaryButton,
+                      pressed && styles.confirmButtonPressed,
+                      deletingUser && styles.primaryButtonDisabled,
+                    ]}
+                  >
+                    <Text style={styles.confirmPrimaryButtonText}>
+                      {deletingUser ? "Eliminando..." : "Eliminar definitivamente"}
+                    </Text>
+                  </Pressable>
+                </View>
+              </View>
             </View>
+            ) : null}
+            {Boolean(appAlert) ? appAlertCard : null}
           </View>
         </View>
       </Modal>
@@ -1979,7 +2024,7 @@ export default function AdminScreen({ navigation, route }) {
         animationType="fade"
         onRequestClose={() => setAppAlert(null)}
         transparent
-        visible={Boolean(appAlert)}
+        visible={Boolean(appAlert) && !selectedUser && !selectedRequest && !selectedContent && !selectedReport}
       >
         <View style={styles.confirmOverlay}>
           <Pressable onPress={() => setAppAlert(null)} style={styles.confirmBackdrop} />
@@ -2107,6 +2152,7 @@ export default function AdminScreen({ navigation, route }) {
                 </View>
               </ScrollView>
             ) : null}
+            {Boolean(appAlert) ? appAlertCard : null}
           </View>
         </View>
       </Modal>
@@ -2201,6 +2247,7 @@ export default function AdminScreen({ navigation, route }) {
                 </View>
               </ScrollView>
             ) : null}
+            {Boolean(appAlert) ? appAlertCard : null}
           </View>
         </View>
       </Modal>

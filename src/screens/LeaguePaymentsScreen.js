@@ -980,6 +980,9 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
 
   const openProofReview = (round, entry) => {
     if (!entry?.proofUrl) {
+      // Cerrar el menu antes de avisar: en iOS el FeedbackModal no puede
+      // presentarse arriba de este Modal si se queda abierto.
+      setEntryMenuVisible(false);
       setFeedback({
         visible: true,
         title: "Sin comprobante",
@@ -1071,7 +1074,11 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
   };
 
   const handleOpenProof = async (proofUrl) => {
+    // Cerrar la vista de comprobante antes de avisar: en iOS el
+    // FeedbackModal no puede presentarse arriba de este Modal si se queda
+    // abierto.
     if (!proofUrl) {
+      setProofReviewVisible(false);
       setFeedback({
         visible: true,
         title: "Sin comprobante",
@@ -1084,6 +1091,7 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
     try {
       await Linking.openURL(proofUrl);
     } catch (error) {
+      setProofReviewVisible(false);
       setFeedback({
         visible: true,
         title: "No pudimos abrir el comprobante",
@@ -1656,6 +1664,10 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
     const permission = await ImagePicker.requestCameraPermissionsAsync();
 
     if (permission.status !== "granted") {
+      // Cerrar el selector de transferencia antes de avisar: en iOS el
+      // FeedbackModal no puede presentarse arriba de este Modal si se
+      // queda abierto.
+      setTransferProofPickerVisible(false);
       setFeedback({
         visible: true,
         title: "Permiso necesario",

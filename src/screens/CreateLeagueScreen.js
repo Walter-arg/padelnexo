@@ -1045,10 +1045,13 @@ export default function CreateLeagueScreen({ navigation, route }) {
   };
 
   const handleSaveAdditionalSettings = async () => {
+    // Cerrar el modal de ajustes antes de avisar: en iOS el FeedbackModal
+    // no puede presentarse arriba de este Modal si se queda abierto.
     if (showSingleSetSettings) {
       const singleSetPoints = Number.parseInt(form.singleSetPoints, 10);
 
       if (!Number.isInteger(singleSetPoints) || singleSetPoints <= 0) {
+        setIsAdditionalVisible(false);
         showFeedback(
           "Falta el set",
           "Indica con un numero entero en cuantos puntos finaliza el set unico.",
@@ -1062,6 +1065,7 @@ export default function CreateLeagueScreen({ navigation, route }) {
       const superTieBreakPoints = Number.parseInt(form.superTieBreakPoints, 10);
 
       if (!Number.isInteger(superTieBreakPoints) || superTieBreakPoints <= 0) {
+        setIsAdditionalVisible(false);
         showFeedback(
           "Falta el super tie break",
           "Indica con un numero entero en cuantos puntos finaliza el super tie break.",
@@ -1116,6 +1120,7 @@ export default function CreateLeagueScreen({ navigation, route }) {
         "success"
       );
     } catch (error) {
+      setIsAdditionalVisible(false);
       showFeedback(
         "No pudimos guardar la configuracion",
         error?.message || "Intenta nuevamente en unos instantes.",

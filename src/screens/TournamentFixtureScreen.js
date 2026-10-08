@@ -7787,6 +7787,9 @@ export default function TournamentFixtureScreen({ navigation, route }) {
     );
 
     if ((hasScore || zonePlanningResultEditor.winnerRegistrationId) && !winner) {
+      // Cerrar el editor antes de avisar: en iOS el FeedbackModal no puede
+      // presentarse arriba de este Modal si se queda abierto.
+      closeZonePlanningResultEditor();
       setFeedback({
         visible: true,
         title: "Falta seleccionar ganador",
@@ -7802,6 +7805,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
       const thirdSetIsComplete = !thirdSetHasScore || Boolean(getSetWinnerSide(sets[2]));
 
       if (!firstTwoSetsAreComplete || !thirdSetIsComplete) {
+        closeZonePlanningResultEditor();
         setFeedback({
           visible: true,
           title: "Resultado incompleto",
@@ -8206,6 +8210,9 @@ export default function TournamentFixtureScreen({ navigation, route }) {
 
   const clearBracketEditorCrossing = () => {
     if (!bracketResultEditor?.canClearCrossing) {
+      // Cerrar el editor antes de avisar: en iOS el FeedbackModal no puede
+      // presentarse arriba de este Modal si se queda abierto.
+      closeBracketResultEditor();
       setFeedback({
         visible: true,
         title: "No se puede limpiar el cruce",
@@ -8299,6 +8306,9 @@ export default function TournamentFixtureScreen({ navigation, route }) {
     const hasScore = hasAnyResultSetScore(sets);
 
     if ((hasScore || bracketResultEditor.winner) && !bracketResultEditor.winner) {
+      // Cerrar el editor antes de avisar: en iOS el FeedbackModal no puede
+      // presentarse arriba de este Modal si se queda abierto.
+      closeBracketResultEditor();
       setFeedback({
         visible: true,
         title: "Falta seleccionar ganador",
@@ -8314,6 +8324,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
       const thirdSetIsComplete = !thirdSetHasScore || Boolean(getSetWinnerSide(sets[2]));
 
       if (!firstTwoSetsAreComplete || !thirdSetIsComplete) {
+        closeBracketResultEditor();
         setFeedback({
           visible: true,
           title: "Resultado incompleto",
@@ -9403,6 +9414,10 @@ export default function TournamentFixtureScreen({ navigation, route }) {
 
   const handleShareZonesPdf = async () => {
     if (!zoneShareChunks.length) {
+      // Cerrar el modal de compartir antes de avisar: en iOS el
+      // FeedbackModal no puede presentarse arriba de este Modal si se
+      // queda abierto.
+      setZoneShareModalVisible(false);
       setFeedback({
         message: "Primero crea o guarda zonas para poder compartirlas.",
         title: "No hay zonas para compartir",
@@ -9417,6 +9432,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
       const canShare = await Sharing.isAvailableAsync();
 
       if (!canShare) {
+        setZoneShareModalVisible(false);
         setFeedback({
           message: "Este dispositivo no tiene disponible el panel para compartir PDF.",
           title: "No se pudo compartir",
@@ -9471,6 +9487,10 @@ export default function TournamentFixtureScreen({ navigation, route }) {
 
   const handleShareZonesImages = async () => {
     if (!zoneShareChunks.length) {
+      // Cerrar el modal de compartir antes de avisar: en iOS el
+      // FeedbackModal no puede presentarse arriba de este Modal si se
+      // queda abierto.
+      setZoneShareModalVisible(false);
       setFeedback({
         message: "Primero crea o guarda zonas para poder compartirlas.",
         title: "No hay zonas para compartir",
@@ -9485,6 +9505,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
       const canShare = await Sharing.isAvailableAsync();
 
       if (!canShare) {
+        setZoneShareModalVisible(false);
         setFeedback({
           message: "Este dispositivo no tiene disponible el panel para compartir imagenes.",
           title: "No se pudo compartir",

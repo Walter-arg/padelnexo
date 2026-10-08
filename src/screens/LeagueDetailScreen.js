@@ -178,6 +178,9 @@ export default function LeagueDetailScreen({ navigation, route }) {
       setIsDeleteConfirmVisible(false);
       navigation.navigate("MyLeagues");
     } catch (error) {
+      // Cerrar la confirmacion antes de avisar: en iOS el FeedbackModal no
+      // puede presentarse arriba de este Modal si se queda abierto.
+      setIsDeleteConfirmVisible(false);
       showFeedback(
         "No pudimos eliminar la liga",
         error?.message || "Intenta nuevamente en unos instantes.",

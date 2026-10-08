@@ -1261,6 +1261,10 @@ export default function TurnosScreen({ navigation, route }) {
     const selectedCourtIds = getSelectedPriceCourtIds(complex, sourceCourt?.id);
 
     if (!complex || !sourceCourt || !selectedCourtIds.length) {
+      // Cerrar el modal de aplicar precio antes de avisar: en iOS el
+      // FeedbackModal no puede presentarse arriba de este Modal si se
+      // queda abierto.
+      setPriceApplyContext(null);
       showFeedback(
         "Selecciona canchas",
         "Marca al menos una cancha para aplicar el precio y el horario.",
@@ -1636,12 +1640,17 @@ export default function TurnosScreen({ navigation, route }) {
       }
 
       await loadData();
+      // Cerrar el detalle de reserva antes de avisar: en iOS el
+      // FeedbackModal no puede presentarse arriba de este Modal si se
+      // queda abierto.
+      closeReservationDetail();
       showFeedback(
         "Reserva cancelada",
         notificationMessage,
         "success"
       );
     } catch (error) {
+      closeReservationDetail();
       showFeedback(
         "No pudimos cancelar",
         error?.message || "Intenta nuevamente en unos instantes.",
@@ -1692,7 +1701,11 @@ export default function TurnosScreen({ navigation, route }) {
   };
 
   const handleSaveReservationPayment = async () => {
+    // Cerrar la vista de "Registrar cobro" antes de avisar: en iOS el
+    // FeedbackModal no puede presentarse arriba de este Modal si se queda
+    // abierto.
     if (!reservationDetail?.id) {
+      setPaymentEntryVisible(false);
       showFeedback("Falta la reserva", "No encontramos la reserva a cobrar.", "danger");
       return;
     }
@@ -1701,16 +1714,19 @@ export default function TurnosScreen({ navigation, route }) {
     const pendingAmount = getTurnoReservationPaymentSummary(reservationDetail).pendingAmount;
 
     if (!Number.isFinite(amount) || amount <= 0) {
+      setPaymentEntryVisible(false);
       showFeedback("Falta el monto", "Ingresa un monto valido para registrar el pago.", "danger");
       return;
     }
 
     if (pendingAmount <= 0) {
+      setPaymentEntryVisible(false);
       showFeedback("Reserva pagada", "Esta reserva ya no tiene saldo pendiente.", "warning");
       return;
     }
 
     if (amount > pendingAmount) {
+      setPaymentEntryVisible(false);
       showFeedback(
         "Monto excedido",
         "El importe no puede superar el saldo pendiente de la reserva.",
@@ -1758,6 +1774,7 @@ export default function TurnosScreen({ navigation, route }) {
         "success"
       );
     } catch (error) {
+      setPaymentEntryVisible(false);
       showFeedback(
         "No pudimos registrar el pago",
         error?.message || "Intenta nuevamente en unos instantes.",
@@ -1816,7 +1833,10 @@ export default function TurnosScreen({ navigation, route }) {
   };
 
   const handleConfirmReservation = async () => {
+    // Cerrar el resumen antes de avisar: en iOS el FeedbackModal no puede
+    // presentarse arriba de este Modal si se queda abierto.
     if (!selectedComplex || !selectedCourt || !selectedSlot || !currentUserId) {
+      setSummaryVisible(false);
       showFeedback("Faltan datos", "Completa la reserva antes de confirmar.", "danger");
       return;
     }
@@ -1824,6 +1844,7 @@ export default function TurnosScreen({ navigation, route }) {
     const reservationPlayer = getReservationPlayer();
 
     if (!reservationPlayer?.name) {
+      setSummaryVisible(false);
       showFeedback("Falta jugador", "Selecciona para quien se asignara esta reserva.", "danger");
       return;
     }
@@ -1833,6 +1854,7 @@ export default function TurnosScreen({ navigation, route }) {
         ? isDurationAvailableExpanded(selectedCourt, selectedDay, selectedSlot, selectedDuration)
         : isDurationAvailable(selectedCourt, selectedDay, selectedSlot, selectedDuration))
     ) {
+      setSummaryVisible(false);
       showFeedback(
         "Turno no disponible",
         "La duracion elegida se superpone con otra reserva.",
@@ -1842,6 +1864,7 @@ export default function TurnosScreen({ navigation, route }) {
     }
 
     if (paymentMethod === "transferencia" && !receiptAsset) {
+      setSummaryVisible(false);
       showFeedback("Falta comprobante", "Adjunta el comprobante de transferencia.", "danger");
       return;
     }
@@ -1973,6 +1996,7 @@ export default function TurnosScreen({ navigation, route }) {
         "success"
       );
     } catch (error) {
+      setSummaryVisible(false);
       showFeedback(
         "No pudimos confirmar",
         error?.message || "Intenta nuevamente en unos instantes.",
@@ -3296,12 +3320,16 @@ export default function TurnosScreen({ navigation, route }) {
 
       <Modal
         animationType="fade"
-        onRequestClose={closeReservationDetail}
+        onRequestClose={paymentEntryVisible ? closeReservationPaymentEntry : closeReservationDetail}
         transparent
         visible={Boolean(reservationDetail)}
       >
         <View style={styles.modalOverlay}>
-          <Pressable style={styles.modalBackdrop} onPress={closeReservationDetail} />
+          <Pressable
+            onPress={paymentEntryVisible ? closeReservationPaymentEntry : closeReservationDetail}
+            style={styles.modalBackdrop}
+          />
+          {paymentEntryVisible ? null : (
           <View style={styles.reservationDetailCard}>
             <Text style={styles.summaryTitle}>Detalle de reserva</Text>
             <View style={styles.summaryDetailsCard}>
@@ -3456,6 +3484,140 @@ export default function TurnosScreen({ navigation, route }) {
               <Text style={styles.reservationDetailCloseButtonText}>Salir</Text>
             </Pressable>
           </View>
+          )}
+          {paymentEntryVisible ? (
+          <KeyboardAvoidingView
+            behavior={Platform.OS === "ios" ? "padding" : "position"}
+            keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 12}
+            style={styles.reservationPaymentEntryKeyboard}
+          >
+            <View style={styles.reservationPaymentEntryCard}>
+              <Text style={styles.summaryTitle}>Registrar cobro</Text>
+              <Text style={styles.reservationPaymentEntryHint}>
+                Carga un pago parcial o total para esta reserva.
+              </Text>
+              <View style={styles.reservationPaymentHeaderCard}>
+                <View style={styles.reservationPaymentHeaderTop}>
+                  <View style={styles.summaryInfoIcon}>
+                    <Ionicons color={colors.primaryDark} name="card-outline" size={17} />
+                  </View>
+                  <View style={styles.reservationPaymentHeaderCopy}>
+                    <Text style={styles.reservationPaymentHeaderTitle}>Cobro de la reserva</Text>
+                    <Text style={styles.reservationPaymentHeaderMeta}>
+                      {reservationDetail?.courtName || "Cancha"} · {reservationDetail?.time || "--:--"} hs
+                    </Text>
+                  </View>
+                </View>
+                <View style={styles.reservationPaymentQuickSummary}>
+                  <View style={styles.reservationPaymentQuickItem}>
+                    <Text style={styles.reservationPaymentQuickLabel}>Total</Text>
+                    <Text style={styles.reservationPaymentQuickValue}>
+                      {formatCurrency(getTurnoReservationPaymentSummary(reservationDetail).totalAmount)}
+                    </Text>
+                  </View>
+                  <View style={styles.reservationPaymentQuickDivider} />
+                  <View style={styles.reservationPaymentQuickItem}>
+                    <Text style={styles.reservationPaymentQuickLabel}>Pagado</Text>
+                    <Text style={styles.reservationPaymentQuickValue}>
+                      {formatCurrency(getTurnoReservationPaymentSummary(reservationDetail).paidAmount)}
+                    </Text>
+                  </View>
+                  <View style={styles.reservationPaymentQuickDivider} />
+                  <View style={styles.reservationPaymentQuickItem}>
+                    <Text style={styles.reservationPaymentQuickLabel}>Pendiente</Text>
+                    <Text
+                      style={[
+                        styles.reservationPaymentQuickValue,
+                        getTurnoReservationPaymentSummary(reservationDetail).pendingAmount > 0
+                          ? styles.reservationPaymentSummaryPending
+                          : styles.reservationPaymentSummaryPaid,
+                      ]}
+                    >
+                      {formatCurrency(getTurnoReservationPaymentSummary(reservationDetail).pendingAmount)}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+
+              <Text style={styles.reservationPaymentSectionLabel}>Metodo de pago</Text>
+              <View style={styles.summaryPaymentRow}>
+                {BASE_PAYMENT_METHODS.map((method) => {
+                  const isActive = paymentEntryMethod === method.key;
+
+                    return (
+                      <Pressable
+                        key={`entry-${method.key}`}
+                        onPress={() => setPaymentEntryMethod(method.key)}
+                        style={[styles.summaryPaymentMethod, isActive ? styles.summaryPaymentMethodActive : null]}
+                      >
+                        <Text
+                          style={[
+                            styles.summaryPaymentMethodText,
+                            isActive ? styles.summaryPaymentMethodTextActive : null,
+                          ]}
+                        >
+                          {method.label}
+                        </Text>
+                      </Pressable>
+                  );
+                })}
+              </View>
+
+              <View style={styles.reservationPaymentAmountCard}>
+                <Text style={styles.reservationPaymentSectionLabel}>Monto</Text>
+                <View style={styles.reservationPaymentAmountInputWrap}>
+                  <Text style={styles.reservationPaymentCurrency}>$</Text>
+                  <TextInput
+                    keyboardType="decimal-pad"
+                    onChangeText={setPaymentEntryAmount}
+                    placeholder="0"
+                    placeholderTextColor={colors.muted}
+                    style={styles.reservationPaymentAmountInput}
+                    value={paymentEntryAmount}
+                  />
+                </View>
+              </View>
+
+              {paymentEntryMethod === "transferencia" ? (
+                <View style={styles.reservationPaymentProofCard}>
+                  <Text style={styles.reservationPaymentSectionLabel}>Comprobante opcional</Text>
+                  <Pressable
+                    onPress={handlePickReservationPaymentReceipt}
+                    style={styles.reservationPaymentProofButton}
+                  >
+                    <Ionicons color={colors.primaryDark} name="document-attach-outline" size={16} />
+                    <Text style={styles.reservationPaymentProofButtonText}>
+                      {paymentEntryReceiptAsset ? "Cambiar comprobante" : "Adjuntar comprobante"}
+                    </Text>
+                  </Pressable>
+                  {paymentEntryReceiptAsset ? (
+                    <Text style={styles.reservationPaymentProofName}>
+                      {paymentEntryReceiptAsset.name || "Archivo cargado"}
+                    </Text>
+                  ) : null}
+                </View>
+              ) : null}
+
+              <View style={styles.reservationPaymentEntryActions}>
+                <Pressable onPress={closeReservationPaymentEntry} style={styles.reservationPaymentSecondaryButton}>
+                  <Text style={styles.reservationPaymentSecondaryButtonText}>Cerrar</Text>
+                </Pressable>
+                <Pressable
+                  disabled={savingReservationPayment}
+                  onPress={handleSaveReservationPayment}
+                  style={[
+                    styles.reservationPaymentPrimaryButton,
+                    savingReservationPayment ? styles.primaryButtonDisabled : null,
+                  ]}
+                >
+                  <Text style={styles.reservationPaymentPrimaryButtonText}>
+                    {savingReservationPayment ? "Guardando..." : "Registrar pago"}
+                  </Text>
+                </Pressable>
+              </View>
+            </View>
+          </KeyboardAvoidingView>
+          ) : null}
         </View>
       </Modal>
 
@@ -3589,148 +3751,6 @@ export default function TurnosScreen({ navigation, route }) {
               <Text style={styles.primaryButtonText}>LISTO</Text>
             </Pressable>
           </View>
-        </View>
-      </Modal>
-
-      <Modal
-        animationType="fade"
-        onRequestClose={closeReservationPaymentEntry}
-        transparent
-        visible={paymentEntryVisible}
-      >
-        <View style={styles.modalOverlay}>
-          <Pressable style={styles.modalBackdrop} onPress={closeReservationPaymentEntry} />
-          <KeyboardAvoidingView
-            behavior={Platform.OS === "ios" ? "padding" : "position"}
-            keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 12}
-            style={styles.reservationPaymentEntryKeyboard}
-          >
-            <View style={styles.reservationPaymentEntryCard}>
-              <Text style={styles.summaryTitle}>Registrar cobro</Text>
-              <Text style={styles.reservationPaymentEntryHint}>
-                Carga un pago parcial o total para esta reserva.
-              </Text>
-              <View style={styles.reservationPaymentHeaderCard}>
-                <View style={styles.reservationPaymentHeaderTop}>
-                  <View style={styles.summaryInfoIcon}>
-                    <Ionicons color={colors.primaryDark} name="card-outline" size={17} />
-                  </View>
-                  <View style={styles.reservationPaymentHeaderCopy}>
-                    <Text style={styles.reservationPaymentHeaderTitle}>Cobro de la reserva</Text>
-                    <Text style={styles.reservationPaymentHeaderMeta}>
-                      {reservationDetail?.courtName || "Cancha"} · {reservationDetail?.time || "--:--"} hs
-                    </Text>
-                  </View>
-                </View>
-                <View style={styles.reservationPaymentQuickSummary}>
-                  <View style={styles.reservationPaymentQuickItem}>
-                    <Text style={styles.reservationPaymentQuickLabel}>Total</Text>
-                    <Text style={styles.reservationPaymentQuickValue}>
-                      {formatCurrency(getTurnoReservationPaymentSummary(reservationDetail).totalAmount)}
-                    </Text>
-                  </View>
-                  <View style={styles.reservationPaymentQuickDivider} />
-                  <View style={styles.reservationPaymentQuickItem}>
-                    <Text style={styles.reservationPaymentQuickLabel}>Pagado</Text>
-                    <Text style={styles.reservationPaymentQuickValue}>
-                      {formatCurrency(getTurnoReservationPaymentSummary(reservationDetail).paidAmount)}
-                    </Text>
-                  </View>
-                  <View style={styles.reservationPaymentQuickDivider} />
-                  <View style={styles.reservationPaymentQuickItem}>
-                    <Text style={styles.reservationPaymentQuickLabel}>Pendiente</Text>
-                    <Text
-                      style={[
-                        styles.reservationPaymentQuickValue,
-                        getTurnoReservationPaymentSummary(reservationDetail).pendingAmount > 0
-                          ? styles.reservationPaymentSummaryPending
-                          : styles.reservationPaymentSummaryPaid,
-                      ]}
-                    >
-                      {formatCurrency(getTurnoReservationPaymentSummary(reservationDetail).pendingAmount)}
-                    </Text>
-                  </View>
-                </View>
-              </View>
-
-              <Text style={styles.reservationPaymentSectionLabel}>Metodo de pago</Text>
-              <View style={styles.summaryPaymentRow}>
-                {BASE_PAYMENT_METHODS.map((method) => {
-                  const isActive = paymentEntryMethod === method.key;
-
-                    return (
-                      <Pressable
-                        key={`entry-${method.key}`}
-                        onPress={() => setPaymentEntryMethod(method.key)}
-                        style={[styles.summaryPaymentMethod, isActive ? styles.summaryPaymentMethodActive : null]}
-                      >
-                        <Text
-                          style={[
-                            styles.summaryPaymentMethodText,
-                            isActive ? styles.summaryPaymentMethodTextActive : null,
-                          ]}
-                        >
-                          {method.label}
-                        </Text>
-                      </Pressable>
-                  );
-                })}
-              </View>
-
-              <View style={styles.reservationPaymentAmountCard}>
-                <Text style={styles.reservationPaymentSectionLabel}>Monto</Text>
-                <View style={styles.reservationPaymentAmountInputWrap}>
-                  <Text style={styles.reservationPaymentCurrency}>$</Text>
-                  <TextInput
-                    keyboardType="decimal-pad"
-                    onChangeText={setPaymentEntryAmount}
-                    placeholder="0"
-                    placeholderTextColor={colors.muted}
-                    style={styles.reservationPaymentAmountInput}
-                    value={paymentEntryAmount}
-                  />
-                </View>
-              </View>
-
-              {paymentEntryMethod === "transferencia" ? (
-                <View style={styles.reservationPaymentProofCard}>
-                  <Text style={styles.reservationPaymentSectionLabel}>Comprobante opcional</Text>
-                  <Pressable
-                    onPress={handlePickReservationPaymentReceipt}
-                    style={styles.reservationPaymentProofButton}
-                  >
-                    <Ionicons color={colors.primaryDark} name="document-attach-outline" size={16} />
-                    <Text style={styles.reservationPaymentProofButtonText}>
-                      {paymentEntryReceiptAsset ? "Cambiar comprobante" : "Adjuntar comprobante"}
-                    </Text>
-                  </Pressable>
-                  {paymentEntryReceiptAsset ? (
-                    <Text style={styles.reservationPaymentProofName}>
-                      {paymentEntryReceiptAsset.name || "Archivo cargado"}
-                    </Text>
-                  ) : null}
-                </View>
-              ) : null}
-
-              <View style={styles.reservationPaymentEntryActions}>
-                <Pressable onPress={closeReservationPaymentEntry} style={styles.reservationPaymentSecondaryButton}>
-                  <Text style={styles.reservationPaymentSecondaryButtonText}>Cerrar</Text>
-                </Pressable>
-                <Pressable
-                  disabled={savingReservationPayment}
-                  onPress={handleSaveReservationPayment}
-                  style={[
-                    styles.reservationPaymentPrimaryButton,
-                    savingReservationPayment ? styles.primaryButtonDisabled : null,
-                  ]}
-                >
-                  <Text style={styles.reservationPaymentPrimaryButtonText}>
-                    {savingReservationPayment ? "Guardando..." : "Registrar pago"}
-                  </Text>
-                </Pressable>
-              </View>
-            </View>
-          </KeyboardAvoidingView>
         </View>
       </Modal>
 

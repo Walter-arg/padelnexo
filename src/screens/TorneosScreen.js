@@ -1179,6 +1179,10 @@ export default function TorneosScreen({ navigation, route }) {
         tone: "success",
       });
     } catch (error) {
+      // Cerrar el menu de ubicacion antes de avisar: en iOS el
+      // FeedbackModal no puede presentarse arriba de este Modal si se
+      // queda abierto.
+      setLocationActionsVisible(false);
       setFeedback({
         visible: true,
         title: "No pudimos usar tu ubicacion",
@@ -1541,6 +1545,9 @@ export default function TorneosScreen({ navigation, route }) {
         tone: "success",
       });
     } catch (error) {
+      // Cerrar la confirmacion antes de avisar: en iOS el FeedbackModal no
+      // puede presentarse arriba de este Modal si se queda abierto.
+      setCancelledTournamentToDelete(null);
       setFeedback({
         visible: true,
         title: "No pudimos eliminar el torneo",

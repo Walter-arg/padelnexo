@@ -647,6 +647,9 @@ export default function LigasHubScreen({ navigation }) {
       setLeaguePendingDelete(null);
       showFeedback("Liga eliminada", "La liga se elimino correctamente.", "success");
     } catch (error) {
+      // Cerrar la confirmacion antes de avisar: en iOS el FeedbackModal no
+      // puede presentarse arriba de este Modal si se queda abierto.
+      setLeaguePendingDelete(null);
       showFeedback(
         "No pudimos eliminar la liga",
         "Intenta nuevamente en unos instantes.",
@@ -781,6 +784,10 @@ export default function LigasHubScreen({ navigation }) {
         "success"
       );
     } catch (error) {
+      // Cerrar la seleccion de pareja antes de avisar: en iOS el
+      // FeedbackModal no puede presentarse arriba de este Modal si se
+      // queda abierto.
+      setLeaguePendingRegistration(null);
       showFeedback("No pudimos enviar la invitacion", "Intenta nuevamente en unos instantes.", "danger");
     } finally {
       setRegistrationSaving(false);
@@ -792,7 +799,11 @@ export default function LigasHubScreen({ navigation }) {
       return;
     }
 
+    // Cerrar el detalle del reemplazo antes de avisar: en iOS el
+    // FeedbackModal no puede presentarse arriba de este Modal si se queda
+    // abierto.
     if (isLeagueParticipant(request.league, userData)) {
+      setSelectedReplacementRequest(null);
       showFeedback(
         "No podes postularte",
         "Ya formas parte de esta liga y no podes cubrir este reemplazo.",
@@ -802,6 +813,7 @@ export default function LigasHubScreen({ navigation }) {
     }
 
     if (hasUserPostulated(request.replacement, getUserId(userData))) {
+      setSelectedReplacementRequest(null);
       showFeedback("Postulacion enviada", "Ya te postulaste para este reemplazo.", "success");
       return;
     }
@@ -820,25 +832,17 @@ export default function LigasHubScreen({ navigation }) {
           league.id === request.league.id ? { ...league, fixture: nextFixture } : league
         )
       );
-      setSelectedReplacementRequest((current) =>
-        current?.id === request.id
-          ? {
-              ...current,
-              league: { ...current.league, fixture: nextFixture },
-              replacement:
-                nextFixture.rounds
-                  ?.find((round) => round.id === request.round.id)
-                  ?.matches?.find((match) => match.id === request.match.id)
-                  ?.replacements?.[request.replacementKey] || current.replacement,
-            }
-          : current
-      );
+      // Cerrar el detalle del reemplazo antes de avisar: en iOS el
+      // FeedbackModal no puede presentarse arriba de este Modal si se
+      // queda abierto.
+      setSelectedReplacementRequest(null);
       showFeedback(
         "Postulacion enviada",
         "El organizador va a revisar tu postulacion desde Remplazos.",
         "success"
       );
     } catch (error) {
+      setSelectedReplacementRequest(null);
       showFeedback("No pudimos postularte", "Intenta nuevamente en unos instantes.", "danger");
     } finally {
       setSubmittingReplacementId("");

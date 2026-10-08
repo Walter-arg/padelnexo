@@ -525,9 +525,13 @@ export default function LeaguePlayersScreen({ navigation, route }) {
       return;
     }
 
+    // Cerrar el modal de jugador invitado antes de avisar: en iOS el
+    // FeedbackModal no puede presentarse arriba de este Modal si se queda
+    // abierto.
     const normalizedName = String(name || "").trim();
 
     if (!normalizedName) {
+      setGuestModalVisible(false);
       showFeedback("Falta el nombre", "Escribe el nombre del jugador para agregarlo.", "danger");
       return;
     }
@@ -535,6 +539,7 @@ export default function LeaguePlayersScreen({ navigation, route }) {
     const normalizedLastName = String(lastName || "").trim();
 
     if (!normalizedLastName) {
+      setGuestModalVisible(false);
       showFeedback("Falta el apellido", "Escribe el apellido del jugador para agregarlo.", "danger");
       return;
     }
@@ -546,6 +551,7 @@ export default function LeaguePlayersScreen({ navigation, route }) {
     );
 
     if (alreadyExists) {
+      setGuestModalVisible(false);
       showFeedback(
         "Jugador repetido",
         "Ya existe un jugador con ese nombre dentro de la liga.",
@@ -569,11 +575,13 @@ export default function LeaguePlayersScreen({ navigation, route }) {
     const normalizedLastName = String(guestLastName || "").trim();
 
     if (!normalizedName) {
+      setGuestModalVisible(false);
       showFeedback("Falta el nombre", "Escribe el nombre del jugador para agregarlo.", "danger");
       return;
     }
 
     if (!normalizedLastName) {
+      setGuestModalVisible(false);
       showFeedback("Falta el apellido", "Escribe el apellido del jugador para agregarlo.", "danger");
       return;
     }

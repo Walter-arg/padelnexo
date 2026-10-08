@@ -2436,6 +2436,18 @@ export default function TournamentZonePlanningScreen({ navigation, route }) {
               </View>
             </View>
           </ScrollView>
+          {/* TEMPORAL: iOS no puede presentar un <Modal> nativo arriba de
+          otro ya abierto (queda invisible). El editor se mantiene abierto a
+          proposito cuando la validacion falla, asi que el aviso va embebido
+          aca en vez de depender del FeedbackModal de nivel de pantalla. */}
+          <FeedbackModal
+            embedded
+            message={feedback.message}
+            onClose={() => setFeedback((current) => ({ ...current, visible: false }))}
+            tone={feedback.tone}
+            title={feedback.title}
+            visible={Boolean(resultEditor) && feedback.visible}
+          />
         </KeyboardAvoidingView>
       </Modal>
       <Modal
@@ -2552,7 +2564,7 @@ export default function TournamentZonePlanningScreen({ navigation, route }) {
         onClose={() => setFeedback((current) => ({ ...current, visible: false }))}
         tone={feedback.tone}
         title={feedback.title}
-        visible={feedback.visible}
+        visible={feedback.visible && !resultEditor}
       />
       <BottomQuickActionsBar />
       {hasUnsavedChanges ? (

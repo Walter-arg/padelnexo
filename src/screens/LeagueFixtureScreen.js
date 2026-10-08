@@ -3180,6 +3180,9 @@ export default function LeagueFixtureScreen({ navigation, route }) {
       .every((set) => !hasSetData(set) || Boolean(set.own && set.rival && set.own !== set.rival));
 
     if ((hasScore || leagueResultEditor.winner) && !leagueResultEditor.winner) {
+      // Cerrar el editor antes de avisar: en iOS el FeedbackModal no puede
+      // presentarse arriba de este Modal si se queda abierto.
+      closeLeagueResultEditor();
       showFeedback(
         "Falta seleccionar ganador",
         "Para guardar un resultado cargado, selecciona la pareja ganadora.",
@@ -3189,6 +3192,7 @@ export default function LeagueFixtureScreen({ navigation, route }) {
     }
 
     if ((hasScore || leagueResultEditor.winner) && (!requiredSetsAreComplete || !optionalSetsAreComplete)) {
+      closeLeagueResultEditor();
       showFeedback(
         "Resultado incompleto",
         league?.matchFormat === "single_set"
