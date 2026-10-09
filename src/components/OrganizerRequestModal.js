@@ -998,7 +998,7 @@ export default function OrganizerRequestModal({
 
 const styles = StyleSheet.create({
   overlay: {
-    flex: 1,
+    ...StyleSheet.absoluteFillObject,
     justifyContent: "flex-end",
   },
   backdrop: {
