@@ -1,6 +1,21 @@
-import { StyleSheet, Text, TextInput, View } from "react-native";
+import { useId } from "react";
+import {
+  InputAccessoryView,
+  Keyboard,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 
 import { colors, spacing } from "../config/theme";
+
+// Los teclados number-pad/phone-pad/decimal-pad de iOS no tienen tecla de
+// retorno: sin un boton "Listo" explicito, el teclado queda abierto sin
+// forma de cerrarlo.
+const KEYBOARD_TYPES_WITHOUT_RETURN_KEY = ["number-pad", "phone-pad", "decimal-pad"];
 
 export default function AppInput({
   label,
@@ -18,6 +33,10 @@ export default function AppInput({
   rightElement,
   ...props
 }) {
+  const accessoryId = `appInputDone-${useId().replace(/[^a-zA-Z0-9]/g, "")}`;
+  const needsDoneAccessory =
+    Platform.OS === "ios" && KEYBOARD_TYPES_WITHOUT_RETURN_KEY.includes(keyboardType);
+
   return (
     <View style={[styles.wrapper, containerStyle]}>
       <Text style={[styles.label, labelStyle]}>{label}</Text>
@@ -27,6 +46,7 @@ export default function AppInput({
         <TextInput
           autoCapitalize={autoCapitalize}
           editable={props.editable}
+          inputAccessoryViewID={needsDoneAccessory ? accessoryId : undefined}
           keyboardType={keyboardType}
           onChangeText={onChangeText}
           placeholder={placeholder}
@@ -44,6 +64,15 @@ export default function AppInput({
         />
         {rightElement ? <View style={styles.rightElement}>{rightElement}</View> : null}
       </View>
+      {needsDoneAccessory ? (
+        <InputAccessoryView nativeID={accessoryId}>
+          <View style={styles.doneAccessoryBar}>
+            <Pressable onPress={() => Keyboard.dismiss()} style={styles.doneAccessoryButton}>
+              <Text style={styles.doneAccessoryButtonText}>Listo</Text>
+            </Pressable>
+          </View>
+        </InputAccessoryView>
+      ) : null}
     </View>
   );
 }
@@ -111,6 +140,24 @@ const styles = StyleSheet.create({
     position: "absolute",
     right: 14,
     top: 0,
+  },
+  doneAccessoryBar: {
+    alignItems: "flex-end",
+    backgroundColor: "#F4F4F4",
+    borderTopColor: colors.border,
+    borderTopWidth: 1,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+  },
+  doneAccessoryButton: {
+    minHeight: 32,
+    justifyContent: "center",
+    paddingHorizontal: spacing.sm,
+  },
+  doneAccessoryButtonText: {
+    color: colors.primary,
+    fontSize: 16,
+    fontWeight: "700",
   },
 });
 

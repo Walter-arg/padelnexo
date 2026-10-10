@@ -2015,7 +2015,7 @@ export default function TournamentZonePlanningScreen({ navigation, route }) {
       </View>
 
       {zoneTimePickerTarget ? (
-        <>
+        <View style={styles.timePickerOverlayWrap}>
           <DateTimePicker
             display={Platform.OS === "ios" ? "spinner" : "clock"}
             is24Hour
@@ -2031,7 +2031,7 @@ export default function TournamentZonePlanningScreen({ navigation, route }) {
               <Text style={styles.timePickerDoneButtonText}>Listo</Text>
             </Pressable>
           ) : null}
-        </>
+        </View>
       ) : null}
       <Modal
         animationType="slide"
@@ -2591,6 +2591,10 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: colors.background,
+  },
+  timePickerOverlayWrap: {
+    elevation: 200,
+    zIndex: 200,
   },
   timePickerDoneButton: {
     alignItems: "center",

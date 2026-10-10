@@ -4928,7 +4928,7 @@ export default function LeagueFixtureScreen({ navigation, route }) {
       <BottomQuickActionsBar navigation={navigation} />
 
       {timePickerTarget ? (
-        <>
+        <View style={styles.timePickerOverlayWrap}>
           <DateTimePicker
             display={Platform.OS === "ios" ? "spinner" : "clock"}
             is24Hour
@@ -4941,11 +4941,11 @@ export default function LeagueFixtureScreen({ navigation, route }) {
               <Text style={styles.timePickerDoneButtonText}>Listo</Text>
             </Pressable>
           ) : null}
-        </>
+        </View>
       ) : null}
 
       {fixtureStartDatePickerVisible ? (
-        <>
+        <View style={styles.timePickerOverlayWrap}>
           <DateTimePicker
             display={Platform.OS === "ios" ? "spinner" : "calendar"}
             mode="date"
@@ -4960,7 +4960,7 @@ export default function LeagueFixtureScreen({ navigation, route }) {
               <Text style={styles.timePickerDoneButtonText}>Listo</Text>
             </Pressable>
           ) : null}
-        </>
+        </View>
       ) : null}
 
       <Modal
@@ -5030,7 +5030,7 @@ export default function LeagueFixtureScreen({ navigation, route }) {
       </Modal>
 
       {rescheduleDatePickerVisible ? (
-        <>
+        <View style={styles.timePickerOverlayWrap}>
           <DateTimePicker
             display={Platform.OS === "ios" ? "spinner" : "calendar"}
             mode="date"
@@ -5045,7 +5045,7 @@ export default function LeagueFixtureScreen({ navigation, route }) {
               <Text style={styles.timePickerDoneButtonText}>Listo</Text>
             </Pressable>
           ) : null}
-        </>
+        </View>
       ) : null}
 
       <Modal
@@ -6610,6 +6610,10 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: colors.background,
+  },
+  timePickerOverlayWrap: {
+    elevation: 200,
+    zIndex: 200,
   },
   timePickerDoneButton: {
     alignItems: "center",

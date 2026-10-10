@@ -10378,7 +10378,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                   </Text>
                 </Pressable>
                 {bracketProgramEditor?.showTimePicker ? (
-                  <>
+                  <View style={styles.timePickerOverlayWrap}>
                     <DateTimePicker
                       display={Platform.OS === "ios" ? "spinner" : "default"}
                       mode="time"
@@ -10393,7 +10393,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                         <Text style={styles.timePickerDoneButtonText}>Listo</Text>
                       </Pressable>
                     ) : null}
-                  </>
+                  </View>
                 ) : null}
               </View>
 
@@ -11184,7 +11184,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
           visible={feedback.visible}
         />
         {bracketMatchTimePickerTarget ? (
-          <>
+          <View style={styles.timePickerOverlayWrap}>
             <DateTimePicker
               display={Platform.OS === "ios" ? "spinner" : "clock"}
               is24Hour
@@ -11200,7 +11200,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                 <Text style={styles.timePickerDoneButtonText}>Listo</Text>
               </Pressable>
             ) : null}
-          </>
+          </View>
         ) : null}
         <Modal
           animationType="fade"
@@ -13609,7 +13609,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
         </View>
       </Modal>
       {zoneMatchTimePickerTarget ? (
-        <>
+        <View style={styles.timePickerOverlayWrap}>
           <DateTimePicker
             display={Platform.OS === "ios" ? "spinner" : "clock"}
             is24Hour
@@ -13625,10 +13625,10 @@ export default function TournamentFixtureScreen({ navigation, route }) {
               <Text style={styles.timePickerDoneButtonText}>Listo</Text>
             </Pressable>
           ) : null}
-        </>
+        </View>
       ) : null}
       {zonePlanningTimePickerTarget ? (
-        <>
+        <View style={styles.timePickerOverlayWrap}>
           <DateTimePicker
             display={Platform.OS === "ios" ? "spinner" : "clock"}
             is24Hour
@@ -13644,10 +13644,10 @@ export default function TournamentFixtureScreen({ navigation, route }) {
               <Text style={styles.timePickerDoneButtonText}>Listo</Text>
             </Pressable>
           ) : null}
-        </>
+        </View>
       ) : null}
       {bracketMatchTimePickerTarget ? (
-        <>
+        <View style={styles.timePickerOverlayWrap}>
           <DateTimePicker
             display={Platform.OS === "ios" ? "spinner" : "clock"}
             is24Hour
@@ -13663,7 +13663,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
               <Text style={styles.timePickerDoneButtonText}>Listo</Text>
             </Pressable>
           ) : null}
-        </>
+        </View>
       ) : null}
       <Modal
         animationType="fade"
@@ -13800,7 +13800,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
         </View>
       </Modal>
       {scheduleVenueTimePickerTarget ? (
-        <>
+        <View style={styles.timePickerOverlayWrap}>
           <DateTimePicker
             display={Platform.OS === "ios" ? "spinner" : "clock"}
             is24Hour
@@ -13816,7 +13816,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
               <Text style={styles.timePickerDoneButtonText}>Listo</Text>
             </Pressable>
           ) : null}
-        </>
+        </View>
       ) : null}
       <Modal
         animationType="fade"
@@ -14160,6 +14160,10 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: colors.background,
+  },
+  timePickerOverlayWrap: {
+    elevation: 200,
+    zIndex: 200,
   },
   timePickerDoneButton: {
     alignItems: "center",
