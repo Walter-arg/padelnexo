@@ -2015,13 +2015,23 @@ export default function TournamentZonePlanningScreen({ navigation, route }) {
       </View>
 
       {zoneTimePickerTarget ? (
-        <DateTimePicker
-          display={Platform.OS === "ios" ? "spinner" : "clock"}
-          is24Hour
-          mode="time"
-          onChange={handleZoneTimePickerChange}
-          value={buildDateFromTime(zoneTimePickerTarget.currentValue)}
-        />
+        <>
+          <DateTimePicker
+            display={Platform.OS === "ios" ? "spinner" : "clock"}
+            is24Hour
+            mode="time"
+            onChange={handleZoneTimePickerChange}
+            value={buildDateFromTime(zoneTimePickerTarget.currentValue)}
+          />
+          {Platform.OS === "ios" ? (
+            <Pressable
+              onPress={() => setZoneTimePickerTarget(null)}
+              style={styles.timePickerDoneButton}
+            >
+              <Text style={styles.timePickerDoneButtonText}>Listo</Text>
+            </Pressable>
+          ) : null}
+        </>
       ) : null}
       <Modal
         animationType="slide"
@@ -2581,6 +2591,20 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: colors.background,
+  },
+  timePickerDoneButton: {
+    alignItems: "center",
+    backgroundColor: colors.primary,
+    borderRadius: 14,
+    justifyContent: "center",
+    marginHorizontal: spacing.lg,
+    marginTop: spacing.xs,
+    minHeight: 42,
+  },
+  timePickerDoneButtonText: {
+    color: "#fff",
+    fontSize: 15,
+    fontWeight: "700",
   },
   container: {
     flex: 1,

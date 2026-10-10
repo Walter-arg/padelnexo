@@ -4928,22 +4928,39 @@ export default function LeagueFixtureScreen({ navigation, route }) {
       <BottomQuickActionsBar navigation={navigation} />
 
       {timePickerTarget ? (
-        <DateTimePicker
-          display={Platform.OS === "ios" ? "spinner" : "clock"}
-          is24Hour
-          mode="time"
-          onChange={handleMatchTimePickerChange}
-          value={buildDateFromTime(timePickerTarget.currentValue)}
-        />
+        <>
+          <DateTimePicker
+            display={Platform.OS === "ios" ? "spinner" : "clock"}
+            is24Hour
+            mode="time"
+            onChange={handleMatchTimePickerChange}
+            value={buildDateFromTime(timePickerTarget.currentValue)}
+          />
+          {Platform.OS === "ios" ? (
+            <Pressable onPress={closeMatchTimePicker} style={styles.timePickerDoneButton}>
+              <Text style={styles.timePickerDoneButtonText}>Listo</Text>
+            </Pressable>
+          ) : null}
+        </>
       ) : null}
 
       {fixtureStartDatePickerVisible ? (
-        <DateTimePicker
-          display={Platform.OS === "ios" ? "spinner" : "calendar"}
-          mode="date"
-          onChange={handleFixtureStartDateChange}
-          value={buildDateFromMillis(fixtureStartDateMillis || Date.now())}
-        />
+        <>
+          <DateTimePicker
+            display={Platform.OS === "ios" ? "spinner" : "calendar"}
+            mode="date"
+            onChange={handleFixtureStartDateChange}
+            value={buildDateFromMillis(fixtureStartDateMillis || Date.now())}
+          />
+          {Platform.OS === "ios" ? (
+            <Pressable
+              onPress={() => setFixtureStartDatePickerVisible(false)}
+              style={styles.timePickerDoneButton}
+            >
+              <Text style={styles.timePickerDoneButtonText}>Listo</Text>
+            </Pressable>
+          ) : null}
+        </>
       ) : null}
 
       <Modal
@@ -5013,12 +5030,22 @@ export default function LeagueFixtureScreen({ navigation, route }) {
       </Modal>
 
       {rescheduleDatePickerVisible ? (
-        <DateTimePicker
-          display={Platform.OS === "ios" ? "spinner" : "calendar"}
-          mode="date"
-          onChange={handleRescheduleDateChange}
-          value={buildDateFromMillis(roundSuspensionTarget?.rescheduledDateMillis || Date.now())}
-        />
+        <>
+          <DateTimePicker
+            display={Platform.OS === "ios" ? "spinner" : "calendar"}
+            mode="date"
+            onChange={handleRescheduleDateChange}
+            value={buildDateFromMillis(roundSuspensionTarget?.rescheduledDateMillis || Date.now())}
+          />
+          {Platform.OS === "ios" ? (
+            <Pressable
+              onPress={() => setRescheduleDatePickerVisible(false)}
+              style={styles.timePickerDoneButton}
+            >
+              <Text style={styles.timePickerDoneButtonText}>Listo</Text>
+            </Pressable>
+          ) : null}
+        </>
       ) : null}
 
       <Modal
@@ -6583,6 +6610,20 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: colors.background,
+  },
+  timePickerDoneButton: {
+    alignItems: "center",
+    backgroundColor: colors.primary,
+    borderRadius: 14,
+    justifyContent: "center",
+    marginHorizontal: spacing.lg,
+    marginTop: spacing.xs,
+    minHeight: 42,
+  },
+  timePickerDoneButtonText: {
+    color: "#fff",
+    fontSize: 15,
+    fontWeight: "700",
   },
   backgroundOrbTop: {
     position: "absolute",

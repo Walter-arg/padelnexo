@@ -10378,12 +10378,22 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                   </Text>
                 </Pressable>
                 {bracketProgramEditor?.showTimePicker ? (
-                  <DateTimePicker
-                    display={Platform.OS === "ios" ? "spinner" : "default"}
-                    mode="time"
-                    onChange={handleBracketProgramTimeChange}
-                    value={buildDateFromTime(bracketProgramEditor?.scheduledTime)}
-                  />
+                  <>
+                    <DateTimePicker
+                      display={Platform.OS === "ios" ? "spinner" : "default"}
+                      mode="time"
+                      onChange={handleBracketProgramTimeChange}
+                      value={buildDateFromTime(bracketProgramEditor?.scheduledTime)}
+                    />
+                    {Platform.OS === "ios" ? (
+                      <Pressable
+                        onPress={() => updateBracketProgramEditor({ showTimePicker: false })}
+                        style={styles.timePickerDoneButton}
+                      >
+                        <Text style={styles.timePickerDoneButtonText}>Listo</Text>
+                      </Pressable>
+                    ) : null}
+                  </>
                 ) : null}
               </View>
 
@@ -11174,13 +11184,23 @@ export default function TournamentFixtureScreen({ navigation, route }) {
           visible={feedback.visible}
         />
         {bracketMatchTimePickerTarget ? (
-          <DateTimePicker
-            display={Platform.OS === "ios" ? "spinner" : "clock"}
-            is24Hour
-            mode="time"
-            onChange={handleBracketMatchTimePickerChange}
-            value={buildDateFromTime(bracketMatchTimePickerTarget.currentValue)}
-          />
+          <>
+            <DateTimePicker
+              display={Platform.OS === "ios" ? "spinner" : "clock"}
+              is24Hour
+              mode="time"
+              onChange={handleBracketMatchTimePickerChange}
+              value={buildDateFromTime(bracketMatchTimePickerTarget.currentValue)}
+            />
+            {Platform.OS === "ios" ? (
+              <Pressable
+                onPress={() => setBracketMatchTimePickerTarget(null)}
+                style={styles.timePickerDoneButton}
+              >
+                <Text style={styles.timePickerDoneButtonText}>Listo</Text>
+              </Pressable>
+            ) : null}
+          </>
         ) : null}
         <Modal
           animationType="fade"
@@ -13589,31 +13609,61 @@ export default function TournamentFixtureScreen({ navigation, route }) {
         </View>
       </Modal>
       {zoneMatchTimePickerTarget ? (
-        <DateTimePicker
-          display={Platform.OS === "ios" ? "spinner" : "clock"}
-          is24Hour
-          mode="time"
-          onChange={handleZoneMatchTimePickerChange}
-          value={buildDateFromTime(zoneMatchTimePickerTarget.currentValue)}
-        />
+        <>
+          <DateTimePicker
+            display={Platform.OS === "ios" ? "spinner" : "clock"}
+            is24Hour
+            mode="time"
+            onChange={handleZoneMatchTimePickerChange}
+            value={buildDateFromTime(zoneMatchTimePickerTarget.currentValue)}
+          />
+          {Platform.OS === "ios" ? (
+            <Pressable
+              onPress={() => setZoneMatchTimePickerTarget(null)}
+              style={styles.timePickerDoneButton}
+            >
+              <Text style={styles.timePickerDoneButtonText}>Listo</Text>
+            </Pressable>
+          ) : null}
+        </>
       ) : null}
       {zonePlanningTimePickerTarget ? (
-        <DateTimePicker
-          display={Platform.OS === "ios" ? "spinner" : "clock"}
-          is24Hour
-          mode="time"
-          onChange={handleZonePlanningTimePickerChange}
-          value={buildDateFromTime(zonePlanningTimePickerTarget.currentValue)}
-        />
+        <>
+          <DateTimePicker
+            display={Platform.OS === "ios" ? "spinner" : "clock"}
+            is24Hour
+            mode="time"
+            onChange={handleZonePlanningTimePickerChange}
+            value={buildDateFromTime(zonePlanningTimePickerTarget.currentValue)}
+          />
+          {Platform.OS === "ios" ? (
+            <Pressable
+              onPress={() => setZonePlanningTimePickerTarget(null)}
+              style={styles.timePickerDoneButton}
+            >
+              <Text style={styles.timePickerDoneButtonText}>Listo</Text>
+            </Pressable>
+          ) : null}
+        </>
       ) : null}
       {bracketMatchTimePickerTarget ? (
-        <DateTimePicker
-          display={Platform.OS === "ios" ? "spinner" : "clock"}
-          is24Hour
-          mode="time"
-          onChange={handleBracketMatchTimePickerChange}
-          value={buildDateFromTime(bracketMatchTimePickerTarget.currentValue)}
-        />
+        <>
+          <DateTimePicker
+            display={Platform.OS === "ios" ? "spinner" : "clock"}
+            is24Hour
+            mode="time"
+            onChange={handleBracketMatchTimePickerChange}
+            value={buildDateFromTime(bracketMatchTimePickerTarget.currentValue)}
+          />
+          {Platform.OS === "ios" ? (
+            <Pressable
+              onPress={() => setBracketMatchTimePickerTarget(null)}
+              style={styles.timePickerDoneButton}
+            >
+              <Text style={styles.timePickerDoneButtonText}>Listo</Text>
+            </Pressable>
+          ) : null}
+        </>
       ) : null}
       <Modal
         animationType="fade"
@@ -13750,13 +13800,23 @@ export default function TournamentFixtureScreen({ navigation, route }) {
         </View>
       </Modal>
       {scheduleVenueTimePickerTarget ? (
-        <DateTimePicker
-          display={Platform.OS === "ios" ? "spinner" : "clock"}
-          is24Hour
-          mode="time"
-          onChange={handleScheduleVenueTimePickerChange}
-          value={buildDateFromTime(scheduleVenueTimePickerTarget.currentValue)}
-        />
+        <>
+          <DateTimePicker
+            display={Platform.OS === "ios" ? "spinner" : "clock"}
+            is24Hour
+            mode="time"
+            onChange={handleScheduleVenueTimePickerChange}
+            value={buildDateFromTime(scheduleVenueTimePickerTarget.currentValue)}
+          />
+          {Platform.OS === "ios" ? (
+            <Pressable
+              onPress={() => setScheduleVenueTimePickerTarget(null)}
+              style={styles.timePickerDoneButton}
+            >
+              <Text style={styles.timePickerDoneButtonText}>Listo</Text>
+            </Pressable>
+          ) : null}
+        </>
       ) : null}
       <Modal
         animationType="fade"
@@ -14100,6 +14160,20 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: colors.background,
+  },
+  timePickerDoneButton: {
+    alignItems: "center",
+    backgroundColor: colors.primary,
+    borderRadius: 14,
+    justifyContent: "center",
+    marginHorizontal: spacing.lg,
+    marginTop: spacing.xs,
+    minHeight: 42,
+  },
+  timePickerDoneButtonText: {
+    color: "#fff",
+    fontSize: 15,
+    fontWeight: "700",
   },
   container: {
     flex: 1,

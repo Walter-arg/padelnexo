@@ -1560,13 +1560,20 @@ export default function CreateLeagueScreen({ navigation, route }) {
       )}
 
       {timePickerVisible && activeTimeSlotIndex >= 0 ? (
-        <DateTimePicker
-          display={Platform.OS === "ios" ? "spinner" : "clock"}
-          is24Hour
-          mode="time"
-          onChange={handleTimePickerChange}
-          value={buildDateFromTime(form.matchTimeSlots[activeTimeSlotIndex])}
-        />
+        <>
+          <DateTimePicker
+            display={Platform.OS === "ios" ? "spinner" : "clock"}
+            is24Hour
+            mode="time"
+            onChange={handleTimePickerChange}
+            value={buildDateFromTime(form.matchTimeSlots[activeTimeSlotIndex])}
+          />
+          {Platform.OS === "ios" ? (
+            <Pressable onPress={closeTimePicker} style={styles.timePickerDoneButton}>
+              <Text style={styles.timePickerDoneButtonText}>Listo</Text>
+            </Pressable>
+          ) : null}
+        </>
       ) : null}
 
       <FeedbackModal
@@ -1838,6 +1845,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingTop: 4,
     paddingBottom: spacing.xl + 120,
+  },
+  timePickerDoneButton: {
+    alignItems: "center",
+    backgroundColor: colors.primary,
+    borderRadius: 14,
+    justifyContent: "center",
+    marginHorizontal: spacing.lg,
+    marginTop: spacing.xs,
+    minHeight: 42,
+  },
+  timePickerDoneButtonText: {
+    color: "#fff",
+    fontSize: 15,
+    fontWeight: "700",
   },
   backgroundOrbTop: {
     position: "absolute",
