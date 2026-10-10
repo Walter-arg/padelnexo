@@ -34,11 +34,17 @@ export default function CircularMenu({ items, onItemPress, onSelectionChange }) 
   const [isAnimating, setIsAnimating] = useState(false);
   const transition = useRef(new Animated.Value(1)).current;
 
+  // Solo para la seleccion inicial al montar. Las selecciones posteriores
+  // se notifican al terminar la animacion (ver rotateToIndex) y no aca,
+  // para que el re-render pesado que dispara el padre (carruseles de la
+  // home) no compita por el hilo de JS con la animacion nativa de la
+  // esfera mientras esta en curso.
   useEffect(() => {
     if (items.length > 0) {
-      onSelectionChange?.(items[activeIndex], activeIndex);
+      onSelectionChange?.(items[0], 0);
     }
-  }, [activeIndex, items, onSelectionChange]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const rotateToIndex = (targetIndex) => {
     if (isAnimating || items.length === 0) {
@@ -62,6 +68,7 @@ export default function CircularMenu({ items, onItemPress, onSelectionChange }) 
       useNativeDriver: true,
     }).start(() => {
       setIsAnimating(false);
+      onSelectionChange?.(items[safeIndex], safeIndex);
     });
   };
 
