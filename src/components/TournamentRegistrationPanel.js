@@ -1544,12 +1544,30 @@ export default function TournamentRegistrationPanel({
                       <Pressable
                         onPress={() => {
                           setPendingPairs((prev) => prev.filter((_, i) => i !== index));
+                          // pairMeta esta indexado por posicion en pendingPairs, no por un id
+                          // estable. Al borrar una pareja que no es la ultima, hay que
+                          // reacomodar las claves de las que quedan despues (restarles 1),
+                          // si no su disponibilidad/metodo de pago queda asignado a la
+                          // posicion vieja y se desalinea con la pareja que ahora ocupa ese
+                          // lugar en la lista.
                           setPairMeta((prev) => {
-                            const next = { ...prev };
-                            delete next[index];
+                            const next = {};
+                            Object.entries(prev).forEach(([key, value]) => {
+                              const keyIndex = Number(key);
+                              if (keyIndex < index) {
+                                next[keyIndex] = value;
+                              } else if (keyIndex > index) {
+                                next[keyIndex - 1] = value;
+                              }
+                            });
                             return next;
                           });
-                          if (expandedPairPaymentIndex === index) setExpandedPairPaymentIndex(null);
+                          setExpandedPairPaymentIndex((current) => {
+                            if (current === null || current === index) {
+                              return null;
+                            }
+                            return current > index ? current - 1 : current;
+                          });
                         }}
                         style={styles.confirmedPairDelete}
                       >
