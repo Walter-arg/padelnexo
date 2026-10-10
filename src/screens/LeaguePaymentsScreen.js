@@ -4,6 +4,7 @@ import {
   Image,
   Linking,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -23,6 +24,7 @@ import BottomQuickActionsBar, {
 } from "../components/BottomQuickActionsBar";
 import FeedbackModal from "../components/FeedbackModal";
 import LeagueHeaderCard from "../components/LeagueHeaderCard";
+import NumericKeyboardDoneBar from "../components/NumericKeyboardDoneBar";
 import SectionHeader from "../components/SectionHeader";
 import { getMercadoPagoReturnUrls } from "../config/mercadoPago";
 import { colors, spacing } from "../config/theme";
@@ -42,6 +44,8 @@ import {
 import { sendChatMessage } from "../services/chatService";
 import { storage } from "../../services/firebaseConfig";
 import { getUserId } from "../utils/getUserId";
+
+const NUMERIC_KEYBOARD_ACCESSORY_ID = "leaguePaymentsNumericDone";
 
 const STATUS_META = {
   pendiente: {
@@ -2702,6 +2706,9 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
                     NUEVO VALOR POR FECHA
                   </Text>
                   <TextInput
+                    inputAccessoryViewID={
+                      Platform.OS === "ios" ? NUMERIC_KEYBOARD_ACCESSORY_ID : undefined
+                    }
                     keyboardType="number-pad"
                     onChangeText={setReminderNewValue}
                     placeholder="Ingresar nuevo valor"
@@ -3198,6 +3205,9 @@ export default function LeaguePaymentsScreen({ navigation, route }) {
         tone={feedback.tone}
         visible={feedback.visible}
       />
+      {Platform.OS === "ios" ? (
+        <NumericKeyboardDoneBar nativeID={NUMERIC_KEYBOARD_ACCESSORY_ID} />
+      ) : null}
     </SafeAreaView>
   );
 }

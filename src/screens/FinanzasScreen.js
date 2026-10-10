@@ -18,6 +18,7 @@ import BottomQuickActionsBar, {
 } from "../components/BottomQuickActionsBar";
 import AvatarBadge from "../components/AvatarBadge";
 import FeedbackModal from "../components/FeedbackModal";
+import NumericKeyboardDoneBar from "../components/NumericKeyboardDoneBar";
 import SectionHeader from "../components/SectionHeader";
 import { colors, spacing } from "../config/theme";
 import { useAuth } from "../context/AuthContext";
@@ -85,6 +86,8 @@ const COBRO_STATUS_FILTERS = [
   { key: "pending", label: "Pendientes" },
   { key: "review", label: "En revision" },
 ];
+
+const NUMERIC_KEYBOARD_ACCESSORY_ID = "finanzasNumericDone";
 
 function sanitizeDecimal(value) {
   const normalizedValue = String(value || "").replace(",", ".").replace(/[^0-9.]/g, "");
@@ -2865,6 +2868,9 @@ export default function FinanzasScreen({ navigation }) {
         <View style={styles.inlineFieldRow}>
           <Text style={styles.inlineFieldLabel}>Monto de inscripcion</Text>
           <TextInput
+            inputAccessoryViewID={
+              Platform.OS === "ios" ? NUMERIC_KEYBOARD_ACCESSORY_ID : undefined
+            }
             keyboardType="decimal-pad"
             onChangeText={(value) => updateField("registrationFeeAmount", sanitizeDecimal(value))}
             placeholder="0"
@@ -2878,6 +2884,9 @@ export default function FinanzasScreen({ navigation }) {
       <View style={styles.inlineFieldRow}>
         <Text style={styles.inlineFieldLabel}>Precio por fecha por jugador</Text>
         <TextInput
+          inputAccessoryViewID={
+            Platform.OS === "ios" ? NUMERIC_KEYBOARD_ACCESSORY_ID : undefined
+          }
           keyboardType="decimal-pad"
           onChangeText={(value) => updateField("roundPricePerPlayer", sanitizeDecimal(value))}
           placeholder="0"
@@ -2986,6 +2995,9 @@ export default function FinanzasScreen({ navigation }) {
         tone={feedback.tone}
         visible={feedback.visible}
       />
+      {Platform.OS === "ios" ? (
+        <NumericKeyboardDoneBar nativeID={NUMERIC_KEYBOARD_ACCESSORY_ID} />
+      ) : null}
     </SafeAreaView>
   );
 }

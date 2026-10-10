@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Image,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -22,6 +23,7 @@ import BottomQuickActionsBar, {
   BOTTOM_QUICK_ACTIONS_SPACE,
 } from "../components/BottomQuickActionsBar";
 import FeedbackModal from "../components/FeedbackModal";
+import NumericKeyboardDoneBar from "../components/NumericKeyboardDoneBar";
 import SectionHeader from "../components/SectionHeader";
 import TournamentHeaderCard from "../components/TournamentHeaderCard";
 import { colors, spacing } from "../config/theme";
@@ -49,6 +51,8 @@ import {
   updateTournament,
   updateTournamentCapacity,
 } from "../services/tournamentsService";
+
+const NUMERIC_KEYBOARD_ACCESSORY_ID = "tournamentDetailNumericDone";
 
 const TAB_LABELS = {
   registration: "Inscripcion",
@@ -1671,6 +1675,9 @@ function ManagementTab({
           <View style={styles.managementCapacityField}>
             <Text style={styles.managementCapacityLabel}>CUPO MÍNIMO DE PAREJAS</Text>
             <TextInput
+              inputAccessoryViewID={
+                Platform.OS === "ios" ? NUMERIC_KEYBOARD_ACCESSORY_ID : undefined
+              }
               keyboardType="number-pad"
               maxLength={3}
               onChangeText={setMinPairsInput}
@@ -1683,6 +1690,9 @@ function ManagementTab({
           <View style={styles.managementCapacityField}>
             <Text style={styles.managementCapacityLabel}>CUPO MÁXIMO DE PAREJAS</Text>
             <TextInput
+              inputAccessoryViewID={
+                Platform.OS === "ios" ? NUMERIC_KEYBOARD_ACCESSORY_ID : undefined
+              }
               keyboardType="number-pad"
               maxLength={3}
               onChangeText={setMaxPairsInput}
@@ -1753,6 +1763,9 @@ function ManagementTab({
           </Pressable>
         ) : null}
       </View>
+      {Platform.OS === "ios" ? (
+        <NumericKeyboardDoneBar nativeID={NUMERIC_KEYBOARD_ACCESSORY_ID} />
+      ) : null}
     </View>
   );
 }

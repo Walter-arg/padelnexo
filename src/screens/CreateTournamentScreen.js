@@ -18,6 +18,7 @@ import * as ImagePicker from "expo-image-picker";
 import AppButton from "../components/AppButton";
 import AppInput from "../components/AppInput";
 import FeedbackModal from "../components/FeedbackModal";
+import NumericKeyboardDoneBar from "../components/NumericKeyboardDoneBar";
 import SectionHeader from "../components/SectionHeader";
 import SelectField from "../components/SelectField";
 import { canAccessAdminPanel } from "../config/admin";
@@ -48,6 +49,8 @@ import {
 } from "../services/leaguesService";
 import { createEmptyComplex, normalizeComplex } from "../services/organizerService";
 import { auth } from "../../services/firebaseConfig";
+
+const NUMERIC_KEYBOARD_ACCESSORY_ID = "createTournamentNumericDone";
 
 const CREATION_MODE_OPTIONS = [
   {
@@ -1263,6 +1266,9 @@ export default function CreateTournamentScreen({ navigation, route }) {
             <View style={styles.inlineQuantityRow}>
               <Text style={styles.inlineQuantityLabel}>Cantidad de torneos</Text>
               <TextInput
+                inputAccessoryViewID={
+                  Platform.OS === "ios" ? NUMERIC_KEYBOARD_ACCESSORY_ID : undefined
+                }
                 keyboardType="number-pad"
                 maxLength={1}
                 onChangeText={(value) =>
@@ -1750,6 +1756,9 @@ export default function CreateTournamentScreen({ navigation, route }) {
         title={feedback.title}
         visible={feedback.visible}
       />
+      {Platform.OS === "ios" ? (
+        <NumericKeyboardDoneBar nativeID={NUMERIC_KEYBOARD_ACCESSORY_ID} />
+      ) : null}
     </SafeAreaView>
   );
 }

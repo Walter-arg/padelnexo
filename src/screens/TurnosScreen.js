@@ -23,6 +23,7 @@ import BottomQuickActionsBar, {
   BOTTOM_QUICK_ACTIONS_SPACE,
 } from "../components/BottomQuickActionsBar";
 import FeedbackModal from "../components/FeedbackModal";
+import NumericKeyboardDoneBar from "../components/NumericKeyboardDoneBar";
 import PadelNexoLoadingOverlay from "../components/PadelNexoLoadingOverlay";
 import SectionFilterBar from "../components/SectionFilterBar";
 import SectionHeader from "../components/SectionHeader";
@@ -59,6 +60,8 @@ import {
 import { sendTurnoReservationStatusMessage } from "../services/turnosNotificationsService";
 import { storage } from "../../services/firebaseConfig";
 import { getUserId } from "../utils/getUserId";
+
+const NUMERIC_KEYBOARD_ACCESSORY_ID = "turnosNumericDone";
 
 const DURATIONS = [60, 90];
 const BASE_PAYMENT_METHODS = [
@@ -2589,6 +2592,9 @@ export default function TurnosScreen({ navigation, route }) {
                         <View style={styles.configInputWrap}>
                           <Text style={styles.priceDurationLabel}>60 min</Text>
                           <TextInput
+                            inputAccessoryViewID={
+                              Platform.OS === "ios" ? NUMERIC_KEYBOARD_ACCESSORY_ID : undefined
+                            }
                             keyboardType="number-pad"
                             onChangeText={(value) =>
                               updateCourtConfig(complex.complexKey, selectedConfigCourt.id, { price60: value })
@@ -2602,6 +2608,9 @@ export default function TurnosScreen({ navigation, route }) {
                         <View style={styles.configInputWrap}>
                           <Text style={styles.priceDurationLabel}>90 min</Text>
                           <TextInput
+                            inputAccessoryViewID={
+                              Platform.OS === "ios" ? NUMERIC_KEYBOARD_ACCESSORY_ID : undefined
+                            }
                             keyboardType="number-pad"
                             onChangeText={(value) =>
                               updateCourtConfig(complex.complexKey, selectedConfigCourt.id, { price90: value })
@@ -3302,6 +3311,9 @@ export default function TurnosScreen({ navigation, route }) {
                 />
               </View>
               <TextInput
+                inputAccessoryViewID={
+                  Platform.OS === "ios" ? NUMERIC_KEYBOARD_ACCESSORY_ID : undefined
+                }
                 keyboardType="phone-pad"
                 onChangeText={setGuestReservationPhone}
                 placeholder="Telefono opcional"
@@ -3568,6 +3580,9 @@ export default function TurnosScreen({ navigation, route }) {
                 <View style={styles.reservationPaymentAmountInputWrap}>
                   <Text style={styles.reservationPaymentCurrency}>$</Text>
                   <TextInput
+                    inputAccessoryViewID={
+                      Platform.OS === "ios" ? NUMERIC_KEYBOARD_ACCESSORY_ID : undefined
+                    }
                     keyboardType="decimal-pad"
                     onChangeText={setPaymentEntryAmount}
                     placeholder="0"
@@ -3889,6 +3904,9 @@ export default function TurnosScreen({ navigation, route }) {
       />
 
       <BottomQuickActionsBar navigation={navigation} />
+      {Platform.OS === "ios" ? (
+        <NumericKeyboardDoneBar nativeID={NUMERIC_KEYBOARD_ACCESSORY_ID} />
+      ) : null}
     </SafeAreaView>
   );
 }

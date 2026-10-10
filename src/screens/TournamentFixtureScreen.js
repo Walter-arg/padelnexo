@@ -29,6 +29,7 @@ import BottomQuickActionsBar, {
   BOTTOM_QUICK_ACTIONS_SPACE,
 } from "../components/BottomQuickActionsBar";
 import FeedbackModal from "../components/FeedbackModal";
+import NumericKeyboardDoneBar from "../components/NumericKeyboardDoneBar";
 import SectionHeader from "../components/SectionHeader";
 import TournamentHeaderCard from "../components/TournamentHeaderCard";
 import { colors, spacing } from "../config/theme";
@@ -44,6 +45,8 @@ import {
   getTournamentDayLabel,
 } from "../services/tournamentAvailabilityService";
 import devLog from "../utils/devLog";
+
+const NUMERIC_KEYBOARD_ACCESSORY_ID = "tournamentFixtureNumericDone";
 
 const MATCH_FORMAT_OPTIONS = [
   {
@@ -10585,6 +10588,9 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                       {allowDoubleDigits ? "SUPER TIE BREAK" : set.label}
                     </Text>
                     <TextInput
+                      inputAccessoryViewID={
+                        Platform.OS === "ios" ? NUMERIC_KEYBOARD_ACCESSORY_ID : undefined
+                      }
                       keyboardType="number-pad"
                       maxLength={allowDoubleDigits ? 5 : 3}
                       onChangeText={(value) => updateBracketResultEditorSetScore(setIndex, value)}
@@ -11630,6 +11636,9 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                               </Text>
                               <TextInput
                                 editable={selectedRapidMode !== "single_set"}
+                                inputAccessoryViewID={
+                                  Platform.OS === "ios" ? NUMERIC_KEYBOARD_ACCESSORY_ID : undefined
+                                }
                                 keyboardType="number-pad"
                                 maxLength={2}
                                 onChangeText={(value) =>
@@ -11779,6 +11788,9 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                               </Text>
                               <TextInput
                                 editable={selectedRapidMode !== "single_set"}
+                                inputAccessoryViewID={
+                                  Platform.OS === "ios" ? NUMERIC_KEYBOARD_ACCESSORY_ID : undefined
+                                }
                                 keyboardType="number-pad"
                                 maxLength={2}
                                 onChangeText={(value) =>
@@ -11871,6 +11883,9 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                     <View style={styles.rapidModeSimpleInfoRow}>
                       <Text style={styles.inlinePointsLabel}>1 SOLO SET A</Text>
                       <TextInput
+                        inputAccessoryViewID={
+                          Platform.OS === "ios" ? NUMERIC_KEYBOARD_ACCESSORY_ID : undefined
+                        }
                         keyboardType="number-pad"
                         maxLength={2}
                         onChangeText={(value) =>
@@ -12874,6 +12889,11 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                                             {allowDoubleDigits ? (
                                               <View style={styles.zoneSetInputsRow}>
                                                 <TextInput
+                                                  inputAccessoryViewID={
+                                                    Platform.OS === "ios"
+                                                      ? NUMERIC_KEYBOARD_ACCESSORY_ID
+                                                      : undefined
+                                                  }
                                                   keyboardType="number-pad"
                                                   maxLength={2}
                                                   onChangeText={(value) => {
@@ -12903,6 +12923,11 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                                                 />
                                                 <Text style={styles.zoneSetSeparator}>/</Text>
                                                 <TextInput
+                                                  inputAccessoryViewID={
+                                                    Platform.OS === "ios"
+                                                      ? NUMERIC_KEYBOARD_ACCESSORY_ID
+                                                      : undefined
+                                                  }
                                                   keyboardType="number-pad"
                                                   maxLength={2}
                                                   onChangeText={(value) => {
@@ -13303,6 +13328,9 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                       </Text>
                       <TextInput
                         ref={(ref) => { resultModalSetRefs.current[setIndex] = ref; }}
+                        inputAccessoryViewID={
+                          Platform.OS === "ios" ? NUMERIC_KEYBOARD_ACCESSORY_ID : undefined
+                        }
                         keyboardType="number-pad"
                         maxLength={allowDoubleDigits ? 5 : 3}
                         onChangeText={(value) => {
@@ -13430,6 +13458,9 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                         {allowDoubleDigits ? "SUPER TIE BREAK" : set.label}
                       </Text>
                       <TextInput
+                        inputAccessoryViewID={
+                          Platform.OS === "ios" ? NUMERIC_KEYBOARD_ACCESSORY_ID : undefined
+                        }
                         keyboardType="number-pad"
                         maxLength={allowDoubleDigits ? 5 : 3}
                         onChangeText={(value) => updateBracketResultEditorSetScore(setIndex, value)}
@@ -14152,6 +14183,9 @@ export default function TournamentFixtureScreen({ navigation, route }) {
       ) : null}
 
       <BottomQuickActionsBar />
+      {Platform.OS === "ios" ? (
+        <NumericKeyboardDoneBar nativeID={NUMERIC_KEYBOARD_ACCESSORY_ID} />
+      ) : null}
     </SafeAreaView>
   );
 }

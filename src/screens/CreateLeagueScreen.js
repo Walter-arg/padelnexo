@@ -18,6 +18,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import AppButton from "../components/AppButton";
 import AppInput from "../components/AppInput";
 import FeedbackModal from "../components/FeedbackModal";
+import NumericKeyboardDoneBar from "../components/NumericKeyboardDoneBar";
 import OrganizerRequestModal from "../components/OrganizerRequestModal";
 import SectionHeader from "../components/SectionHeader";
 import SelectField from "../components/SelectField";
@@ -45,6 +46,8 @@ import {
   hasActivePlan,
   isApprovedOrganizer,
 } from "../services/roleService";
+
+const NUMERIC_KEYBOARD_ACCESSORY_ID = "createLeagueNumericDone";
 
 const CATEGORY_FORMAT_OPTIONS = [
   { label: "Categoria unica", value: "single", description: "Se juega 1 Categoria" },
@@ -1429,6 +1432,9 @@ export default function CreateLeagueScreen({ navigation, route }) {
                 : "Jugadores estimados (opcional)"}
             </Text>
             <TextInput
+              inputAccessoryViewID={
+                Platform.OS === "ios" ? NUMERIC_KEYBOARD_ACCESSORY_ID : undefined
+              }
               keyboardType="number-pad"
               maxLength={2}
               onChangeText={updateFixtureMinPlayersCount}
@@ -1441,6 +1447,9 @@ export default function CreateLeagueScreen({ navigation, route }) {
           <View style={styles.compactInlineFieldRow}>
             <Text style={styles.compactInlineFieldLabel}>Cantidad de fechas recomendadas</Text>
             <TextInput
+              inputAccessoryViewID={
+                Platform.OS === "ios" ? NUMERIC_KEYBOARD_ACCESSORY_ID : undefined
+              }
               keyboardType="number-pad"
               maxLength={2}
               onChangeText={(value) => updateField("fixtureDatesCount", sanitizeInteger(value).slice(0, 2))}
@@ -1475,6 +1484,9 @@ export default function CreateLeagueScreen({ navigation, route }) {
             <View style={styles.compactInlineFieldRow}>
               <Text style={styles.compactInlineFieldLabel}>Monto de inscripcion</Text>
               <TextInput
+                inputAccessoryViewID={
+                  Platform.OS === "ios" ? NUMERIC_KEYBOARD_ACCESSORY_ID : undefined
+                }
                 keyboardType="decimal-pad"
                 onChangeText={(value) => updateField("registrationFeeAmount", sanitizeDecimal(value))}
                 placeholder="0"
@@ -1488,6 +1500,9 @@ export default function CreateLeagueScreen({ navigation, route }) {
           <View style={styles.compactInlineFieldRow}>
             <Text style={styles.compactInlineFieldLabel}>Precio por fecha por jugador</Text>
             <TextInput
+              inputAccessoryViewID={
+                Platform.OS === "ios" ? NUMERIC_KEYBOARD_ACCESSORY_ID : undefined
+              }
               keyboardType="decimal-pad"
               onChangeText={(value) => updateField("roundPricePerPlayer", sanitizeDecimal(value))}
               placeholder="0"
@@ -1829,6 +1844,9 @@ export default function CreateLeagueScreen({ navigation, route }) {
           </View>
         </View>
       </Modal>
+      {Platform.OS === "ios" ? (
+        <NumericKeyboardDoneBar nativeID={NUMERIC_KEYBOARD_ACCESSORY_ID} />
+      ) : null}
     </SafeAreaView>
   );
 }

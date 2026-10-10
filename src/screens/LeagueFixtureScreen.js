@@ -28,6 +28,7 @@ import BottomQuickActionsBar, {
 } from "../components/BottomQuickActionsBar";
 import FeedbackModal from "../components/FeedbackModal";
 import LeagueHeaderCard from "../components/LeagueHeaderCard";
+import NumericKeyboardDoneBar from "../components/NumericKeyboardDoneBar";
 import SectionHeader from "../components/SectionHeader";
 import { colors, spacing } from "../config/theme";
 import { useAuth } from "../context/AuthContext";
@@ -310,6 +311,8 @@ function getLeagueSuspensionNotificationTargets(round = {}) {
 
   return [...playersMap.values()];
 }
+
+const NUMERIC_KEYBOARD_ACCESSORY_ID = "leagueFixtureNumericDone";
 
 const SUSPENSION_REASONS = [
   { label: "Inclemencia Climatica", value: "weather" },
@@ -4439,6 +4442,9 @@ export default function LeagueFixtureScreen({ navigation, route }) {
                         <View style={styles.setInputsRow}>
                           <TextInput
                             editable={canEditFixture}
+                            inputAccessoryViewID={
+                              Platform.OS === "ios" ? NUMERIC_KEYBOARD_ACCESSORY_ID : undefined
+                            }
                             keyboardType="number-pad"
                             maxLength={set.label === "STB" ? 2 : 1}
                             onChangeText={(value) =>
@@ -4455,6 +4461,9 @@ export default function LeagueFixtureScreen({ navigation, route }) {
                           <Text style={styles.setSlash}>/</Text>
                           <TextInput
                             editable={canEditFixture}
+                            inputAccessoryViewID={
+                              Platform.OS === "ios" ? NUMERIC_KEYBOARD_ACCESSORY_ID : undefined
+                            }
                             keyboardType="number-pad"
                             maxLength={set.label === "STB" ? 2 : 1}
                             onChangeText={(value) =>
@@ -6180,6 +6189,9 @@ export default function LeagueFixtureScreen({ navigation, route }) {
                       {set.label === "STB" ? "SUPER TIE BREAK" : set.label}
                     </Text>
                     <TextInput
+                      inputAccessoryViewID={
+                        Platform.OS === "ios" ? NUMERIC_KEYBOARD_ACCESSORY_ID : undefined
+                      }
                       keyboardType="number-pad"
                       maxLength={set.label === "STB" ? 5 : 3}
                       onChangeText={(value) => updateLeagueResultEditorSet(setIndex, value)}
@@ -6602,6 +6614,9 @@ export default function LeagueFixtureScreen({ navigation, route }) {
           </View>
         </View>
       </Modal>
+      {Platform.OS === "ios" ? (
+        <NumericKeyboardDoneBar nativeID={NUMERIC_KEYBOARD_ACCESSORY_ID} />
+      ) : null}
     </SafeAreaView>
   );
 }

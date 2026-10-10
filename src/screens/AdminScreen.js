@@ -3,6 +3,7 @@ import {
   FlatList,
   Image,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -13,6 +14,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 
 import AppButton from "../components/AppButton";
+import NumericKeyboardDoneBar from "../components/NumericKeyboardDoneBar";
 import ScreenWrapper from "../components/ScreenWrapper";
 import { ADMIN_EMAIL, canAccessAdminPanel } from "../config/admin";
 import { colors, spacing } from "../config/theme";
@@ -149,6 +151,8 @@ function formatContentStatusLabel(status = "") {
 
   return status || "Sin estado";
 }
+
+const NUMERIC_KEYBOARD_ACCESSORY_ID = "adminNumericDone";
 
 const AUDIT_ACTION_LABELS = {
   grantAdminAccess: "Otorgo acceso admin",
@@ -1665,6 +1669,9 @@ export default function AdminScreen({ navigation, route }) {
 
                     <Text style={styles.inputLabel}>Dias de vigencia (30 = mensual, 365 = anual)</Text>
                     <TextInput
+                      inputAccessoryViewID={
+                        Platform.OS === "ios" ? NUMERIC_KEYBOARD_ACCESSORY_ID : undefined
+                      }
                       keyboardType="number-pad"
                       onChangeText={setPlanTrialDays}
                       placeholder="Dias"
@@ -1738,6 +1745,9 @@ export default function AdminScreen({ navigation, route }) {
                   />
                   <Text style={styles.inputLabel}>Telefono</Text>
                   <TextInput
+                    inputAccessoryViewID={
+                      Platform.OS === "ios" ? NUMERIC_KEYBOARD_ACCESSORY_ID : undefined
+                    }
                     keyboardType="phone-pad"
                     onChangeText={(value) => updateUserEditField("phone", value)}
                     placeholder="Telefono"
@@ -2251,6 +2261,9 @@ export default function AdminScreen({ navigation, route }) {
           </View>
         </View>
       </Modal>
+      {Platform.OS === "ios" ? (
+        <NumericKeyboardDoneBar nativeID={NUMERIC_KEYBOARD_ACCESSORY_ID} />
+      ) : null}
     </>
   );
 }

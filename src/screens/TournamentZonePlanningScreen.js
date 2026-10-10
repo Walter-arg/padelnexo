@@ -20,6 +20,7 @@ import BottomQuickActionsBar, {
   BOTTOM_QUICK_ACTIONS_SPACE,
 } from "../components/BottomQuickActionsBar";
 import FeedbackModal from "../components/FeedbackModal";
+import NumericKeyboardDoneBar from "../components/NumericKeyboardDoneBar";
 import SectionHeader from "../components/SectionHeader";
 import TournamentHeaderCard from "../components/TournamentHeaderCard";
 import { colors, spacing } from "../config/theme";
@@ -33,6 +34,8 @@ import {
   listTournamentRegistrations,
   updateTournament,
 } from "../services/tournamentsService";
+
+const NUMERIC_KEYBOARD_ACCESSORY_ID = "tournamentZonePlanningNumericDone";
 
 const ZONE_LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
 const PAIR_COLORS = [
@@ -2426,6 +2429,9 @@ export default function TournamentZonePlanningScreen({ navigation, route }) {
                         {isSuperTieBreakSet ? "SUPER TIE BREAK" : `SET ${setIndex + 1}`}
                       </Text>
                       <TextInput
+                        inputAccessoryViewID={
+                          Platform.OS === "ios" ? NUMERIC_KEYBOARD_ACCESSORY_ID : undefined
+                        }
                         keyboardType="number-pad"
                         maxLength={isSuperTieBreakSet ? 5 : 3}
                         onChangeText={(value) => updateResultSetScore(setIndex, value)}
@@ -2582,6 +2588,9 @@ export default function TournamentZonePlanningScreen({ navigation, route }) {
           <Ionicons color="#A84F00" name="alert-circle" size={15} />
           <Text style={styles.unsavedChangesText}>Hay cambios sin guardar</Text>
         </View>
+      ) : null}
+      {Platform.OS === "ios" ? (
+        <NumericKeyboardDoneBar nativeID={NUMERIC_KEYBOARD_ACCESSORY_ID} />
       ) : null}
     </SafeAreaView>
   );
