@@ -3119,6 +3119,9 @@ export default function TurnosScreen({ navigation, route }) {
                       size={16}
                     />
                     <Text
+                      adjustsFontSizeToFit
+                      minimumFontScale={0.75}
+                      numberOfLines={1}
                       style={[
                         styles.paymentChipText,
                         isSelected ? styles.paymentChipTextActive : null,
@@ -6030,6 +6033,7 @@ const styles = StyleSheet.create({
   },
   paymentChipText: {
     color: "#1A7F5A",
+    flexShrink: 1,
     fontSize: 13,
     fontWeight: "800",
   },
