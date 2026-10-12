@@ -6,6 +6,7 @@ import { colors, spacing } from "../config/theme";
 import devLog from "../utils/devLog";
 import {
   getPlansOffering,
+  isPurchasesConfigured,
   purchasePlanPackage,
   restorePlanPurchases,
 } from "../services/purchasesService";
@@ -60,6 +61,7 @@ function findPackage(offering, planKey, cycle) {
 export default function PlansPaywallModal({ visible, onClose, onPurchaseSuccess }) {
   const insets = useSafeAreaInsets();
   const [offering, setOffering] = useState(null);
+  const [offeringDebug, setOfferingDebug] = useState("");
   const [isLoadingOffering, setIsLoadingOffering] = useState(true);
   const [billingCycle, setBillingCycle] = useState("mensual");
   const [purchasingPlan, setPurchasingPlan] = useState(null);
@@ -74,10 +76,24 @@ export default function PlansPaywallModal({ visible, onClose, onPurchaseSuccess 
 
     getPlansOffering()
       .then((current) => {
-        if (!isCancelled) setOffering(current);
+        if (isCancelled) return;
+        setOffering(current);
+        if (!current) {
+          setOfferingDebug(
+            isPurchasesConfigured()
+              ? "DEBUG: RevenueCat esta inicializado pero no hay ningun offering 'current' configurado en el dashboard"
+              : "DEBUG: RevenueCat NO esta inicializado (falta la API key o no se llamo a configurePurchases)"
+          );
+        } else {
+          const ids = (current.availablePackages || []).map((pkg) => pkg.identifier).join(", ") || "(ninguno)";
+          setOfferingDebug(`DEBUG: offering="${current.identifier}" packages=[${ids}]`);
+        }
       })
       .catch((error) => {
         devLog("[PlansPaywallModal] Error al cargar oferta:", error?.message || error);
+        if (!isCancelled) {
+          setOfferingDebug(`DEBUG: error al cargar oferta: ${error?.message || error}`);
+        }
       })
       .finally(() => {
         if (!isCancelled) setIsLoadingOffering(false);
@@ -186,7 +202,11 @@ export default function PlansPaywallModal({ visible, onClose, onPurchaseSuccess 
             {isLoadingOffering ? (
               <ActivityIndicator color={colors.primary} style={styles.loader} />
             ) : (
-              plansWithPackages.map((tier) => (
+              <>
+              {offeringDebug ? (
+                <Text selectable style={styles.debugText}>{offeringDebug}</Text>
+              ) : null}
+              {plansWithPackages.map((tier) => (
                 <View key={tier.key} style={styles.planCard}>
                   <Text style={styles.planLabel}>{tier.label}</Text>
                   <Text style={styles.planDescription}>{tier.description}</Text>
@@ -206,7 +226,8 @@ export default function PlansPaywallModal({ visible, onClose, onPurchaseSuccess 
                     title={purchasingPlan === tier.key ? "Procesando..." : "Suscribirme"}
                   />
                 </View>
-              ))
+              ))}
+              </>
             )}
 
             <Text style={styles.disclosure}>
@@ -317,6 +338,17 @@ const styles = StyleSheet.create({
   },
   loader: {
     marginVertical: spacing.xl,
+  },
+  debugText: {
+    backgroundColor: "#FFF3CD",
+    borderColor: "#E0A400",
+    borderRadius: 10,
+    borderWidth: 1,
+    color: "#7A4300",
+    fontSize: 11,
+    fontWeight: "700",
+    marginBottom: spacing.sm,
+    padding: spacing.sm,
   },
   planCard: {
     backgroundColor: colors.surface,
