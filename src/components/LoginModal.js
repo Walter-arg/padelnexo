@@ -182,6 +182,7 @@ export default function LoginModal({ onClose, onLogin, visible }) {
   const [manoHabil, setManoHabil] = useState("");
   const [password, setPassword] = useState("");
   const [isPasswordVisible, setIsPasswordVisible] = useState(false);
+  const [isPhoneCountryVisible, setIsPhoneCountryVisible] = useState(false);
   const [isCategoryVisible, setIsCategoryVisible] = useState(false);
   const [isSexVisible, setIsSexVisible] = useState(false);
   const [isPreferredSideVisible, setIsPreferredSideVisible] = useState(false);
@@ -662,13 +663,16 @@ export default function LoginModal({ onClose, onLogin, visible }) {
                     labelStyle={styles.centeredLabel}
                     leftElement={
                       <CountryCodeSelector
-                        embedded
                         onChange={(option) => {
                           setSelectedPhoneCountry(option.country);
                           setCountryCode(option.code);
                         }}
+                        onClose={() => setIsPhoneCountryVisible(false)}
+                        onOpen={() => setIsPhoneCountryVisible(true)}
+                        onlyTrigger
                         options={phoneCountryOptions}
                         value={selectedPhoneCountry}
+                        visible={isPhoneCountryVisible}
                       />
                     }
                     onChangeText={(value) => setPhone(sanitizePhoneValue(value))}
@@ -725,11 +729,11 @@ export default function LoginModal({ onClose, onLogin, visible }) {
                   value={localidad?.provincia || ""}
                 />
                 <SelectField
-                  embedded
                   label="Categoria del jugador"
                   labelStyle={styles.centeredLabel}
                   onClose={() => setIsCategoryVisible(false)}
                   onOpen={() => setIsCategoryVisible(true)}
+                  onlyTrigger
                   onSelect={setCategory}
                   options={categoryOptions}
                   placeholder="Selecciona una categoria"
@@ -737,11 +741,11 @@ export default function LoginModal({ onClose, onLogin, visible }) {
                   visible={isCategoryVisible}
                 />
                 <SelectField
-                  embedded
                   label={"G\u00e9nero"}
                   labelStyle={styles.centeredLabel}
                   onClose={() => setIsSexVisible(false)}
                   onOpen={() => setIsSexVisible(true)}
+                  onlyTrigger
                   onSelect={setSex}
                   options={sexDropdownOptions}
                   placeholder="Seleccione"
@@ -749,11 +753,11 @@ export default function LoginModal({ onClose, onLogin, visible }) {
                   visible={isSexVisible}
                 />
                 <SelectField
-                  embedded
                   label="Lado preferido de juego"
                   labelStyle={styles.centeredLabel}
                   onClose={() => setIsPreferredSideVisible(false)}
                   onOpen={() => setIsPreferredSideVisible(true)}
+                  onlyTrigger
                   onSelect={setLadoJuego}
                   options={preferredSideOptions}
                   placeholder="Selecciona una opcion"
@@ -761,11 +765,11 @@ export default function LoginModal({ onClose, onLogin, visible }) {
                   visible={isPreferredSideVisible}
                 />
                 <SelectField
-                  embedded
                   label={"Mano h\u00e1bil"}
                   labelStyle={styles.centeredLabel}
                   onClose={() => setIsDominantHandVisible(false)}
                   onOpen={() => setIsDominantHandVisible(true)}
+                  onlyTrigger
                   onSelect={setManoHabil}
                   options={dominantHandOptions}
                   placeholder="Selecciona una opcion"
@@ -933,6 +937,56 @@ export default function LoginModal({ onClose, onLogin, visible }) {
           </ScrollView>
         </View>
       </KeyboardAvoidingView>
+      {/* Superposiciones de los selectores embebidos, renderizadas fuera del
+      ScrollView del formulario: dentro del scroll quedaban atrapadas en el
+      contenido scrolleable en vez de cubrir toda la pantalla visible. */}
+      <CountryCodeSelector
+        onChange={(option) => {
+          setSelectedPhoneCountry(option.country);
+          setCountryCode(option.code);
+        }}
+        onClose={() => setIsPhoneCountryVisible(false)}
+        onlyOverlay
+        options={phoneCountryOptions}
+        value={selectedPhoneCountry}
+        visible={isPhoneCountryVisible}
+      />
+      <SelectField
+        label="Categoria del jugador"
+        onClose={() => setIsCategoryVisible(false)}
+        onlyOverlay
+        onSelect={setCategory}
+        options={categoryOptions}
+        value={category}
+        visible={isCategoryVisible}
+      />
+      <SelectField
+        label={"Género"}
+        onClose={() => setIsSexVisible(false)}
+        onlyOverlay
+        onSelect={setSex}
+        options={sexDropdownOptions}
+        value={sex}
+        visible={isSexVisible}
+      />
+      <SelectField
+        label="Lado preferido de juego"
+        onClose={() => setIsPreferredSideVisible(false)}
+        onlyOverlay
+        onSelect={setLadoJuego}
+        options={preferredSideOptions}
+        value={ladoJuego}
+        visible={isPreferredSideVisible}
+      />
+      <SelectField
+        label={"Mano hábil"}
+        onClose={() => setIsDominantHandVisible(false)}
+        onlyOverlay
+        onSelect={setManoHabil}
+        options={dominantHandOptions}
+        value={manoHabil}
+        visible={isDominantHandVisible}
+      />
       <FeedbackModal
         confirmLabel={feedback.tone === "success" ? "Continuar" : "Entendido"}
         embedded

@@ -12,8 +12,23 @@ export default function CountryCodeSelector({
   // modal ya abierto, pasar embedded para que se dibuje como una vista
   // superpuesta en vez de un Modal propio.
   embedded = false,
+  // Cuando el campo esta dentro de un ScrollView (formularios largos), la
+  // superposicion embedded queda atrapada dentro del contenido scrolleable
+  // en vez de cubrir toda la pantalla visible. Para esos casos, controlar
+  // la visibilidad desde el padre (visible/onOpen/onClose) y renderizar el
+  // campo (onlyTrigger) dentro del ScrollView, y la superposicion
+  // (onlyOverlay) una sola vez afuera del ScrollView, con los mismos props.
+  visible: controlledVisible,
+  onOpen: controlledOnOpen,
+  onClose: controlledOnClose,
+  onlyTrigger = false,
+  onlyOverlay = false,
 }) {
-  const [visible, setVisible] = useState(false);
+  const [internalVisible, setInternalVisible] = useState(false);
+  const isControlled = controlledVisible !== undefined;
+  const visible = isControlled ? controlledVisible : internalVisible;
+  const openPicker = isControlled ? controlledOnOpen : () => setInternalVisible(true);
+  const closePicker = isControlled ? controlledOnClose : () => setInternalVisible(false);
 
   const selectedOption = useMemo(
     () => options.find((option) => option.country === value) || options[0],
@@ -22,7 +37,7 @@ export default function CountryCodeSelector({
 
   const optionsList = (
     <View style={styles.overlay}>
-      <Pressable onPress={() => setVisible(false)} style={styles.backdrop} />
+      <Pressable onPress={closePicker} style={styles.backdrop} />
       <View style={styles.card}>
         <Text style={styles.title}>Selecciona tu pais</Text>
         <ScrollView showsVerticalScrollIndicator={false}>
@@ -34,7 +49,7 @@ export default function CountryCodeSelector({
                 key={`${option.country}-${option.code}`}
                 onPress={() => {
                   onChange?.(option);
-                  setVisible(false);
+                  closePicker();
                 }}
                 style={[styles.row, isSelected && styles.rowSelected]}
               >
@@ -53,13 +68,25 @@ export default function CountryCodeSelector({
     </View>
   );
 
+  const trigger = (
+    <Pressable onPress={openPicker} style={styles.trigger}>
+      <Text style={styles.flag}>{selectedOption?.flag || "🇦🇷"}</Text>
+      <Text style={styles.code}>{selectedOption?.code || "+54"}</Text>
+      <Text style={styles.chevron}>▾</Text>
+    </Pressable>
+  );
+
+  if (onlyOverlay) {
+    return visible ? optionsList : null;
+  }
+
+  if (onlyTrigger) {
+    return trigger;
+  }
+
   return (
     <>
-      <Pressable onPress={() => setVisible(true)} style={styles.trigger}>
-        <Text style={styles.flag}>{selectedOption?.flag || "🇦🇷"}</Text>
-        <Text style={styles.code}>{selectedOption?.code || "+54"}</Text>
-        <Text style={styles.chevron}>▾</Text>
-      </Pressable>
+      {trigger}
 
       {embedded
         ? (visible ? optionsList : null)

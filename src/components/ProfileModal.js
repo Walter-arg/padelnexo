@@ -236,6 +236,7 @@ export default function ProfileModal({
   } = useAuth();
   const [profile, setProfile] = useState(defaultProfile);
   const [selectedLocation, setSelectedLocation] = useState(null);
+  const [isPhoneCountryVisible, setIsPhoneCountryVisible] = useState(false);
   const [isCategoryVisible, setIsCategoryVisible] = useState(false);
   const [isSexVisible, setIsSexVisible] = useState(false);
   const [isPreferredSideVisible, setIsPreferredSideVisible] = useState(false);
@@ -1067,13 +1068,16 @@ export default function ProfileModal({
                   containerStyle={styles.phoneField}
                   leftElement={
                     <CountryCodeSelector
-                      embedded
                       onChange={(option) => {
                         updateField("countryCode", option.code);
                         updateField("phoneCountry", option.country);
                       }}
+                      onClose={() => setIsPhoneCountryVisible(false)}
+                      onOpen={() => setIsPhoneCountryVisible(true)}
+                      onlyTrigger
                       options={phoneCountryOptions}
                       value={profile.phoneCountry || "Argentina"}
+                      visible={isPhoneCountryVisible}
                     />
                   }
                   inputStyle={styles.compactInput}
@@ -1153,13 +1157,13 @@ export default function ProfileModal({
                 value={selectedLocation?.provincia || profile.localidad?.provincia || ""}
               />
               <SelectField
-                embedded
                 label="Categoria"
                 labelStyle={styles.centeredLabel}
                 containerStyle={styles.compactField}
                 fieldStyle={styles.compactSelectField}
                 onClose={() => setIsCategoryVisible(false)}
                 onOpen={() => setIsCategoryVisible(true)}
+                onlyTrigger
                 onSelect={(value) => updateField("category", value)}
                 options={categoryOptions}
                 placeholder="Selecciona una categoria"
@@ -1167,13 +1171,13 @@ export default function ProfileModal({
                 visible={isCategoryVisible}
               />
               <SelectField
-                embedded
                 label="Sexo"
                 labelStyle={styles.centeredLabel}
                 containerStyle={styles.compactField}
                 fieldStyle={styles.compactSelectField}
                 onClose={() => setIsSexVisible(false)}
                 onOpen={() => setIsSexVisible(true)}
+                onlyTrigger
                 onSelect={(value) => updateField("sex", value)}
                 options={sexDropdownOptions}
                 placeholder="Selecciona una opcion"
@@ -1181,13 +1185,13 @@ export default function ProfileModal({
                 visible={isSexVisible}
               />
               <SelectField
-                embedded
                 label="Lado preferido de juego"
                 labelStyle={styles.centeredLabel}
                 containerStyle={styles.compactField}
                 fieldStyle={styles.compactSelectField}
                 onClose={() => setIsPreferredSideVisible(false)}
                 onOpen={() => setIsPreferredSideVisible(true)}
+                onlyTrigger
                 onSelect={(value) => updateField("ladoJuego", value)}
                 options={preferredSideOptions}
                 placeholder="Selecciona una opcion"
@@ -1195,13 +1199,13 @@ export default function ProfileModal({
                 visible={isPreferredSideVisible}
               />
               <SelectField
-                embedded
                 label="Mano habil"
                 labelStyle={styles.centeredLabel}
                 containerStyle={styles.compactField}
                 fieldStyle={styles.compactSelectField}
                 onClose={() => setIsDominantHandVisible(false)}
                 onOpen={() => setIsDominantHandVisible(true)}
+                onlyTrigger
                 onSelect={(value) => updateField("manoHabil", value)}
                 options={dominantHandOptions}
                 placeholder="Selecciona una opcion"
@@ -1265,6 +1269,57 @@ export default function ProfileModal({
             </ScrollView>
             )}
           </View>
+          {/* Superposiciones de los selectores embebidos, renderizadas fuera
+          del ScrollView del formulario: dentro del scroll quedaban atrapadas
+          en el contenido scrolleable en vez de cubrir toda la pantalla
+          visible. */}
+          <CountryCodeSelector
+            onChange={(option) => {
+              updateField("countryCode", option.code);
+              updateField("phoneCountry", option.country);
+            }}
+            onClose={() => setIsPhoneCountryVisible(false)}
+            onlyOverlay
+            options={phoneCountryOptions}
+            value={profile.phoneCountry || "Argentina"}
+            visible={isPhoneCountryVisible}
+          />
+          <SelectField
+            label="Categoria"
+            onClose={() => setIsCategoryVisible(false)}
+            onlyOverlay
+            onSelect={(value) => updateField("category", value)}
+            options={categoryOptions}
+            value={profile.category}
+            visible={isCategoryVisible}
+          />
+          <SelectField
+            label="Sexo"
+            onClose={() => setIsSexVisible(false)}
+            onlyOverlay
+            onSelect={(value) => updateField("sex", value)}
+            options={sexDropdownOptions}
+            value={profile.sex}
+            visible={isSexVisible}
+          />
+          <SelectField
+            label="Lado preferido de juego"
+            onClose={() => setIsPreferredSideVisible(false)}
+            onlyOverlay
+            onSelect={(value) => updateField("ladoJuego", value)}
+            options={preferredSideOptions}
+            value={profile.ladoJuego}
+            visible={isPreferredSideVisible}
+          />
+          <SelectField
+            label="Mano habil"
+            onClose={() => setIsDominantHandVisible(false)}
+            onlyOverlay
+            onSelect={(value) => updateField("manoHabil", value)}
+            options={dominantHandOptions}
+            value={profile.manoHabil || ""}
+            visible={isDominantHandVisible}
+          />
           <FeedbackModal
             confirmLabel="Entendido"
             embedded

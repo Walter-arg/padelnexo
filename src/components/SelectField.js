@@ -20,6 +20,13 @@ export default function SelectField({
   // modal ya abierto, pasar embedded para que se dibuje como una vista
   // superpuesta en vez de un Modal propio.
   embedded = false,
+  // Cuando el campo esta dentro de un ScrollView (formularios largos), la
+  // superposicion embedded queda atrapada dentro del contenido scrolleable
+  // en vez de cubrir toda la pantalla visible. Para esos casos, renderizar
+  // el campo (onlyTrigger) dentro del ScrollView, y la superposicion
+  // (onlyOverlay) una sola vez afuera del ScrollView, con los mismos props.
+  onlyTrigger = false,
+  onlyOverlay = false,
 }) {
   const selectedOption = options.find((option) => option.value === value);
   const displayValue = selectedOption?.label || value || placeholder;
@@ -58,17 +65,29 @@ export default function SelectField({
     </View>
   );
 
+  const trigger = (
+    <View style={[styles.wrapper, containerStyle]}>
+      <Text style={[styles.label, labelStyle]}>{label}</Text>
+      <Pressable onPress={onOpen} style={[styles.field, fieldStyle]}>
+        <Text style={[styles.value, !selectedOption && styles.placeholder]}>
+          {displayValue}
+        </Text>
+        <Text style={styles.chevron}>+</Text>
+      </Pressable>
+    </View>
+  );
+
+  if (onlyOverlay) {
+    return visible ? optionsList : null;
+  }
+
+  if (onlyTrigger) {
+    return trigger;
+  }
+
   return (
     <>
-      <View style={[styles.wrapper, containerStyle]}>
-        <Text style={[styles.label, labelStyle]}>{label}</Text>
-        <Pressable onPress={onOpen} style={[styles.field, fieldStyle]}>
-          <Text style={[styles.value, !selectedOption && styles.placeholder]}>
-            {displayValue}
-          </Text>
-          <Text style={styles.chevron}>+</Text>
-        </Pressable>
-      </View>
+      {trigger}
 
       {embedded
         ? (visible ? optionsList : null)

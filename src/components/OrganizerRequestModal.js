@@ -186,6 +186,7 @@ export default function OrganizerRequestModal({
   const effectiveMode = mode === "request" && isApprovedOrganizer(user) ? "edit" : mode;
 
   const [form, setForm] = useState(buildInitialState(user, effectiveMode));
+  const [isPhoneCountryVisible, setIsPhoneCountryVisible] = useState(false);
   const [expandedComplexes, setExpandedComplexes] = useState({ 0: true });
   const [pendingSavedProfile, setPendingSavedProfile] = useState(null);
   const [locatingComplexIndex, setLocatingComplexIndex] = useState(null);
@@ -673,13 +674,16 @@ export default function OrganizerRequestModal({
                   labelStyle={styles.centeredLabel}
                   leftElement={
                     <CountryCodeSelector
-                      embedded
                       onChange={(option) => {
                         updateField("countryCode", option.code);
                         updateField("phoneCountry", option.country);
                       }}
+                      onClose={() => setIsPhoneCountryVisible(false)}
+                      onOpen={() => setIsPhoneCountryVisible(true)}
+                      onlyTrigger
                       options={phoneCountryOptions}
                       value={form.phoneCountry}
+                      visible={isPhoneCountryVisible}
                     />
                   }
                   onChangeText={(value) => updateField("telefono", sanitizeDigits(value))}
@@ -959,6 +963,20 @@ export default function OrganizerRequestModal({
           </ScrollView>
         </View>
       </KeyboardAvoidingView>
+      {/* Superposicion del selector de pais, renderizada fuera del
+      ScrollView del formulario: dentro del scroll quedaba atrapada en el
+      contenido scrolleable en vez de cubrir toda la pantalla visible. */}
+      <CountryCodeSelector
+        onChange={(option) => {
+          updateField("countryCode", option.code);
+          updateField("phoneCountry", option.country);
+        }}
+        onClose={() => setIsPhoneCountryVisible(false)}
+        onlyOverlay
+        options={phoneCountryOptions}
+        value={form.phoneCountry}
+        visible={isPhoneCountryVisible}
+      />
       <FeedbackModal
         confirmLabel={feedback.tone === "success" ? "Continuar" : "Entendido"}
         embedded

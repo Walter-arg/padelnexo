@@ -2322,10 +2322,10 @@ export default function TournamentRegistrationPanel({
                 value={guestLastName}
               />
               <SelectField
-                embedded
                 label="Categoria"
                 onClose={() => setGuestCategoryPickerVisible(false)}
                 onOpen={() => setGuestCategoryPickerVisible(true)}
+                onlyTrigger
                 onSelect={setGuestCategory}
                 options={LEAGUE_CATEGORY_OPTIONS}
                 placeholder="Seleccionar categoria"
@@ -2362,6 +2362,18 @@ export default function TournamentRegistrationPanel({
                 <Text style={styles.primaryButtonText}>Agregar</Text>
               </Pressable>
             </View>
+            {/* Superposicion del combo de categoria, fuera del ScrollView:
+            dentro quedaba atrapada en el contenido scrolleable en vez de
+            cubrir toda la pantalla visible. */}
+            <SelectField
+              label="Categoria"
+              onClose={() => setGuestCategoryPickerVisible(false)}
+              onlyOverlay
+              onSelect={setGuestCategory}
+              options={LEAGUE_CATEGORY_OPTIONS}
+              value={guestCategory}
+              visible={guestCategoryPickerVisible}
+            />
           </View>
         </KeyboardAvoidingView>
       </Modal>
