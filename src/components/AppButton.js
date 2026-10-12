@@ -27,7 +27,14 @@ export default function AppButton({
         style,
       ]}
     >
-      <Text style={[styles.textBase, textStyle, customTextStyle]}>{title}</Text>
+      <Text
+        adjustsFontSizeToFit
+        minimumFontScale={0.8}
+        numberOfLines={1}
+        style={[styles.textBase, textStyle, customTextStyle]}
+      >
+        {title}
+      </Text>
     </Pressable>
   );
 }
