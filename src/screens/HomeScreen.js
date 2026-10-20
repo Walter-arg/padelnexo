@@ -1014,9 +1014,14 @@ export default function HomeScreen({ navigation, route }) {
             style={({ pressed }) => [styles.organizerBanner, pressed && styles.organizerBannerPressed]}
           >
             <View style={styles.organizerBannerContent}>
-              <Text style={styles.organizerBannerTitle}>¿Organizás torneos o ligas?</Text>
+              <View style={styles.organizerBannerBadge}>
+                <Text style={styles.organizerBannerBadgeText}>PLANES DE SUSCRIPCIÓN</Text>
+              </View>
+              <Text style={styles.organizerBannerTitle}>
+                ¿Organizás torneos, ligas o gestionás turnos?
+              </Text>
               <Text style={styles.organizerBannerSubtitle}>
-                Conocé los planes para organizadores en PadelNexo
+                Mirá los planes de suscripción para organizadores
               </Text>
             </View>
             <Text style={styles.organizerBannerArrow}>→</Text>
@@ -1646,6 +1651,20 @@ const styles = StyleSheet.create({
   },
   organizerBannerContent: {
     flex: 1,
+  },
+  organizerBannerBadge: {
+    alignSelf: "flex-start",
+    backgroundColor: "#FFD84D",
+    borderRadius: 999,
+    marginBottom: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  organizerBannerBadgeText: {
+    color: "#7A4300",
+    fontSize: 10,
+    fontWeight: "900",
+    letterSpacing: 0.3,
   },
   organizerBannerTitle: {
     color: "#fff",
