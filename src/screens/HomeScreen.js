@@ -1020,9 +1020,6 @@ export default function HomeScreen({ navigation, route }) {
               <Text style={styles.organizerBannerTitle}>
                 ¿Organizás torneos, ligas o gestionás turnos?
               </Text>
-              <Text style={styles.organizerBannerSubtitle}>
-                Mirá los planes de suscripción para organizadores
-              </Text>
             </View>
             <Text style={styles.organizerBannerArrow}>→</Text>
           </Pressable>
@@ -1670,12 +1667,6 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 15,
     fontWeight: "800",
-  },
-  organizerBannerSubtitle: {
-    color: "rgba(255,255,255,0.75)",
-    fontSize: 12,
-    lineHeight: 17,
-    marginTop: 3,
   },
   organizerBannerArrow: {
     color: "rgba(255,255,255,0.7)",
