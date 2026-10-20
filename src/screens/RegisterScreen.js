@@ -153,18 +153,12 @@ export default function RegisterScreen({ navigation }) {
       return;
     }
 
-    if (!localidadInput.trim()) {
-      showFeedback("Falta tu localidad", "Ingresa y selecciona una localidad.", "danger");
-      return;
-    }
-
-    if (!isValidLocalidad(localidad, localidadInput)) {
-      showFeedback("Localidad no valida", "Selecciona una localidad sugerida.", "danger");
-      return;
-    }
-
-    if (!localidad?.provincia?.trim()) {
-      showFeedback("Provincia no valida", "Debes seleccionar una localidad con provincia.", "danger");
+    // Localidad/provincia son opcionales (Guideline 5.1.1(v) de Apple: no
+    // pedir datos que no son imprescindibles para el funcionamiento
+    // principal de la app). Si el usuario escribio algo, igual debe ser
+    // una localidad valida sugerida por el buscador.
+    if (localidadInput.trim() && !isValidLocalidad(localidad, localidadInput)) {
+      showFeedback("Localidad no valida", "Selecciona una localidad sugerida, o deja el campo vacio.", "danger");
       return;
     }
 
@@ -348,7 +342,7 @@ export default function RegisterScreen({ navigation }) {
           <LocationPicker
             containerStyle={styles.compactField}
             inputStyle={styles.compactInput}
-            label="Localidad"
+            label="Localidad (opcional)"
             labelStyle={styles.centeredLabel}
             sanitizeText={sanitizeLocalidadValue}
             onChangeText={(text) => {

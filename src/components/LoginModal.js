@@ -341,31 +341,15 @@ export default function LoginModal({ onClose, onLogin, visible }) {
         return;
       }
 
-      if (!localidadInput.trim()) {
+      // Localidad/provincia son opcionales (Guideline 5.1.1(v) de Apple: no
+      // pedir datos que no son imprescindibles para el funcionamiento
+      // principal de la app). Si el usuario escribio algo, igual debe ser
+      // una localidad valida sugerida por el buscador.
+      if (localidadInput.trim() && !isValidLocalidad(localidad, localidadInput)) {
         setFeedback({
           visible: true,
-          title: "Falta tu localidad",
-          message: "Ingresa y selecciona una localidad.",
-          tone: "danger",
-        });
-        return;
-      }
-
-      if (!isValidLocalidad(localidad, localidadInput)) {
-        setFeedback({
-          visible: true,
-          title: "Falta tu localidad",
-          message: "Selecciona una localidad sugerida.",
-          tone: "danger",
-        });
-        return;
-      }
-
-      if (!localidad?.provincia?.trim()) {
-        setFeedback({
-          visible: true,
-          title: "Provincia no valida",
-          message: "Debes seleccionar una localidad con provincia.",
+          title: "Localidad no valida",
+          message: "Selecciona una localidad sugerida, o deja el campo vacio.",
           tone: "danger",
         });
         return;
@@ -705,7 +689,7 @@ export default function LoginModal({ onClose, onLogin, visible }) {
                   </View>
                 </View>
                 <LocationPicker
-                  label="Localidad"
+                  label="Localidad (opcional)"
                   labelStyle={styles.centeredLabel}
                   sanitizeText={sanitizeLocalidadValue}
                   onChangeText={(value) => {

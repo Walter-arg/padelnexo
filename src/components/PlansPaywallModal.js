@@ -6,7 +6,6 @@ import { colors, spacing } from "../config/theme";
 import devLog from "../utils/devLog";
 import {
   getPlansOffering,
-  isPurchasesConfigured,
   purchasePlanPackage,
   restorePlanPurchases,
 } from "../services/purchasesService";
@@ -47,11 +46,6 @@ const PLAN_TIERS = [
   },
 ];
 
-const BILLING_CYCLES = [
-  { key: "mensual", label: "Mensual" },
-  { key: "anual", label: "Anual" },
-];
-
 function findPackage(offering, planKey, cycle) {
   if (!offering?.availablePackages) return null;
   const identifier = `${planKey}_${cycle}`;
@@ -61,9 +55,10 @@ function findPackage(offering, planKey, cycle) {
 export default function PlansPaywallModal({ visible, onClose, onPurchaseSuccess }) {
   const insets = useSafeAreaInsets();
   const [offering, setOffering] = useState(null);
-  const [offeringDebug, setOfferingDebug] = useState("");
   const [isLoadingOffering, setIsLoadingOffering] = useState(true);
-  const [billingCycle, setBillingCycle] = useState("mensual");
+  // Las suscripciones anuales todavia no existen en las tiendas; por ahora
+  // solo se ofrece el ciclo mensual.
+  const billingCycle = "mensual";
   const [purchasingPlan, setPurchasingPlan] = useState(null);
   const [isRestoring, setIsRestoring] = useState(false);
   const [feedback, setFeedback] = useState(null);
@@ -76,24 +71,10 @@ export default function PlansPaywallModal({ visible, onClose, onPurchaseSuccess 
 
     getPlansOffering()
       .then((current) => {
-        if (isCancelled) return;
-        setOffering(current);
-        if (!current) {
-          setOfferingDebug(
-            isPurchasesConfigured()
-              ? "DEBUG: RevenueCat esta inicializado pero no hay ningun offering 'current' configurado en el dashboard"
-              : "DEBUG: RevenueCat NO esta inicializado (falta la API key o no se llamo a configurePurchases)"
-          );
-        } else {
-          const ids = (current.availablePackages || []).map((pkg) => pkg.identifier).join(", ") || "(ninguno)";
-          setOfferingDebug(`DEBUG: offering="${current.identifier}" packages=[${ids}]`);
-        }
+        if (!isCancelled) setOffering(current);
       })
       .catch((error) => {
         devLog("[PlansPaywallModal] Error al cargar oferta:", error?.message || error);
-        if (!isCancelled) {
-          setOfferingDebug(`DEBUG: error al cargar oferta: ${error?.message || error}`);
-        }
       })
       .finally(() => {
         if (!isCancelled) setIsLoadingOffering(false);
@@ -177,42 +158,16 @@ export default function PlansPaywallModal({ visible, onClose, onPurchaseSuccess 
               Elegi el plan que mejor se adapte a tus ligas y torneos.
             </Text>
 
-            <View style={styles.cycleToggle}>
-              {BILLING_CYCLES.map((cycle) => (
-                <Pressable
-                  key={cycle.key}
-                  onPress={() => setBillingCycle(cycle.key)}
-                  style={[
-                    styles.cycleOption,
-                    billingCycle === cycle.key && styles.cycleOptionActive,
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.cycleOptionText,
-                      billingCycle === cycle.key && styles.cycleOptionTextActive,
-                    ]}
-                  >
-                    {cycle.label}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-
             {isLoadingOffering ? (
               <ActivityIndicator color={colors.primary} style={styles.loader} />
             ) : (
-              <>
-              {offeringDebug ? (
-                <Text selectable style={styles.debugText}>{offeringDebug}</Text>
-              ) : null}
-              {plansWithPackages.map((tier) => (
+              plansWithPackages.map((tier) => (
                 <View key={tier.key} style={styles.planCard}>
                   <Text style={styles.planLabel}>{tier.label}</Text>
                   <Text style={styles.planDescription}>{tier.description}</Text>
                   <Text style={styles.planPrice}>
                     {tier.pkg
-                      ? `${tier.pkg.product.priceString} / ${billingCycle === "anual" ? "año" : "mes"}`
+                      ? `${tier.pkg.product.priceString} / mes`
                       : "No disponible por ahora"}
                   </Text>
                   {tier.features.map((feature) => (
@@ -226,12 +181,11 @@ export default function PlansPaywallModal({ visible, onClose, onPurchaseSuccess 
                     title={purchasingPlan === tier.key ? "Procesando..." : "Suscribirme"}
                   />
                 </View>
-              ))}
-              </>
+              ))
             )}
 
             <Text style={styles.disclosure}>
-              La suscripcion se renueva automaticamente por el mismo periodo (mensual o anual)
+              La suscripcion se renueva automaticamente por el mismo periodo (mensual)
               salvo que la canceles con al menos 24 horas de anticipacion desde los ajustes de tu
               cuenta de la tienda (App Store o Google Play). El pago se cobra a tu cuenta de la
               tienda al confirmar la compra. Podes administrar o cancelar tu suscripcion en
@@ -312,43 +266,8 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginBottom: spacing.md,
   },
-  cycleToggle: {
-    backgroundColor: colors.secondary,
-    borderRadius: 16,
-    flexDirection: "row",
-    marginBottom: spacing.lg,
-    padding: 4,
-  },
-  cycleOption: {
-    alignItems: "center",
-    borderRadius: 12,
-    flex: 1,
-    paddingVertical: spacing.xs,
-  },
-  cycleOptionActive: {
-    backgroundColor: colors.primary,
-  },
-  cycleOptionText: {
-    color: colors.muted,
-    fontSize: 14,
-    fontWeight: "700",
-  },
-  cycleOptionTextActive: {
-    color: colors.surface,
-  },
   loader: {
     marginVertical: spacing.xl,
-  },
-  debugText: {
-    backgroundColor: "#FFF3CD",
-    borderColor: "#E0A400",
-    borderRadius: 10,
-    borderWidth: 1,
-    color: "#7A4300",
-    fontSize: 11,
-    fontWeight: "700",
-    marginBottom: spacing.sm,
-    padding: spacing.sm,
   },
   planCard: {
     backgroundColor: colors.surface,
