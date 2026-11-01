@@ -1,4 +1,4 @@
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Image, Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
 import { colors, spacing } from "../config/theme";
@@ -175,6 +175,12 @@ export default function LeagueCard({
     ];
   const categoryLine = [league?.categoria, showSex ? league?.sexo : ""].filter(Boolean).join(" · ");
   const complexName = league?.complejoNombre || "";
+  const organizerLogoUrl =
+    league?.organizerLogoUrl ||
+    league?.organizerLogoURL ||
+    league?.complejo?.organizerLogoUrl ||
+    league?.complejo?.organizerLogoURL ||
+    "";
 
   const teamTypeLabel = league?.teamType === "individual" ? "Individual" : "Pareja fija";
   const teamTypeIcon = league?.teamType === "individual" ? "person-outline" : "people-outline";
@@ -191,6 +197,17 @@ export default function LeagueCard({
   return (
     <CardContainer {...cardContainerProps}>
       <View style={styles.headerRow}>
+        <View style={styles.organizerLogoWrap}>
+          {organizerLogoUrl ? (
+            <Image
+              resizeMode="contain"
+              source={{ uri: organizerLogoUrl }}
+              style={styles.organizerLogo}
+            />
+          ) : (
+            <Ionicons color={colors.muted} name="business-outline" size={18} />
+          )}
+        </View>
         <View style={styles.copy}>
           <View style={styles.titleInline}>
             <Text numberOfLines={2} style={styles.name}>
@@ -409,8 +426,28 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
   },
   headerRow: {
-    alignItems: "flex-start",
+    alignItems: "center",
     flexDirection: "row",
+    minHeight: 42,
+  },
+  organizerLogoWrap: {
+    alignItems: "center",
+    backgroundColor: colors.surfaceAlt,
+    borderColor: colors.border,
+    borderRadius: 10,
+    borderWidth: 1,
+    height: 38,
+    justifyContent: "center",
+    overflow: "hidden",
+    left: 0,
+    position: "absolute",
+    top: 2,
+    width: 38,
+    zIndex: 1,
+  },
+  organizerLogo: {
+    height: "100%",
+    width: "100%",
   },
   copy: {
     flex: 1,
