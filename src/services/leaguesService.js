@@ -2374,7 +2374,6 @@ export function buildLeagueStandings(league = {}) {
     scoringSettings.replacementPenaltyMode === "pair" ? "pair" : "individual";
   const replacementQuota = Math.max(0, normalizeCount(scoringSettings.replacementQuota, 0));
   const replacementUsageCounters = new Map();
-  const countSuperTieBreakAsSet = league?.matchFormat !== "two_sets_super_tiebreak";
 
   if (league?.teamType === "individual") {
     const isFreePosition = league?.individualSideMode === "libre";
@@ -2434,10 +2433,10 @@ export function buildLeagueStandings(league = {}) {
         const teamBPlayers = Array.isArray(match?.teamB?.players) ? match.teamB.players : [];
         const teamASetsWon = match.result.reason === "walkover"
           ? 2
-          : countSetsWon(match?.result?.sets || [], "own", countSuperTieBreakAsSet);
+          : countSetsWon(match?.result?.sets || [], "own");
         const teamBSetsWon = match.result.reason === "walkover"
           ? 0
-          : countSetsWon(match?.result?.sets || [], "rival", countSuperTieBreakAsSet);
+          : countSetsWon(match?.result?.sets || [], "rival");
         const teamAGames = match.result.reason === "walkover" ? 12 : countGames(match?.result?.sets || [], "own", false);
         const teamBGames = match.result.reason === "walkover" ? 0 : countGames(match?.result?.sets || [], "rival", false);
         const winnerPoints = resolveWinnerPoints({
@@ -2582,10 +2581,10 @@ export function buildLeagueStandings(league = {}) {
       const teamAWon = match.result.winner === "teamA";
       const teamASetsWon = match.result.reason === "walkover"
         ? 2
-        : countSetsWon(match?.result?.sets || [], "own", countSuperTieBreakAsSet);
+        : countSetsWon(match?.result?.sets || [], "own");
       const teamBSetsWon = match.result.reason === "walkover"
         ? 0
-        : countSetsWon(match?.result?.sets || [], "rival", countSuperTieBreakAsSet);
+        : countSetsWon(match?.result?.sets || [], "rival");
       const teamAGames = match.result.reason === "walkover" ? 12 : countGames(match?.result?.sets || [], "own", false);
       const teamBGames = match.result.reason === "walkover" ? 0 : countGames(match?.result?.sets || [], "rival", false);
       const winnerPoints = resolveWinnerPoints({
