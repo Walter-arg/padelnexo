@@ -1012,6 +1012,8 @@ export function mapLeagueDoc(docSnapshot) {
     sexo: formatSex(data.sexo || data.sex),
     categoria: sumLabel || data.categoria || data.category || "Libre",
     teamType,
+    individualSideMode: data.individualSideMode === "libre" ? "libre" : "fijo",
+    rules: data.rules || "",
     modalidadCategoria: data.modalidadCategoria || "libre",
     sumTarget: data.sumTarget || "",
     sumRule: data.sumRule || "open",
