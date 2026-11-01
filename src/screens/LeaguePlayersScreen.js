@@ -1,13 +1,13 @@
 import { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
-  FlatList,
   Image,
   KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
   ScrollView,
+  SectionList,
   StyleSheet,
   Text,
   TextInput,
@@ -1145,6 +1145,24 @@ export default function LeaguePlayersScreen({ navigation, route }) {
     }
   };
 
+  const playerListSections = [
+    {
+      key: "search",
+      title: "Jugadores registrados en la app",
+      data: filteredRegisteredPlayers,
+      renderItem: renderRegisteredPlayer,
+      keyExtractor: (item) => `search-${item.id}`,
+    },
+    {
+      key: "current",
+      title: isPairLeague ? "Parejas actuales" : "Listado actual",
+      data: isPairLeague ? pairGroups : leaguePlayers,
+      renderItem: isPairLeague ? renderPairGroup : renderLeaguePlayer,
+      keyExtractor: (item) =>
+        isPairLeague ? `current-pair-${item.pairNumber}` : `current-${item.id}`,
+    },
+  ];
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <SectionHeader onBack={() => navigation.goBack()} subtitle="Jugadores liga" />
@@ -1279,55 +1297,54 @@ export default function LeaguePlayersScreen({ navigation, route }) {
             <Text style={styles.loaderText}>Cargando jugadores de la liga...</Text>
           </View>
         ) : (
-          <FlatList
+          <SectionList
             contentContainerStyle={styles.listContent}
-            data={isPairLeague ? pairGroups : leaguePlayers}
-            keyExtractor={(item) => (isPairLeague ? `pair-${item.pairNumber}` : item.id)}
-            ListEmptyComponent={
-              <View style={styles.emptyCard}>
-                <Text style={styles.emptyTitle}>
-                  {isPairLeague
-                    ? "Todavia no hay parejas cargadas"
-                    : "Todavia no hay jugadores cargados"}
-                </Text>
-                <Text style={styles.emptyText}>
-                  Puedes sumarlos desde usuarios registrados o crear jugadores manuales solo para esta liga.
-                </Text>
-              </View>
-            }
+            sections={playerListSections}
+            stickySectionHeadersEnabled={false}
             ListHeaderComponent={
-              <>
-                <TextInput
-                  onChangeText={setQuery}
-                  placeholder={
-                    replacementTargetId
-                      ? "Buscar jugador registrado para reemplazar"
-                      : "Buscar jugadores registrados"
-                  }
-                  placeholderTextColor={colors.muted}
-                  style={styles.searchInput}
-                  value={query}
-                />
-                <Text style={styles.searchSectionTitle}>Jugadores registrados en la app</Text>
-                {filteredRegisteredPlayers.length === 0 ? (
-                  <View style={styles.placeholderCard}>
-                    <Text style={styles.placeholderText}>
-                      No encontramos jugadores registrados con esa busqueda.
-                    </Text>
-                  </View>
-                ) : (
-                  <View style={styles.searchResultsWrap}>
-                    {filteredRegisteredPlayers.map((player) => (
-                      <View key={player.id}>{renderRegisteredPlayer({ item: player })}</View>
-                    ))}
-                  </View>
-                )}
-                <Text style={styles.listSectionTitle}>
-                  {isPairLeague ? "Parejas actuales" : "Listado actual"}
-                </Text>
-              </>
+              <TextInput
+                onChangeText={setQuery}
+                placeholder={
+                  replacementTargetId
+                    ? "Buscar jugador registrado para reemplazar"
+                    : "Buscar jugadores registrados"
+                }
+                placeholderTextColor={colors.muted}
+                style={styles.searchInput}
+                value={query}
+              />
             }
-            renderItem={isPairLeague ? renderPairGroup : renderLeaguePlayer}
+            renderSectionHeader={({ section }) =>
+              section.key === "search" ? (
+                <View style={styles.searchSectionHeaderWrap}>
+                  <Text style={styles.searchSectionTitle}>{section.title}</Text>
+                  {section.data.length === 0 ? (
+                    <View style={styles.placeholderCard}>
+                      <Text style={styles.placeholderText}>
+                        No encontramos jugadores registrados con esa busqueda.
+                      </Text>
+                    </View>
+                  ) : null}
+                </View>
+              ) : (
+                <View style={styles.currentSectionHeaderWrap}>
+                  <Text style={styles.listSectionTitle}>{section.title}</Text>
+                  {section.data.length === 0 ? (
+                    <View style={styles.emptyCard}>
+                      <Text style={styles.emptyTitle}>
+                        {isPairLeague
+                          ? "Todavia no hay parejas cargadas"
+                          : "Todavia no hay jugadores cargados"}
+                      </Text>
+                      <Text style={styles.emptyText}>
+                        Puedes sumarlos desde usuarios registrados o crear jugadores manuales solo
+                        para esta liga.
+                      </Text>
+                    </View>
+                  ) : null}
+                </View>
+              )
+            }
             showsVerticalScrollIndicator={false}
           />
         )}
@@ -1704,9 +1721,8 @@ const styles = StyleSheet.create({
     textAlign: "center",
     textTransform: "uppercase",
   },
-  searchResultsWrap: {
-    gap: 4,
-  },
+  searchSectionHeaderWrap: {},
+  currentSectionHeaderWrap: {},
   searchPlayerCard: {
     alignItems: "center",
     backgroundColor: colors.surface,
@@ -1715,6 +1731,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     flexDirection: "row",
     justifyContent: "space-between",
+    marginBottom: 4,
     paddingHorizontal: spacing.md,
     paddingVertical: 7,
   },

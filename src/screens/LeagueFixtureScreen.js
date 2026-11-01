@@ -1,6 +1,7 @@
 import { Fragment, useCallback, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  FlatList,
   Image,
   KeyboardAvoidingView,
   Modal,
@@ -5958,24 +5959,29 @@ export default function LeagueFixtureScreen({ navigation, route }) {
               value={replacementQuery}
             />
 
-            <ScrollView
-              keyboardShouldPersistTaps="handled"
-              showsVerticalScrollIndicator={false}
-              style={styles.replacementPlayersList}
-            >
-              {replacementLoading ? (
-                <View style={styles.replacementLoadingRow}>
-                  <ActivityIndicator color={colors.primaryDark} />
-                  <Text style={styles.replacementLoadingText}>Cargando jugadores...</Text>
-                </View>
-              ) : replacementPlayersFiltered.length ? (
-                replacementPlayersFiltered.map((player) => {
+            {replacementLoading ? (
+              <View style={styles.replacementLoadingRow}>
+                <ActivityIndicator color={colors.primaryDark} />
+                <Text style={styles.replacementLoadingText}>Cargando jugadores...</Text>
+              </View>
+            ) : (
+              <FlatList
+                data={replacementPlayersFiltered}
+                keyExtractor={(player) => player.id}
+                keyboardShouldPersistTaps="handled"
+                ListEmptyComponent={
+                  <Text style={styles.replacementEmptyText}>
+                    No encontramos jugadores registrados con esa busqueda.
+                  </Text>
+                }
+                showsVerticalScrollIndicator={false}
+                style={styles.replacementPlayersList}
+                renderItem={({ item: player }) => {
                   const alreadyInLeague = isRegisteredPlayerAlreadyInLeague(player);
 
                   return (
                     <Pressable
                       disabled={alreadyInLeague}
-                      key={player.id}
                       onPress={() => handleAssignReplacement(player, "registered")}
                       style={({ pressed }) => [
                         styles.replacementPlayerOption,
@@ -6017,13 +6023,9 @@ export default function LeagueFixtureScreen({ navigation, route }) {
                       />
                     </Pressable>
                   );
-                })
-              ) : (
-                <Text style={styles.replacementEmptyText}>
-                  No encontramos jugadores registrados con esa busqueda.
-                </Text>
-              )}
-            </ScrollView>
+                }}
+              />
+            )}
 
             <View style={styles.replacementGuestCard}>
               <Text style={styles.replacementGuestTitle}>Crear jugador manual</Text>
