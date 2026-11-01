@@ -1191,6 +1191,7 @@ export default function LeagueFixtureScreen({ navigation, route }) {
     hasFixture && JSON.stringify(league?.fixture || { generatedAtMillis: 0, rounds: [] }) !== JSON.stringify(fixtureDraft);
   const currentUserId = getUserId(userData).toLowerCase();
   const isFreePositionLeague = league?.individualSideMode === "libre";
+  const isWeeklyCoordinationLeague = league?.scheduleConfig?.mode === "weekly_coordination";
   const individualFixturePreview = useMemo(
     () => buildIndividualFixturePreview(league || {}),
     [league]
@@ -4569,7 +4570,9 @@ export default function LeagueFixtureScreen({ navigation, route }) {
                 <Text
                   style={[
                     styles.leagueMigrationTableHeaderText,
-                    styles.leagueMigrationPairsColumn,
+                    isWeeklyCoordinationLeague
+                      ? styles.leagueMigrationPairsColumnNarrow
+                      : styles.leagueMigrationPairsColumn,
                   ]}
                 >
                   PAREJAS
@@ -4577,7 +4580,9 @@ export default function LeagueFixtureScreen({ navigation, route }) {
                 <Text
                   style={[
                     styles.leagueMigrationTableHeaderText,
-                    styles.leagueMigrationDayColumn,
+                    isWeeklyCoordinationLeague
+                      ? styles.leagueMigrationDayColumnWide
+                      : styles.leagueMigrationDayColumn,
                   ]}
                 >
                   DIA
@@ -4603,11 +4608,15 @@ export default function LeagueFixtureScreen({ navigation, route }) {
                 const resultLabel = buildScoreSummary(
                   getMatchResultSets(match, league?.matchFormat)
                 );
-                const dayLabel = formatDayLabel(
+                const matchDateMillis =
                   match.rescheduledDateMillis ||
                     round.rescheduledDateMillis ||
-                    round.scheduledDateMillis
-                );
+                    round.scheduledDateMillis;
+                const dayLabel = formatDayLabel(matchDateMillis);
+                const dateNumberLabel =
+                  isWeeklyCoordinationLeague && matchDateMillis
+                    ? formatDateLabel(matchDateMillis).slice(0, 5)
+                    : "";
 
                 return (
                   <View
@@ -4638,7 +4647,13 @@ export default function LeagueFixtureScreen({ navigation, route }) {
                         {resultLabel || "Pendiente"}
                       </Text>
                     </Pressable>
-                    <View style={styles.leagueMigrationPairsColumn}>
+                    <View
+                      style={
+                        isWeeklyCoordinationLeague
+                          ? styles.leagueMigrationPairsColumnNarrow
+                          : styles.leagueMigrationPairsColumn
+                      }
+                    >
                       <View style={styles.leagueMigrationTeamWrap}>
                         {renderMigrationTableTeam({
                           match,
@@ -4660,13 +4675,15 @@ export default function LeagueFixtureScreen({ navigation, route }) {
                       disabled={!canEditFixture}
                       onPress={() => openLeagueMatchDayPicker(round, match)}
                       style={({ pressed }) => [
-                        styles.leagueMigrationDayColumn,
+                        isWeeklyCoordinationLeague
+                          ? styles.leagueMigrationDayColumnWide
+                          : styles.leagueMigrationDayColumn,
                         styles.leagueMigrationScheduleButton,
                         pressed && canEditFixture ? styles.generateButtonPressed : null,
                       ]}
                     >
                       <Text
-                        numberOfLines={2}
+                        numberOfLines={isWeeklyCoordinationLeague ? 1 : 2}
                         style={[
                           styles.leagueMigrationTableCell,
                           canEditFixture ? styles.leagueMigrationScheduleButtonText : null,
@@ -4674,6 +4691,18 @@ export default function LeagueFixtureScreen({ navigation, route }) {
                       >
                         {dayLabel || "Sin dia"}
                       </Text>
+                      {dateNumberLabel ? (
+                        <Text
+                          numberOfLines={1}
+                          style={[
+                            styles.leagueMigrationTableCell,
+                            styles.leagueMigrationDateNumberText,
+                            canEditFixture ? styles.leagueMigrationScheduleButtonText : null,
+                          ]}
+                        >
+                          {dateNumberLabel}
+                        </Text>
+                      ) : null}
                     </Pressable>
                     <Pressable
                       disabled={!canEditFixture}
@@ -6901,6 +6930,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 2,
     paddingVertical: 2,
   },
+  leagueMigrationPairsColumnNarrow: {
+    alignItems: "center",
+    flex: 2.3,
+    justifyContent: "space-between",
+    paddingHorizontal: 2,
+    paddingVertical: 2,
+  },
   leagueMigrationTeamWrap: {
     alignItems: "center",
     gap: 1,
@@ -6981,6 +7017,14 @@ const styles = StyleSheet.create({
   },
   leagueMigrationDayColumn: {
     flex: 0.58,
+  },
+  leagueMigrationDayColumnWide: {
+    flex: 0.95,
+  },
+  leagueMigrationDateNumberText: {
+    fontSize: 8,
+    fontWeight: "700",
+    opacity: 0.75,
   },
   leagueMigrationTimeColumn: {
     flex: 0.48,

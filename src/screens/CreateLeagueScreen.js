@@ -1778,7 +1778,7 @@ export default function CreateLeagueScreen({ navigation, route }) {
                   onChangeText={(value) =>
                     updateField("threeSetWinPenalty", sanitizeDecimal(value))
                   }
-                  placeholder="Sin descuento"
+                  placeholder="0"
                   value={form.threeSetWinPenalty}
                 />
                 <InlineNumberField

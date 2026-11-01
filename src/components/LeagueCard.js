@@ -200,7 +200,7 @@ export default function LeagueCard({
         <View style={styles.organizerLogoWrap}>
           {organizerLogoUrl ? (
             <Image
-              resizeMode="contain"
+              resizeMode="cover"
               source={{ uri: organizerLogoUrl }}
               style={styles.organizerLogo}
             />
@@ -434,15 +434,15 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: colors.surfaceAlt,
     borderColor: colors.border,
-    borderRadius: 10,
+    borderRadius: 11,
     borderWidth: 1,
-    height: 38,
+    height: 44,
     justifyContent: "center",
     overflow: "hidden",
     left: 0,
     position: "absolute",
     top: 2,
-    width: 38,
+    width: 44,
     zIndex: 1,
   },
   organizerLogo: {
@@ -451,7 +451,7 @@ const styles = StyleSheet.create({
   },
   copy: {
     flex: 1,
-    paddingHorizontal: 38,
+    paddingHorizontal: 44,
   },
   titleInline: {
     alignItems: "center",

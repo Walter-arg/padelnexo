@@ -1061,35 +1061,6 @@ export default function HomeScreen({ navigation, route }) {
           </Pressable>
         ) : null}
 
-        {currentUser ? (
-          <View style={styles.infoRow}>
-            <Pressable
-              onPress={() => setIsProfileVisible(true)}
-              style={({ pressed }) => [
-                styles.infoCard,
-                pressed ? styles.infoCardPressed : null,
-              ]}
-            >
-              <View style={styles.profileProgressHeader}>
-                <Text style={styles.infoLabel}>Perfil</Text>
-                <Text style={styles.profileProgressValue}>{profileCompletion}%</Text>
-              </View>
-              <View style={styles.profileProgressTrack}>
-                <View
-                  style={[
-                    styles.profileProgressFill,
-                    { width: `${profileCompletion}%` },
-                    profileCompletion === 0 ? styles.profileProgressFillEmpty : null,
-                  ]}
-                />
-              </View>
-              <Text style={styles.infoText}>
-                Completa tu perfil y obtene beneficios
-              </Text>
-            </Pressable>
-          </View>
-        ) : null}
-
         <Pressable
           disabled={selectedMenuItem.key !== "Jugadores"}
           onPress={() => {
@@ -1558,6 +1529,35 @@ export default function HomeScreen({ navigation, route }) {
             onSelectionChange={(item) => setSelectedMenuItem(item)}
           />
         </View>
+
+        {currentUser && profileCompletion < 100 ? (
+          <View style={styles.infoRow}>
+            <Pressable
+              onPress={() => setIsProfileVisible(true)}
+              style={({ pressed }) => [
+                styles.infoCard,
+                pressed ? styles.infoCardPressed : null,
+              ]}
+            >
+              <View style={styles.profileProgressHeader}>
+                <Text style={styles.infoLabel}>Perfil</Text>
+                <Text style={styles.profileProgressValue}>{profileCompletion}%</Text>
+              </View>
+              <View style={styles.profileProgressTrack}>
+                <View
+                  style={[
+                    styles.profileProgressFill,
+                    { width: `${profileCompletion}%` },
+                    profileCompletion === 0 ? styles.profileProgressFillEmpty : null,
+                  ]}
+                />
+              </View>
+              <Text style={styles.infoText}>
+                Completa tu perfil y obtene beneficios
+              </Text>
+            </Pressable>
+          </View>
+        ) : null}
       </ScrollView>
 
       <LoginModal
