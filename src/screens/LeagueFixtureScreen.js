@@ -983,6 +983,7 @@ export default function LeagueFixtureScreen({ navigation, route }) {
   const [expandedRoundIds, setExpandedRoundIds] = useState([]);
   const [leagueResultEditor, setLeagueResultEditor] = useState(null);
   const [leagueMatchDayPickerTarget, setLeagueMatchDayPickerTarget] = useState(null);
+  const [leagueMatchDatePickerVisible, setLeagueMatchDatePickerVisible] = useState(false);
   const [tableReplacementMenuTarget, setTableReplacementMenuTarget] = useState(null);
   const setInputRefs = useRef({});
   const [confirmRegenerateVisible, setConfirmRegenerateVisible] = useState(false);
@@ -1818,15 +1819,6 @@ export default function LeagueFixtureScreen({ navigation, route }) {
       return;
     }
 
-    if (!fixtureStartDateMillis) {
-      showFeedback(
-        "Falta fecha de inicio",
-        "Selecciona la fecha de inicio de la liga antes de generar el fixture.",
-        "danger"
-      );
-      return;
-    }
-
     try {
       setGenerating(true);
       const generatedFixture = generateLeagueFixture(league);
@@ -1901,15 +1893,6 @@ export default function LeagueFixtureScreen({ navigation, route }) {
   };
 
   const handleConfirmFixtureGenerationSetup = () => {
-    if (!fixtureStartDateMillis) {
-      showFeedback(
-        "Falta fecha de inicio",
-        "Selecciona la fecha de inicio de la liga antes de generar el fixture.",
-        "danger"
-      );
-      return;
-    }
-
     setFixtureGenerateSetupVisible(false);
 
     if (league?.teamType === "individual") {
@@ -2230,7 +2213,7 @@ export default function LeagueFixtureScreen({ navigation, route }) {
   };
 
   const openLeagueMatchDayPicker = (round, match) => {
-    if (!canEditFixture || !leagueFixtureDayOptions.length) {
+    if (!canEditFixture) {
       return;
     }
 
@@ -2257,9 +2240,10 @@ export default function LeagueFixtureScreen({ navigation, route }) {
 
   const closeLeagueMatchDayPicker = () => {
     setLeagueMatchDayPickerTarget(null);
+    setLeagueMatchDatePickerVisible(false);
   };
 
-  const selectLeagueMatchDay = (dateMillis = 0) => {
+  const applyLeagueMatchDate = (dateMillis = 0) => {
     if (
       !leagueMatchDayPickerTarget?.roundId ||
       !leagueMatchDayPickerTarget?.matchId ||
@@ -2285,7 +2269,31 @@ export default function LeagueFixtureScreen({ navigation, route }) {
         })
       )
     );
+    setLeagueMatchDayPickerTarget((current) =>
+      current ? { ...current, currentDateMillis: selectedDateMillis } : current
+    );
+  };
+
+  const selectLeagueMatchDay = (dateMillis = 0) => {
+    applyLeagueMatchDate(dateMillis);
     closeLeagueMatchDayPicker();
+  };
+
+  const openLeagueMatchFreeDatePicker = () => {
+    setLeagueMatchDatePickerVisible(true);
+  };
+
+  const handleLeagueMatchDateChange = (_, selectedDate) => {
+    if (!selectedDate) {
+      setLeagueMatchDatePickerVisible(false);
+      return;
+    }
+
+    applyLeagueMatchDate(normalizeDateStartMillis(selectedDate.getTime()));
+
+    if (Platform.OS !== "ios") {
+      setLeagueMatchDatePickerVisible(false);
+    }
   };
 
   const handleMatchTimePickerChange = (_, selectedDate) => {
@@ -5441,8 +5449,9 @@ export default function LeagueFixtureScreen({ navigation, route }) {
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>Generar fixture</Text>
             <Text style={styles.modalMessage}>
-              Primero elegi como queres generar las fechas. Despues selecciona la fecha de inicio
-              de la liga.
+              Primero elegi como queres generar las fechas. Si queres, selecciona tambien la fecha
+              de inicio de la liga (es opcional: podes asignar los dias y horarios de cada partido
+              mas adelante).
             </Text>
 
             <View style={styles.fixtureSetupOptions}>
@@ -5520,7 +5529,9 @@ export default function LeagueFixtureScreen({ navigation, route }) {
                 <Ionicons color={colors.primaryDark} name="calendar-outline" size={18} />
               </View>
               <View style={styles.fixtureStartDateCopy}>
-                <Text style={styles.fixtureStartDateLabel}>Selecciona fecha de inicio de la liga</Text>
+                <Text style={styles.fixtureStartDateLabel}>
+                  Fecha de inicio de la liga (opcional)
+                </Text>
                 <Text style={styles.fixtureStartDateValue}>
                   {fixtureStartDateMillis
                     ? formatDateLabel(fixtureStartDateMillis)
@@ -6304,6 +6315,13 @@ export default function LeagueFixtureScreen({ navigation, route }) {
               })}
             </View>
             <Pressable
+              onPress={openLeagueMatchFreeDatePicker}
+              style={[styles.leagueDayPickerOption, styles.leagueDayPickerFreeDateOption]}
+            >
+              <Ionicons color={colors.primaryDark} name="calendar-outline" size={16} />
+              <Text style={styles.leagueDayPickerOptionText}>Elegir otra fecha</Text>
+            </Pressable>
+            <Pressable
               onPress={closeLeagueMatchDayPicker}
               style={styles.leagueDayPickerCancelButton}
             >
@@ -6312,6 +6330,25 @@ export default function LeagueFixtureScreen({ navigation, route }) {
           </View>
         </View>
       </Modal>
+
+      {leagueMatchDatePickerVisible ? (
+        <View style={styles.timePickerOverlayWrap}>
+          <DateTimePicker
+            display={Platform.OS === "ios" ? "spinner" : "calendar"}
+            mode="date"
+            onChange={handleLeagueMatchDateChange}
+            value={buildDateFromMillis(leagueMatchDayPickerTarget?.currentDateMillis || Date.now())}
+          />
+          {Platform.OS === "ios" ? (
+            <Pressable
+              onPress={() => setLeagueMatchDatePickerVisible(false)}
+              style={styles.timePickerDoneButton}
+            >
+              <Text style={styles.timePickerDoneButtonText}>Listo</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      ) : null}
 
       <Modal
         animationType="fade"
@@ -7301,6 +7338,11 @@ const styles = StyleSheet.create({
   },
   leagueDayPickerOptionTextSelected: {
     color: "#1F6D69",
+  },
+  leagueDayPickerFreeDateOption: {
+    flexDirection: "row",
+    gap: spacing.xs,
+    marginTop: spacing.sm,
   },
   leagueDayPickerCancelButton: {
     alignItems: "center",

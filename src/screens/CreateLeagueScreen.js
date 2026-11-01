@@ -821,7 +821,7 @@ export default function CreateLeagueScreen({ navigation, route }) {
 
     const normalizedTimeSlots = normalizeTimeSlots(form.matchTimeSlots);
 
-    if (normalizedTimeSlots.length === 0) {
+    if (form.matchDayMode !== "weekly_coordination" && normalizedTimeSlots.length === 0) {
       showFeedback(
         "Falta el horario",
         "Agrega al menos un horario posible para los partidos de la liga.",
@@ -1385,7 +1385,10 @@ export default function CreateLeagueScreen({ navigation, route }) {
           )}
 
           <View style={styles.scheduleHeaderRow}>
-            <Text style={styles.subsectionLabel}>Horarios posibles</Text>
+            <Text style={styles.subsectionLabel}>
+              Horarios posibles
+              {form.matchDayMode === "weekly_coordination" ? " (opcional)" : ""}
+            </Text>
             {form.matchTimeSlots.length < 4 ? (
               <Pressable
                 onPress={addTimeSlot}
