@@ -2287,14 +2287,14 @@ export default function LeagueFixtureScreen({ navigation, route }) {
 
   const handleLeagueMatchDateChange = (_, selectedDate) => {
     if (!selectedDate) {
-      setLeagueMatchDatePickerVisible(false);
+      closeLeagueMatchDayPicker();
       return;
     }
 
     applyLeagueMatchDate(normalizeDateStartMillis(selectedDate.getTime()));
 
     if (Platform.OS !== "ios") {
-      setLeagueMatchDatePickerVisible(false);
+      closeLeagueMatchDayPicker();
     }
   };
 
@@ -5147,7 +5147,7 @@ export default function LeagueFixtureScreen({ navigation, route }) {
         animationType="fade"
         onRequestClose={closeRoundSuspensionOptions}
         transparent
-        visible={Boolean(roundSuspensionTarget)}
+        visible={Boolean(roundSuspensionTarget) && !rescheduleDatePickerVisible}
       >
         <View style={styles.modalOverlay}>
           <Pressable onPress={closeRoundSuspensionOptions} style={styles.modalBackdrop} />
@@ -5492,7 +5492,7 @@ export default function LeagueFixtureScreen({ navigation, route }) {
         animationType="fade"
         onRequestClose={() => setFixtureGenerateSetupVisible(false)}
         transparent
-        visible={fixtureGenerateSetupVisible}
+        visible={fixtureGenerateSetupVisible && !fixtureStartDatePickerVisible}
       >
         <View style={styles.modalOverlay}>
           <Pressable
@@ -6326,7 +6326,7 @@ export default function LeagueFixtureScreen({ navigation, route }) {
         animationType="fade"
         onRequestClose={closeLeagueMatchDayPicker}
         transparent
-        visible={Boolean(leagueMatchDayPickerTarget)}
+        visible={Boolean(leagueMatchDayPickerTarget) && !leagueMatchDatePickerVisible}
       >
         <View style={styles.leagueDayPickerModalOverlay}>
           <Pressable onPress={closeLeagueMatchDayPicker} style={styles.modalBackdrop} />
@@ -6395,7 +6395,7 @@ export default function LeagueFixtureScreen({ navigation, route }) {
           />
           {Platform.OS === "ios" ? (
             <Pressable
-              onPress={() => setLeagueMatchDatePickerVisible(false)}
+              onPress={closeLeagueMatchDayPicker}
               style={styles.timePickerDoneButton}
             >
               <Text style={styles.timePickerDoneButtonText}>Listo</Text>
