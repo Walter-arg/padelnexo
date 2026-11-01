@@ -265,6 +265,24 @@ export default function LeagueDetailScreen({ navigation, route }) {
                 </Pressable>
               ))}
             </View>
+
+            <View style={styles.rulesButtonRow}>
+              <Pressable
+                onPress={() =>
+                  navigation.navigate("LeagueRules", {
+                    leagueId,
+                    leagueName,
+                  })
+                }
+                style={({ pressed }) => [
+                  styles.rulesButton,
+                  pressed ? styles.rulesButtonPressed : null,
+                ]}
+              >
+                <Ionicons color="#111111" name="document-text-outline" size={15} />
+                <Text style={styles.rulesButtonText}>Reglas</Text>
+              </Pressable>
+            </View>
           </>
         ) : (
           <View style={styles.warningCard}>
@@ -442,6 +460,29 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "800",
     textAlign: "center",
+  },
+  rulesButtonRow: {
+    alignItems: "center",
+    marginTop: spacing.sm,
+  },
+  rulesButton: {
+    alignItems: "center",
+    backgroundColor: actionPalette.surface,
+    borderColor: actionPalette.border,
+    borderRadius: 16,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 6,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 8,
+  },
+  rulesButtonPressed: {
+    opacity: 0.85,
+  },
+  rulesButtonText: {
+    color: actionPalette.accentDark,
+    fontSize: 13,
+    fontWeight: "800",
   },
   loaderWrap: {
     flex: 1,

@@ -1962,6 +1962,13 @@ export async function updateLeagueFixture(leagueId, fixture = createEmptyFixture
   });
 }
 
+export async function updateLeagueRules(leagueId, rules = "") {
+  await updateDoc(doc(db, "leagues", leagueId), {
+    rules: String(rules || ""),
+    updatedAt: serverTimestamp(),
+  });
+}
+
 export async function updateLeagueFixtureConfig(leagueId, fixtureConfig = {}, fixture = null) {
   const payload = {
     fixtureConfig,

@@ -18,6 +18,7 @@ import LeagueFixtureScreen from "../screens/LeagueFixtureScreen";
 import LeaguePaymentsScreen from "../screens/LeaguePaymentsScreen";
 import JugadoresScreen from "../screens/JugadoresScreen";
 import LeaguePlayersScreen from "../screens/LeaguePlayersScreen";
+import LeagueRulesScreen from "../screens/LeagueRulesScreen";
 import LeagueStandingsScreen from "../screens/LeagueStandingsScreen";
 import LigasHubScreen from "../screens/LigasHubScreen";
 import LoginScreen from "../screens/LoginScreen";
@@ -296,6 +297,11 @@ export default function AppNavigator() {
       <Stack.Screen
         component={LeagueStandingsScreen}
         name="LeagueStandings"
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        component={LeagueRulesScreen}
+        name="LeagueRules"
         options={{ headerShown: false }}
       />
       <Stack.Screen
