@@ -3776,7 +3776,7 @@ export default function LeagueFixtureScreen({ navigation, route }) {
               />
             ) : null}
           </View>
-          <Text numberOfLines={2} style={styles.leagueMigrationPairText}>
+          <Text allowFontScaling={false} numberOfLines={2} style={styles.leagueMigrationPairText}>
             {team?.label || "Pareja"}
           </Text>
         </View>
@@ -3807,7 +3807,11 @@ export default function LeagueFixtureScreen({ navigation, route }) {
         <View style={styles.leagueMigrationCompactTeamWrap}>
           {playerEntries.map((entry, playerIndex) => (
             <Fragment key={`migration-${match.id}-${teamKey}-${playerIndex}`}>
-              {playerIndex > 0 ? <Text style={styles.leagueMigrationPairSeparator}>/</Text> : null}
+              {playerIndex > 0 ? (
+                <Text allowFontScaling={false} style={styles.leagueMigrationPairSeparator}>
+                  /
+                </Text>
+              ) : null}
               <View style={styles.leagueMigrationPlayerSlot}>
                 <View style={styles.leagueMigrationPlayerStatusRow}>
                   {playerIndex === 0 && entry.hasReplacementRequest ? (
@@ -3818,6 +3822,7 @@ export default function LeagueFixtureScreen({ navigation, route }) {
                     />
                   ) : null}
                   <Text
+                    allowFontScaling={false}
                     numberOfLines={1}
                     style={[
                       styles.leagueMigrationPairText,
@@ -3838,11 +3843,17 @@ export default function LeagueFixtureScreen({ navigation, route }) {
                   ) : null}
                 </View>
                 {entry.replacementPlayer ? (
-                  <Text numberOfLines={1} style={styles.leagueMigrationReplacementPlayerText}>
+                  <Text
+                    allowFontScaling={false}
+                    numberOfLines={1}
+                    style={styles.leagueMigrationReplacementPlayerText}
+                  >
                     {formatPlayerShortName(entry.replacementPlayer)}
                   </Text>
                 ) : (
-                  <Text style={styles.leagueMigrationReplacementPlaceholder}> </Text>
+                  <Text allowFontScaling={false} style={styles.leagueMigrationReplacementPlaceholder}>
+                    {" "}
+                  </Text>
                 )}
               </View>
             </Fragment>
@@ -4561,6 +4572,8 @@ export default function LeagueFixtureScreen({ navigation, route }) {
               </View>
               <View style={styles.leagueMigrationTableHeader}>
                 <Text
+                  allowFontScaling={false}
+                  numberOfLines={1}
                   style={[
                     styles.leagueMigrationTableHeaderText,
                     styles.leagueMigrationResultColumn,
@@ -4569,6 +4582,8 @@ export default function LeagueFixtureScreen({ navigation, route }) {
                   RESULTADOS
                 </Text>
                 <Text
+                  allowFontScaling={false}
+                  numberOfLines={1}
                   style={[
                     styles.leagueMigrationTableHeaderText,
                     isWeeklyCoordinationLeague
@@ -4579,6 +4594,8 @@ export default function LeagueFixtureScreen({ navigation, route }) {
                   PAREJAS
                 </Text>
                 <Text
+                  allowFontScaling={false}
+                  numberOfLines={1}
                   style={[
                     styles.leagueMigrationTableHeaderText,
                     isWeeklyCoordinationLeague
@@ -4589,6 +4606,8 @@ export default function LeagueFixtureScreen({ navigation, route }) {
                   DIA
                 </Text>
                 <Text
+                  allowFontScaling={false}
+                  numberOfLines={1}
                   style={[
                     styles.leagueMigrationTableHeaderText,
                     styles.leagueMigrationTimeColumn,
@@ -4639,6 +4658,7 @@ export default function LeagueFixtureScreen({ navigation, route }) {
                       ]}
                     >
                       <Text
+                        allowFontScaling={false}
                         numberOfLines={2}
                         style={[
                           styles.leagueMigrationTableCell,
@@ -4684,6 +4704,7 @@ export default function LeagueFixtureScreen({ navigation, route }) {
                       ]}
                     >
                       <Text
+                        allowFontScaling={false}
                         numberOfLines={isWeeklyCoordinationLeague ? 1 : 2}
                         style={[
                           styles.leagueMigrationTableCell,
@@ -4694,6 +4715,7 @@ export default function LeagueFixtureScreen({ navigation, route }) {
                       </Text>
                       {dateNumberLabel ? (
                         <Text
+                          allowFontScaling={false}
                           numberOfLines={1}
                           style={[
                             styles.leagueMigrationTableCell,
@@ -4715,6 +4737,7 @@ export default function LeagueFixtureScreen({ navigation, route }) {
                       ]}
                     >
                       <Text
+                        allowFontScaling={false}
                         numberOfLines={1}
                         style={[
                           styles.leagueMigrationTableCell,
@@ -6888,7 +6911,7 @@ const styles = StyleSheet.create({
   },
   leagueMigrationTableHeaderText: {
     color: "#285E59",
-    fontSize: 8,
+    fontSize: Platform.select({ ios: 7, default: 8 }),
     fontWeight: "900",
     textAlign: "center",
   },
@@ -6906,7 +6929,7 @@ const styles = StyleSheet.create({
   },
   leagueMigrationTableCell: {
     color: colors.text,
-    fontSize: 9,
+    fontSize: Platform.select({ ios: 8, default: 9 }),
     fontWeight: "800",
     paddingHorizontal: 2,
     textAlign: "center",
@@ -6988,14 +7011,14 @@ const styles = StyleSheet.create({
   },
   leagueMigrationPairSeparator: {
     color: colors.textMuted,
-    fontSize: 8,
+    fontSize: Platform.select({ ios: 7, default: 8 }),
     fontWeight: "900",
     lineHeight: 13,
   },
   leagueMigrationPairText: {
     color: colors.text,
     flexShrink: 1,
-    fontSize: 9,
+    fontSize: Platform.select({ ios: 8, default: 9 }),
     fontWeight: "800",
     textAlign: "center",
   },
@@ -7008,13 +7031,13 @@ const styles = StyleSheet.create({
   },
   leagueMigrationReplacementPlayerText: {
     color: "#247653",
-    fontSize: 8,
+    fontSize: Platform.select({ ios: 7, default: 8 }),
     fontWeight: "900",
     minHeight: 10,
     textAlign: "center",
   },
   leagueMigrationReplacementPlaceholder: {
-    fontSize: 8,
+    fontSize: Platform.select({ ios: 7, default: 8 }),
     minHeight: 10,
   },
   leagueMigrationDayColumn: {
@@ -7024,7 +7047,7 @@ const styles = StyleSheet.create({
     flex: 0.95,
   },
   leagueMigrationDateNumberText: {
-    fontSize: 8,
+    fontSize: Platform.select({ ios: 7, default: 8 }),
     fontWeight: "700",
     opacity: 0.75,
   },
