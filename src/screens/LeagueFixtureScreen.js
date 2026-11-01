@@ -794,36 +794,49 @@ function normalizeFixtureSide(value = "") {
 
 function buildIndividualFixturePreview(league = {}) {
   const players = Array.isArray(league?.players) ? league.players : [];
+  const isFreePosition = league?.individualSideMode === "libre";
   const drivePlayers = [];
   const revesPlayers = [];
   const undefinedPlayers = [];
 
-  players.forEach((player) => {
-    const side = normalizeFixtureSide(player?.ladoJuego);
+  if (isFreePosition) {
+    // En modo "posicion libre" no hay distincion real de lado: solo
+    // repartimos por indice para armar parejas, igual que el generador.
+    players.forEach((player, index) => {
+      if (index % 2 === 0) {
+        drivePlayers.push(player);
+      } else {
+        revesPlayers.push(player);
+      }
+    });
+  } else {
+    players.forEach((player) => {
+      const side = normalizeFixtureSide(player?.ladoJuego);
 
-    if (side === "drive") {
-      drivePlayers.push(player);
-      return;
-    }
+      if (side === "drive") {
+        drivePlayers.push(player);
+        return;
+      }
 
-    if (side === "reves") {
-      revesPlayers.push(player);
-      return;
-    }
+      if (side === "reves") {
+        revesPlayers.push(player);
+        return;
+      }
 
-    undefinedPlayers.push(player);
-  });
+      undefinedPlayers.push(player);
+    });
 
-  // Las inscripciones anteriores a la selección obligatoria pueden seguir
-  // teniendo lado "ambos". Asignarlas acá igual que el generador asegura que
-  // aparezcan en la previsualización y puedan participar del fixture.
-  undefinedPlayers.forEach((player) => {
-    if (drivePlayers.length <= revesPlayers.length) {
-      drivePlayers.push({ ...player, ladoJuego: "drive", ladoPreferido: "Drive" });
-    } else {
-      revesPlayers.push({ ...player, ladoJuego: "reves", ladoPreferido: "Reves" });
-    }
-  });
+    // Las inscripciones anteriores a la selección obligatoria pueden seguir
+    // teniendo lado "ambos". Asignarlas acá igual que el generador asegura que
+    // aparezcan en la previsualización y puedan participar del fixture.
+    undefinedPlayers.forEach((player) => {
+      if (drivePlayers.length <= revesPlayers.length) {
+        drivePlayers.push({ ...player, ladoJuego: "drive", ladoPreferido: "Drive" });
+      } else {
+        revesPlayers.push({ ...player, ladoJuego: "reves", ladoPreferido: "Reves" });
+      }
+    });
+  }
 
   const pairedTeamsCount = Math.min(drivePlayers.length, revesPlayers.length);
   const recommendedRounds =
@@ -1176,6 +1189,7 @@ export default function LeagueFixtureScreen({ navigation, route }) {
   const hasUnsavedFixtureChanges =
     hasFixture && JSON.stringify(league?.fixture || { generatedAtMillis: 0, rounds: [] }) !== JSON.stringify(fixtureDraft);
   const currentUserId = getUserId(userData).toLowerCase();
+  const isFreePositionLeague = league?.individualSideMode === "libre";
   const individualFixturePreview = useMemo(
     () => buildIndividualFixturePreview(league || {}),
     [league]
@@ -5688,18 +5702,24 @@ export default function LeagueFixtureScreen({ navigation, route }) {
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>Previsualizar fixture individual</Text>
             <Text style={styles.modalMessage}>
-              Revisa que haya la misma cantidad de Drive y Reves antes de generar las fechas.
+              {isFreePositionLeague
+                ? "Revisa la cantidad de jugadores antes de generar las fechas."
+                : "Revisa que haya la misma cantidad de Drive y Reves antes de generar las fechas."}
             </Text>
 
             <View style={styles.individualPreviewSummary}>
               <View style={styles.individualPreviewPill}>
-                <Text style={styles.individualPreviewPillLabel}>Drive</Text>
+                <Text style={styles.individualPreviewPillLabel}>
+                  {isFreePositionLeague ? "Grupo A" : "Drive"}
+                </Text>
                 <Text style={styles.individualPreviewPillValue}>
                   {individualFixturePreview.drivePlayers.length}
                 </Text>
               </View>
               <View style={styles.individualPreviewPill}>
-                <Text style={styles.individualPreviewPillLabel}>Reves</Text>
+                <Text style={styles.individualPreviewPillLabel}>
+                  {isFreePositionLeague ? "Grupo B" : "Reves"}
+                </Text>
                 <Text style={styles.individualPreviewPillValue}>
                   {individualFixturePreview.revesPlayers.length}
                 </Text>
@@ -5712,7 +5732,7 @@ export default function LeagueFixtureScreen({ navigation, route }) {
               </View>
             </View>
 
-            {!individualFixturePreview.hasBalancedSides ? (
+            {!individualFixturePreview.hasBalancedSides && !isFreePositionLeague ? (
               <View style={styles.individualPreviewWarning}>
                 <Ionicons color="#A05A00" name="alert-circle" size={18} />
                 <Text style={styles.individualPreviewWarningText}>
@@ -5765,7 +5785,9 @@ export default function LeagueFixtureScreen({ navigation, route }) {
             >
             <View style={styles.individualPreviewLists}>
               <View style={styles.individualPreviewListCard}>
-                <Text style={styles.individualPreviewListTitle}>Drive</Text>
+                <Text style={styles.individualPreviewListTitle}>
+                  {isFreePositionLeague ? "Grupo A" : "Drive"}
+                </Text>
                 <ScrollView
                   nestedScrollEnabled
                   persistentScrollbar
@@ -5777,22 +5799,26 @@ export default function LeagueFixtureScreen({ navigation, route }) {
                       <Text numberOfLines={1} style={styles.individualPreviewPlayerName}>
                         {formatPlayerShortName(player)}
                       </Text>
-                      <Pressable
-                        disabled={savingIndividualSideId === (player.id || player.linkedUserId)}
-                        onPress={() => handleChangeIndividualPlayerSide(player, "reves")}
-                        style={({ pressed }) => [
-                          styles.individualPreviewSideButton,
-                          pressed ? styles.generateButtonPressed : null,
-                        ]}
-                      >
-                        <Ionicons color={colors.primaryDark} name="arrow-forward" size={16} />
-                      </Pressable>
+                      {isFreePositionLeague ? null : (
+                        <Pressable
+                          disabled={savingIndividualSideId === (player.id || player.linkedUserId)}
+                          onPress={() => handleChangeIndividualPlayerSide(player, "reves")}
+                          style={({ pressed }) => [
+                            styles.individualPreviewSideButton,
+                            pressed ? styles.generateButtonPressed : null,
+                          ]}
+                        >
+                          <Ionicons color={colors.primaryDark} name="arrow-forward" size={16} />
+                        </Pressable>
+                      )}
                     </View>
                   ))}
                 </ScrollView>
               </View>
               <View style={styles.individualPreviewListCard}>
-                <Text style={styles.individualPreviewListTitle}>Reves</Text>
+                <Text style={styles.individualPreviewListTitle}>
+                  {isFreePositionLeague ? "Grupo B" : "Reves"}
+                </Text>
                 <ScrollView
                   nestedScrollEnabled
                   persistentScrollbar
@@ -5804,16 +5830,18 @@ export default function LeagueFixtureScreen({ navigation, route }) {
                       <Text numberOfLines={1} style={styles.individualPreviewPlayerName}>
                         {formatPlayerShortName(player)}
                       </Text>
-                      <Pressable
-                        disabled={savingIndividualSideId === (player.id || player.linkedUserId)}
-                        onPress={() => handleChangeIndividualPlayerSide(player, "drive")}
-                        style={({ pressed }) => [
-                          styles.individualPreviewSideButton,
-                          pressed ? styles.generateButtonPressed : null,
-                        ]}
-                      >
-                        <Ionicons color={colors.primaryDark} name="arrow-back" size={16} />
-                      </Pressable>
+                      {isFreePositionLeague ? null : (
+                        <Pressable
+                          disabled={savingIndividualSideId === (player.id || player.linkedUserId)}
+                          onPress={() => handleChangeIndividualPlayerSide(player, "drive")}
+                          style={({ pressed }) => [
+                            styles.individualPreviewSideButton,
+                            pressed ? styles.generateButtonPressed : null,
+                          ]}
+                        >
+                          <Ionicons color={colors.primaryDark} name="arrow-back" size={16} />
+                        </Pressable>
+                      )}
                     </View>
                   ))}
                 </ScrollView>
@@ -5832,7 +5860,7 @@ export default function LeagueFixtureScreen({ navigation, route }) {
                 <Text style={styles.modalSecondaryButtonText}>Cancelar</Text>
               </Pressable>
 
-              {!individualFixturePreview.hasBalancedSides ? (
+              {!individualFixturePreview.hasBalancedSides && !isFreePositionLeague ? (
                 <Pressable
                   onPress={() => {
                     setIndividualPreviewVisible(false);

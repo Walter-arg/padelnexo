@@ -60,6 +60,11 @@ const TEAM_TYPE_OPTIONS_DISPLAY = [
   { label: "Individual", value: "individual" },
 ];
 
+const INDIVIDUAL_SIDE_MODE_OPTIONS_DISPLAY = [
+  { label: "Lado fijo (Drive/Reves)", value: "fijo" },
+  { label: "Posicion libre", value: "libre" },
+];
+
 const BRANCH_OPTIONS_DISPLAY = [
   { label: "Caballeros", value: "Masculino" },
   { label: "Damas", value: "Femenino" },
@@ -153,6 +158,7 @@ function buildInitialForm(userData) {
       paymentDefaults.roundPricePerPlayer > 0 ? String(paymentDefaults.roundPricePerPlayer) : "",
     branch: defaults.branch,
     teamType: defaults.teamType,
+    individualSideMode: defaults.individualSideMode,
     categoryFormat: defaults.categoryFormat,
     sumTarget: defaults.sumTarget,
     sumRule: defaults.sumRule,
@@ -177,6 +183,7 @@ function buildFormFromLeague(league, userData) {
   const defaults = normalizeLeagueDefaults({
     branch: league?.sexo,
     teamType: league?.teamType,
+    individualSideMode: league?.individualSideMode,
     categoryFormat: league?.modalidadCategoria,
     sumTarget: league?.sumTarget,
     sumRule: league?.sumRule,
@@ -224,6 +231,7 @@ function buildFormFromLeague(league, userData) {
     roundPricePerPlayer: resolvedRoundPrice > 0 ? String(resolvedRoundPrice) : "",
     branch: defaults.branch,
     teamType: defaults.teamType,
+    individualSideMode: defaults.individualSideMode,
     categoryFormat: defaults.categoryFormat,
     sumTarget: defaults.sumTarget,
     sumRule: defaults.sumRule,
@@ -974,6 +982,7 @@ export default function CreateLeagueScreen({ navigation, route }) {
         roundPricePerPlayer: form.roundPricePerPlayer,
         branch: form.branch,
         teamType: form.teamType,
+        individualSideMode: form.individualSideMode,
         categoryFormat: form.categoryFormat,
         sumTarget: form.sumTarget,
         sumRule: form.sumRule,
@@ -1008,6 +1017,7 @@ export default function CreateLeagueScreen({ navigation, route }) {
           leagueDefaults: normalizeLeagueDefaults({
             branch: form.branch,
             teamType: form.teamType,
+            individualSideMode: form.individualSideMode,
             categoryFormat: form.categoryFormat,
             sumTarget: form.sumTarget,
             sumRule: form.sumRule,
@@ -1095,6 +1105,7 @@ export default function CreateLeagueScreen({ navigation, route }) {
         leagueDefaults: normalizeLeagueDefaults({
           branch: form.branch,
           teamType: form.teamType,
+          individualSideMode: form.individualSideMode,
           categoryFormat: form.categoryFormat,
           sumTarget: form.sumTarget,
           sumRule: form.sumRule,
@@ -1236,6 +1247,17 @@ export default function CreateLeagueScreen({ navigation, route }) {
             options={TEAM_TYPE_OPTIONS_DISPLAY}
             value={form.teamType}
           />
+
+          {form.teamType === "individual" ? (
+            <>
+              <Text style={styles.chipGroupLabel}>Posicion de juego</Text>
+              <SegmentedControl
+                onChange={(value) => updateField("individualSideMode", value)}
+                options={INDIVIDUAL_SIDE_MODE_OPTIONS_DISPLAY}
+                value={form.individualSideMode}
+              />
+            </>
+          ) : null}
 
           <Text style={styles.chipGroupLabel}>Generos</Text>
           <SegmentedControl

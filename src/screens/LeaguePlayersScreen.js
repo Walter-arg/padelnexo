@@ -249,6 +249,7 @@ export default function LeaguePlayersScreen({ navigation, route }) {
   );
   const canManage = league ? canManageLeague(league, userData) : false;
   const isIndividualLeague = league?.teamType === "individual";
+  const isFreePositionLeague = isIndividualLeague && league?.individualSideMode === "libre";
   const isPairLeague = league?.teamType === "pair";
   const isMixedPairLeague = isPairLeague && isMixedSexValue(league?.sexo);
   const pairNumbers = useMemo(
@@ -486,7 +487,7 @@ export default function LeaguePlayersScreen({ navigation, route }) {
   };
 
   const handleAddRegisteredPlayer = async (player) => {
-    if (isIndividualLeague) {
+    if (isIndividualLeague && !isFreePositionLeague) {
       setPendingRegisteredPlayer(player);
       setPendingGuestName("");
       setSidePickerVisible(true);
@@ -586,7 +587,7 @@ export default function LeaguePlayersScreen({ navigation, route }) {
       return;
     }
 
-    if (isIndividualLeague) {
+    if (isIndividualLeague && !isFreePositionLeague) {
       setGuestModalVisible(false);
       setPendingRegisteredPlayer(null);
       setPendingGuestName(buildPendingGuestValue(normalizedName, normalizedLastName));
@@ -746,7 +747,7 @@ export default function LeaguePlayersScreen({ navigation, route }) {
             <Text style={styles.playerBadgeSecondaryText}>{item.sexo}</Text>
           </View>
         ) : null}
-        {isIndividualLeague && item.ladoJuego !== "ambos" ? (
+        {isIndividualLeague && !isFreePositionLeague && item.ladoJuego !== "ambos" ? (
           <View style={styles.playerBadge}>
             <Text style={styles.playerBadgeText}>
               {item.ladoJuego === "drive" ? "Drive" : "Reves"}
@@ -1165,7 +1166,7 @@ export default function LeaguePlayersScreen({ navigation, route }) {
               ? `Parejas completas cargadas ${currentCount}/${minimumPlayersCount}`
               : `Jugadores cargados ${currentCount}/${minimumPlayersCount}`}
           </Text>
-          {isIndividualLeague ? (
+          {isIndividualLeague && !isFreePositionLeague ? (
             <View style={styles.sideSummaryRow}>
               <Text style={styles.sideSummaryText}>Drive {driveCount}/{sideTargetCount}</Text>
               <Text style={styles.sideSummaryText}>Reves {revesCount}/{sideTargetCount}</Text>

@@ -727,6 +727,23 @@ export default function LigasHubScreen({ navigation }) {
       return;
     }
 
+    if (league.individualSideMode === "libre") {
+      try {
+        setRegistrationSaving(true);
+        const request = await createLeagueRegistrationRequest({
+          league,
+          requester: buildRegistrationRequester(),
+        });
+        setRegistrationRequests((current) => [request, ...current]);
+        showFeedback("Solicitud enviada", "El organizador revisara tu inscripcion a la liga.", "success");
+      } catch (error) {
+        showFeedback("No pudimos enviar la solicitud", error?.message || "Intenta nuevamente en unos instantes.", "danger");
+      } finally {
+        setRegistrationSaving(false);
+      }
+      return;
+    }
+
     setIndividualRegistrationSide("");
     setLeaguePendingRegistration(league);
   };

@@ -338,6 +338,7 @@ export function normalizeLeagueDefaults(defaults = {}) {
   return {
     branch: formatSex(defaults.branch || defaults.sexo),
     teamType: defaults.teamType === "individual" ? "individual" : "pair",
+    individualSideMode: defaults.individualSideMode === "libre" ? "libre" : "fijo",
     categoryFormat: defaults.categoryFormat === "suma" ? "suma" : "libre",
     sumTarget: normalizeSumTarget(defaults.sumTarget),
     sumRule: defaults.sumRule === "fixed" ? "fixed" : "open",
@@ -726,6 +727,7 @@ export function buildLeaguePayload({
   roundPricePerPlayer,
   branch,
   teamType,
+  individualSideMode,
   categoryFormat,
   sumTarget,
   sumRule,
@@ -748,6 +750,7 @@ export function buildLeaguePayload({
   const normalizedDefaults = normalizeLeagueDefaults({
     branch,
     teamType,
+    individualSideMode,
     categoryFormat,
     sumTarget,
     sumRule,
@@ -804,6 +807,7 @@ export function buildLeaguePayload({
     organizerName: organizer?.name || "Organizador",
     sexo: normalizedDefaults.branch,
     teamType: normalizedDefaults.teamType,
+    individualSideMode: normalizedDefaults.individualSideMode,
     modalidadCategoria: normalizedDefaults.categoryFormat,
     sumTarget: normalizedDefaults.sumTarget,
     sumRule: normalizedDefaults.sumRule,
@@ -914,6 +918,7 @@ export async function updateLeague(leagueId, organizer, payload, currentLeague =
     nombre: nextPayload.nombre,
     sexo: nextPayload.sexo,
     teamType: nextPayload.teamType,
+    individualSideMode: nextPayload.individualSideMode,
     modalidadCategoria: nextPayload.modalidadCategoria,
     sumTarget: nextPayload.sumTarget,
     sumRule: nextPayload.sumRule,
@@ -1207,6 +1212,33 @@ function splitIndividualPlayers(players = []) {
   return { drivePlayers, revesPlayers };
 }
 
+// Ligas individuales en modo "posicion libre": no hay distincion real de
+// lado, pero reusamos el mismo mecanismo de dos grupos + rotacion que ya
+// usa el modo de lado fijo, para que las parejas tambien varien fecha a
+// fecha. El reparto es solo por indice, sin ningun significado de lado.
+function splitFreePositionPlayers(players = []) {
+  const groupA = [];
+  const groupB = [];
+
+  players.forEach((player, index) => {
+    const normalizedPlayer = normalizePlayerEntry(player);
+
+    if (index % 2 === 0) {
+      groupA.push(normalizedPlayer);
+    } else {
+      groupB.push(normalizedPlayer);
+    }
+  });
+
+  return { drivePlayers: groupA, revesPlayers: groupB };
+}
+
+function splitIndividualLeaguePlayers(league = {}, players = []) {
+  return league?.individualSideMode === "libre"
+    ? splitFreePositionPlayers(players)
+    : splitIndividualPlayers(players);
+}
+
 function buildPairTeams(league = {}) {
   const manualTeams = Array.isArray(league?.fixtureConfig?.manualTeams)
     ? league.fixtureConfig.manualTeams.map((team, index) => normalizeTeam(team, index))
@@ -1342,7 +1374,7 @@ function generatePairLeagueFixture(league = {}) {
 
 function generateIndividualLeagueFixture(league = {}) {
   const players = Array.isArray(league?.players) ? league.players.map(normalizePlayerEntry) : [];
-  const { drivePlayers, revesPlayers } = splitIndividualPlayers(players);
+  const { drivePlayers, revesPlayers } = splitIndividualLeaguePlayers(league, players);
   const pairsCount = Math.min(drivePlayers.length, revesPlayers.length);
   const roundsCount = normalizeCount(league?.fixtureConfig?.roundsCount, DEFAULT_FIXTURE_DATES_COUNT);
   const scheduleConfig = league?.scheduleConfig || {};
@@ -1580,7 +1612,9 @@ export async function createLeagueRegistrationRequest({ league = {}, requester =
 
   const requesterPlayer = buildLeagueRegistrationPlayer({
     ...requester,
-    ...(league.teamType === "individual" && ["drive", "reves"].includes(ladoJuego)
+    ...(league.teamType === "individual" &&
+    league.individualSideMode !== "libre" &&
+    ["drive", "reves"].includes(ladoJuego)
       ? { ladoJuego, ladoPreferido: ladoJuego === "drive" ? "Drive" : "Reves" }
       : {}),
   });
@@ -1866,12 +1900,15 @@ export function validateFixtureGeneration(league = {}) {
     return { valid: true, message: "" };
   }
 
-  const { drivePlayers, revesPlayers } = splitIndividualPlayers(players);
+  const { drivePlayers, revesPlayers } = splitIndividualLeaguePlayers(league, players);
 
   if (drivePlayers.length < 2 || revesPlayers.length < 2) {
     return {
       valid: false,
-      message: "Necesitas al menos dos Drive y dos Reves para generar el fixture individual.",
+      message:
+        league?.individualSideMode === "libre"
+          ? "Necesitas al menos 4 jugadores para generar el fixture individual."
+          : "Necesitas al menos dos Drive y dos Reves para generar el fixture individual.",
     };
   }
 
@@ -2311,9 +2348,10 @@ export function buildLeagueStandings(league = {}) {
   const countSuperTieBreakAsSet = league?.matchFormat !== "two_sets_super_tiebreak";
 
   if (league?.teamType === "individual") {
+    const isFreePosition = league?.individualSideMode === "libre";
     const driveRowsMap = new Map();
     const revesRowsMap = new Map();
-    const { drivePlayers, revesPlayers } = splitIndividualPlayers(league?.players || []);
+    const { drivePlayers, revesPlayers } = splitIndividualLeaguePlayers(league, league?.players || []);
 
     drivePlayers.forEach((player) => {
       const playerKey = buildPlayerKey(player);
@@ -2325,9 +2363,10 @@ export function buildLeagueStandings(league = {}) {
 
     revesPlayers.forEach((player) => {
       const playerKey = buildPlayerKey(player);
+      const targetMap = isFreePosition ? driveRowsMap : revesRowsMap;
 
-      if (playerKey && !revesRowsMap.has(playerKey)) {
-        revesRowsMap.set(playerKey, createStandingsRow(playerKey, formatPlayerShortName(player)));
+      if (playerKey && !targetMap.has(playerKey)) {
+        targetMap.set(playerKey, createStandingsRow(playerKey, formatPlayerShortName(player)));
       }
     });
 
@@ -2378,8 +2417,9 @@ export function buildLeagueStandings(league = {}) {
 
         [...teamAPlayers, ...teamBPlayers].forEach((player) => {
           const playerKey = buildPlayerKey(player);
-          const targetMap =
-            normalizePlayerSide(player?.ladoJuego) === "reves" ? revesRowsMap : driveRowsMap;
+          const targetMap = isFreePosition
+            ? driveRowsMap
+            : normalizePlayerSide(player?.ladoJuego) === "reves" ? revesRowsMap : driveRowsMap;
 
           if (!targetMap.has(playerKey)) {
             targetMap.set(playerKey, createStandingsRow(playerKey, formatPlayerShortName(player)));
@@ -2400,12 +2440,18 @@ export function buildLeagueStandings(league = {}) {
       });
     });
 
-    return {
-      tables: [
-        { key: "drive", title: "Drive", rows: sortStandingsRows([...driveRowsMap.values()]) },
-        { key: "reves", title: "Reves", rows: sortStandingsRows([...revesRowsMap.values()]) },
-      ],
-    };
+    return isFreePosition
+      ? {
+          tables: [
+            { key: "general", title: "Tabla general", rows: sortStandingsRows([...driveRowsMap.values()]) },
+          ],
+        }
+      : {
+          tables: [
+            { key: "drive", title: "Drive", rows: sortStandingsRows([...driveRowsMap.values()]) },
+            { key: "reves", title: "Reves", rows: sortStandingsRows([...revesRowsMap.values()]) },
+          ],
+        };
   }
 
   const rowsMap = new Map();
