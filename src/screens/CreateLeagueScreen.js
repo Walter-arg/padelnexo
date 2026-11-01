@@ -172,6 +172,7 @@ function buildInitialForm(userData) {
     allowWalkover: defaults.allowWalkover,
     pointsWin: hasLeagueDefaults ? String(defaults.pointsWin) : "",
     pointsLoss: hasLeagueDefaults ? String(defaults.pointsLoss) : "",
+    threeSetWinPenalty: defaults.threeSetWinPenalty ? String(defaults.threeSetWinPenalty) : "",
     replacementPenalty: hasLeagueDefaults ? String(defaults.replacementPenalty) : "",
     replacementPenaltyMode: defaults.replacementPenaltyMode || "individual",
     replacementQuota: hasLeagueDefaults ? String(defaults.replacementQuota || 0) : "",
@@ -197,6 +198,7 @@ function buildFormFromLeague(league, userData) {
     allowWalkover: league?.scoringSettings?.allowWalkover,
     pointsWin: league?.scoringSettings?.pointsWin,
     pointsLoss: league?.scoringSettings?.pointsLoss,
+    threeSetWinPenalty: league?.scoringSettings?.threeSetWinPenalty,
     replacementPenalty: league?.scoringSettings?.replacementPenalty,
     replacementPenaltyMode: league?.scoringSettings?.replacementPenaltyMode,
     replacementQuota: league?.scoringSettings?.replacementQuota,
@@ -245,6 +247,7 @@ function buildFormFromLeague(league, userData) {
     allowWalkover: defaults.allowWalkover,
     pointsWin: String(defaults.pointsWin),
     pointsLoss: String(defaults.pointsLoss),
+    threeSetWinPenalty: defaults.threeSetWinPenalty ? String(defaults.threeSetWinPenalty) : "",
     replacementPenalty: String(defaults.replacementPenalty),
     replacementPenaltyMode: defaults.replacementPenaltyMode || "individual",
     replacementQuota: String(defaults.replacementQuota || 0),
@@ -997,6 +1000,7 @@ export default function CreateLeagueScreen({ navigation, route }) {
         pointsWin: form.pointsWin || "0",
         pointsLoss: form.pointsLoss,
         pointsWalkoverWin: form.pointsWin,
+        threeSetWinPenalty: form.threeSetWinPenalty,
         replacementPenalty: form.replacementPenalty,
         replacementPenaltyMode: form.replacementPenaltyMode,
         replacementQuota: form.replacementQuota || "0",
@@ -1032,6 +1036,7 @@ export default function CreateLeagueScreen({ navigation, route }) {
             pointsWin: form.pointsWin || "0",
             pointsLoss: form.pointsLoss,
             pointsWalkoverWin: form.pointsWin,
+            threeSetWinPenalty: form.threeSetWinPenalty,
             replacementPenalty: form.replacementPenalty,
             replacementPenaltyMode: form.replacementPenaltyMode,
             replacementQuota: form.replacementQuota || "0",
@@ -1120,6 +1125,7 @@ export default function CreateLeagueScreen({ navigation, route }) {
           pointsWin: form.pointsWin || "0",
           pointsLoss: form.pointsLoss,
           pointsWalkoverWin: form.pointsWin,
+          threeSetWinPenalty: form.threeSetWinPenalty,
           replacementPenalty: form.replacementPenalty,
           replacementPenaltyMode: form.replacementPenaltyMode,
           replacementQuota: form.replacementQuota || "0",
@@ -1762,6 +1768,18 @@ export default function CreateLeagueScreen({ navigation, route }) {
                   onChangeText={(value) => updateField("pointsLoss", sanitizeDecimal(value))}
                   placeholder="0"
                   value={form.pointsLoss}
+                />
+                <InlineNumberField
+                  label={"Descuento si gana\nen 3 sets"}
+                  labelStyle={[styles.inlineFieldLabelLeft, styles.inlineFieldLabelScore]}
+                  rightContent={<Text style={styles.inlineFieldSuffix}>Puntos</Text>}
+                  inputWrapStyle={styles.inlineInputWrapScore}
+                  rowStyle={styles.inlineFieldRowScore}
+                  onChangeText={(value) =>
+                    updateField("threeSetWinPenalty", sanitizeDecimal(value))
+                  }
+                  placeholder="Sin descuento"
+                  value={form.threeSetWinPenalty}
                 />
                 <InlineNumberField
                   label={"Descuento por\nReemplazo"}

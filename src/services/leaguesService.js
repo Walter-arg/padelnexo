@@ -353,6 +353,7 @@ export function normalizeLeagueDefaults(defaults = {}) {
     pointsWin: normalizeScoreValue(defaults.pointsWin, 3),
     pointsLoss: normalizeScoreValue(defaults.pointsLoss, 1),
     pointsWalkoverWin: normalizeScoreValue(defaults.pointsWalkoverWin, 3),
+    threeSetWinPenalty: normalizeScoreValue(defaults.threeSetWinPenalty, 0),
     replacementPenalty: normalizeScoreValue(defaults.replacementPenalty, 1),
     replacementPenaltyMode:
       defaults.replacementPenaltyMode === "pair" ? "pair" : "individual",
@@ -384,6 +385,7 @@ function normalizeScoringSettings(scoringSettings, teamType) {
       pointsWin: 3,
       pointsLoss: 1,
       pointsWalkoverWin: 3,
+      threeSetWinPenalty: 0,
       replacementPenalty: 1,
       replacementPenaltyMode: "individual",
       replacementQuota: 0,
@@ -408,6 +410,7 @@ function normalizeScoringSettings(scoringSettings, teamType) {
     pointsWin,
     pointsLoss,
     pointsWalkoverWin: normalizeScoreValue(scoringSettings.pointsWalkoverWin, pointsWin),
+    threeSetWinPenalty: normalizeScoreValue(scoringSettings.threeSetWinPenalty, 0),
     replacementPenalty: normalizeScoreValue(scoringSettings.replacementPenalty, 1),
     replacementPenaltyMode:
       scoringSettings.replacementPenaltyMode === "pair" ? "pair" : "individual",
@@ -742,6 +745,7 @@ export function buildLeaguePayload({
   pointsWin,
   pointsLoss,
   pointsWalkoverWin,
+  threeSetWinPenalty,
   replacementPenalty,
   replacementPenaltyMode,
   replacementQuota,
@@ -765,6 +769,7 @@ export function buildLeaguePayload({
     pointsWin,
     pointsLoss,
     pointsWalkoverWin,
+    threeSetWinPenalty,
     replacementPenalty,
     replacementPenaltyMode,
     replacementQuota,
@@ -841,6 +846,7 @@ export function buildLeaguePayload({
       pointsWin: normalizedDefaults.pointsWin,
       pointsLoss: normalizedDefaults.pointsLoss,
       pointsWalkoverWin: normalizedDefaults.pointsWalkoverWin,
+      threeSetWinPenalty: normalizedDefaults.threeSetWinPenalty,
       replacementPenalty: normalizedDefaults.replacementPenalty,
       replacementPenaltyMode: normalizedDefaults.replacementPenaltyMode,
       replacementQuota: normalizedDefaults.replacementQuota,
@@ -1464,6 +1470,28 @@ function countGames(sets = [], side = "own", includeSuperTieBreak = false) {
 
     return total + (side === "own" ? ownValue : rivalValue);
   }, 0);
+}
+
+// Si el perdedor se llevo exactamente un set, el ganador necesito el set
+// decisivo (3er set o super tie break) para cerrar el partido. Esto aplica
+// igual para los 3 formatos de partido: en "un solo set" el perdedor nunca
+// gana un set, asi que el descuento nunca se dispara ahi.
+function resolveWinnerPoints({
+  isWalkover,
+  loserSetsWon,
+  pointsWin,
+  pointsWalkoverWin,
+  threeSetWinPenalty,
+}) {
+  if (isWalkover) {
+    return pointsWalkoverWin;
+  }
+
+  if (loserSetsWon === 1 && threeSetWinPenalty > 0) {
+    return Math.max(0, pointsWin - threeSetWinPenalty);
+  }
+
+  return pointsWin;
 }
 
 function createStandingsRow(id, name) {
@@ -2340,6 +2368,7 @@ export function buildLeagueStandings(league = {}) {
   const pointsWin = normalizeScoreValue(scoringSettings.pointsWin, 3);
   const pointsLoss = normalizeScoreValue(scoringSettings.pointsLoss, 1);
   const pointsWalkoverWin = normalizeScoreValue(scoringSettings.pointsWalkoverWin, pointsWin);
+  const threeSetWinPenalty = normalizeScoreValue(scoringSettings.threeSetWinPenalty, 0);
   const replacementPenalty = normalizeScoreValue(scoringSettings.replacementPenalty, 0);
   const replacementPenaltyMode =
     scoringSettings.replacementPenaltyMode === "pair" ? "pair" : "individual";
@@ -2411,7 +2440,13 @@ export function buildLeagueStandings(league = {}) {
           : countSetsWon(match?.result?.sets || [], "rival", countSuperTieBreakAsSet);
         const teamAGames = match.result.reason === "walkover" ? 12 : countGames(match?.result?.sets || [], "own", false);
         const teamBGames = match.result.reason === "walkover" ? 0 : countGames(match?.result?.sets || [], "rival", false);
-        const winnerPoints = match.result.reason === "walkover" ? pointsWalkoverWin : pointsWin;
+        const winnerPoints = resolveWinnerPoints({
+          isWalkover: match.result.reason === "walkover",
+          loserSetsWon: teamAWon ? teamBSetsWon : teamASetsWon,
+          pointsWin,
+          pointsWalkoverWin,
+          threeSetWinPenalty,
+        });
         const teamAPoints = teamAWon ? winnerPoints : teamASetsWon * pointsLoss;
         const teamBPoints = teamAWon ? teamBSetsWon * pointsLoss : winnerPoints;
 
@@ -2553,7 +2588,13 @@ export function buildLeagueStandings(league = {}) {
         : countSetsWon(match?.result?.sets || [], "rival", countSuperTieBreakAsSet);
       const teamAGames = match.result.reason === "walkover" ? 12 : countGames(match?.result?.sets || [], "own", false);
       const teamBGames = match.result.reason === "walkover" ? 0 : countGames(match?.result?.sets || [], "rival", false);
-      const winnerPoints = match.result.reason === "walkover" ? pointsWalkoverWin : pointsWin;
+      const winnerPoints = resolveWinnerPoints({
+        isWalkover: match.result.reason === "walkover",
+        loserSetsWon: teamAWon ? teamBSetsWon : teamASetsWon,
+        pointsWin,
+        pointsWalkoverWin,
+        threeSetWinPenalty,
+      });
       const teamAPoints = teamAWon ? winnerPoints : teamASetsWon * pointsLoss;
       const teamBPoints = teamAWon ? teamBSetsWon * pointsLoss : winnerPoints;
 
