@@ -1573,12 +1573,17 @@ function mapLeagueRegistrationRequest(docSnapshot) {
   };
 }
 
-export async function createLeagueRegistrationRequest({ league = {}, requester = {}, partner = null } = {}) {
+export async function createLeagueRegistrationRequest({ league = {}, requester = {}, partner = null, ladoJuego = "" } = {}) {
   if (!league?.id || !requester?.uid && !requester?.id) {
     throw new Error("No encontramos los datos para solicitar la inscripcion.");
   }
 
-  const requesterPlayer = buildLeagueRegistrationPlayer(requester);
+  const requesterPlayer = buildLeagueRegistrationPlayer({
+    ...requester,
+    ...(league.teamType === "individual" && ["drive", "reves"].includes(ladoJuego)
+      ? { ladoJuego, ladoPreferido: ladoJuego === "drive" ? "Drive" : "Reves" }
+      : {}),
+  });
   const partnerPlayer = partner ? buildLeagueRegistrationPlayer(partner) : null;
   const status = league.teamType === "pair" && partnerPlayer ? "awaiting_partner" : "pending";
 

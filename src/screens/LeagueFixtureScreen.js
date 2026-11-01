@@ -814,6 +814,17 @@ function buildIndividualFixturePreview(league = {}) {
     undefinedPlayers.push(player);
   });
 
+  // Las inscripciones anteriores a la selección obligatoria pueden seguir
+  // teniendo lado "ambos". Asignarlas acá igual que el generador asegura que
+  // aparezcan en la previsualización y puedan participar del fixture.
+  undefinedPlayers.forEach((player) => {
+    if (drivePlayers.length <= revesPlayers.length) {
+      drivePlayers.push({ ...player, ladoJuego: "drive", ladoPreferido: "Drive" });
+    } else {
+      revesPlayers.push({ ...player, ladoJuego: "reves", ladoPreferido: "Reves" });
+    }
+  });
+
   const pairedTeamsCount = Math.min(drivePlayers.length, revesPlayers.length);
   const recommendedRounds =
     pairedTeamsCount <= 1
@@ -830,7 +841,7 @@ function buildIndividualFixturePreview(league = {}) {
     drivePlayers,
     extraDriveCount,
     extraRevesCount,
-    hasBalancedSides: drivePlayers.length === revesPlayers.length && undefinedPlayers.length === 0,
+    hasBalancedSides: drivePlayers.length === revesPlayers.length,
     hasOddTeams: pairedTeamsCount > 0 && pairedTeamsCount % 2 === 1,
     pairedTeamsCount,
     recommendedRounds,

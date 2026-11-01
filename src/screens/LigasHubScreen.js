@@ -220,6 +220,7 @@ export default function LigasHubScreen({ navigation }) {
   const [partnerPickerQuery, setPartnerPickerQuery] = useState("");
   const [partnerPickerLoading, setPartnerPickerLoading] = useState(false);
   const [registrationSaving, setRegistrationSaving] = useState(false);
+  const [individualRegistrationSide, setIndividualRegistrationSide] = useState("");
   const [deletingLeague, setDeletingLeague] = useState(false);
   const [selectedReplacementRequest, setSelectedReplacementRequest] = useState(null);
   const [submittingReplacementId, setSubmittingReplacementId] = useState("");
@@ -726,20 +727,25 @@ export default function LigasHubScreen({ navigation }) {
       return;
     }
 
+    setIndividualRegistrationSide("");
+    setLeaguePendingRegistration(league);
+  };
+
+  const handleSubmitIndividualLeagueRegistration = async () => {
+    if (!leaguePendingRegistration || !["drive", "reves"].includes(individualRegistrationSide) || registrationSaving) return;
     try {
       setRegistrationSaving(true);
       const request = await createLeagueRegistrationRequest({
-        league,
+        league: leaguePendingRegistration,
         requester: buildRegistrationRequester(),
+        ladoJuego: individualRegistrationSide,
       });
       setRegistrationRequests((current) => [request, ...current]);
-      showFeedback(
-        "Solicitud enviada",
-        "El organizador revisara tu inscripcion a la liga.",
-        "success"
-      );
+      setLeaguePendingRegistration(null);
+      showFeedback("Solicitud enviada", "El organizador revisara tu inscripcion a la liga.", "success");
     } catch (error) {
-      showFeedback("No pudimos enviar la solicitud", "Intenta nuevamente en unos instantes.", "danger");
+      setLeaguePendingRegistration(null);
+      showFeedback("No pudimos enviar la solicitud", error?.message || "Intenta nuevamente en unos instantes.", "danger");
     } finally {
       setRegistrationSaving(false);
     }
@@ -1393,6 +1399,23 @@ export default function LigasHubScreen({ navigation }) {
             style={styles.confirmBackdrop}
           />
           <View style={styles.confirmCard}>
+            {leaguePendingRegistration?.teamType === "individual" ? (
+              <>
+                <Text style={styles.confirmTitle}>Elegir lado</Text>
+                <Text style={styles.confirmMessage}>Selecciona el lado en el que jugas para inscribirte.</Text>
+                <View style={styles.confirmActions}>
+                  {[{ value: "drive", label: "Drive" }, { value: "reves", label: "Revés" }].map((side) => (
+                    <Pressable key={side.value} onPress={() => setIndividualRegistrationSide(side.value)} style={[styles.confirmButton, individualRegistrationSide === side.value ? styles.confirmButtonSelected : styles.confirmButtonSecondary]}>
+                      <Text style={individualRegistrationSide === side.value ? styles.confirmButtonSelectedText : styles.confirmButtonSecondaryText}>{side.label}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+                <View style={styles.confirmActions}>
+                  <Pressable disabled={registrationSaving} onPress={() => setLeaguePendingRegistration(null)} style={[styles.confirmButton, styles.confirmButtonSecondary]}><Text style={styles.confirmButtonSecondaryText}>Cancelar</Text></Pressable>
+                  <Pressable disabled={registrationSaving || !individualRegistrationSide} onPress={handleSubmitIndividualLeagueRegistration} style={[styles.confirmButton, styles.confirmButtonSecondary, !individualRegistrationSide ? styles.confirmButtonDisabled : null]}><Text style={styles.confirmButtonSecondaryText}>{registrationSaving ? "Enviando..." : "Inscribirme"}</Text></Pressable>
+                </View>
+              </>
+            ) : <>
             <Text style={styles.confirmTitle}>Elegir pareja</Text>
             <Text style={styles.confirmMessage}>
               Selecciona quien recibira la invitacion para jugar esta liga.
@@ -1436,6 +1459,7 @@ export default function LigasHubScreen({ navigation }) {
                 />
               </>
             )}
+            </>}
           </View>
         </View>
       </Modal>
@@ -2052,6 +2076,14 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surfaceAlt,
     borderColor: colors.border,
     borderWidth: 1,
+  },
+  confirmButtonSelected: {
+    backgroundColor: colors.primaryDark,
+  },
+  confirmButtonSelectedText: {
+    color: colors.surface,
+    fontSize: 15,
+    fontWeight: "800",
   },
   confirmButtonDanger: {
     backgroundColor: colors.danger,
