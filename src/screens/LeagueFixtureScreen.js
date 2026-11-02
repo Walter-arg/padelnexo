@@ -649,8 +649,6 @@ function hasSuspensionDataChanged(currentFixture = {}, nextFixture = {}) {
         ...(round.matches || []).map((match) =>
           JSON.stringify({
             id: `${round.id}:${match.id}`,
-            rescheduledDateMillis: match.rescheduledDateMillis || 0,
-            scheduledAtMillis: match.scheduledAtMillis || 0,
             suspendedAtMillis: match.suspendedAtMillis || 0,
             suspensionMode: match.suspensionMode || "",
             suspensionReason: match.suspensionReason || "",
@@ -4879,7 +4877,13 @@ export default function LeagueFixtureScreen({ navigation, route }) {
         ) : null}
       </ScrollView>
 
-      {canSaveFixtureChanges && canEditFixture && hasUnsavedFixtureChanges ? (
+      {canSaveFixtureChanges &&
+      canEditFixture &&
+      hasUnsavedFixtureChanges &&
+      !timePickerTarget &&
+      !fixtureStartDatePickerVisible &&
+      !rescheduleDatePickerVisible &&
+      !leagueMatchDatePickerVisible ? (
         <View style={styles.stickyActionsWrap}>
           <Pressable
             disabled={Boolean(savingMatchId)}
