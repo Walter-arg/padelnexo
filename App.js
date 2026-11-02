@@ -632,9 +632,13 @@ export default function App() {
         if (!snap.exists()) return;
         const data = snap.data();
         const currentVersion = Constants.expoConfig?.version || "0.0.0";
-        if (data?.minAndroidVersion && isVersionLessThan(currentVersion, data.minAndroidVersion)) {
+        const minVersion =
+          Platform.OS === "ios" ? data?.minIosVersion : data?.minAndroidVersion;
+        const latestVersion =
+          Platform.OS === "ios" ? data?.latestIosVersion : data?.latestAndroidVersion;
+        if (minVersion && isVersionLessThan(currentVersion, minVersion)) {
           setUpdateRequired(true);
-        } else if (data?.latestAndroidVersion && isVersionLessThan(currentVersion, data.latestAndroidVersion)) {
+        } else if (latestVersion && isVersionLessThan(currentVersion, latestVersion)) {
           setUpdateSuggested(true);
         }
       } catch (error) {
@@ -643,6 +647,12 @@ export default function App() {
     };
     checkAppVersion();
   }, []);
+
+  const storeUrl =
+    Platform.OS === "ios"
+      ? "https://apps.apple.com/us/app/padel-nexo/id6819523991"
+      : "https://play.google.com/store/apps/details?id=com.padelnexo.app";
+  const storeName = Platform.OS === "ios" ? "App Store" : "Google Play";
 
   useEffect(() => {
     let isMounted = true;
@@ -742,14 +752,10 @@ export default function App() {
           <View style={styles.updateCard}>
             <Text style={styles.updateTitle}>Hay una nueva versión</Text>
             <Text style={styles.updateMessage}>
-              Hay una versión más reciente de PadelNexo disponible en Google Play con mejoras y correcciones.
+              Hay una versión más reciente de PadelNexo disponible en {storeName} con mejoras y correcciones.
             </Text>
             <Pressable
-              onPress={() =>
-                Linking.openURL(
-                  "https://play.google.com/store/apps/details?id=com.padelnexo.app"
-                )
-              }
+              onPress={() => Linking.openURL(storeUrl)}
               style={styles.updateButton}
             >
               <Text style={styles.updateButtonText}>Actualizar</Text>
@@ -765,17 +771,13 @@ export default function App() {
           <View style={styles.updateCard}>
             <Text style={styles.updateTitle}>Actualización requerida</Text>
             <Text style={styles.updateMessage}>
-              Esta versión de PadelNexo ya no está soportada. Actualizá la app desde Google Play para seguir usando PadelNexo.
+              Esta versión de PadelNexo ya no está soportada. Actualizá la app desde {storeName} para seguir usando PadelNexo.
             </Text>
             <Pressable
-              onPress={() =>
-                Linking.openURL(
-                  "https://play.google.com/store/apps/details?id=com.padelnexo.app"
-                )
-              }
+              onPress={() => Linking.openURL(storeUrl)}
               style={styles.updateButton}
             >
-              <Text style={styles.updateButtonText}>Ir a Google Play</Text>
+              <Text style={styles.updateButtonText}>Ir a {storeName}</Text>
             </Pressable>
           </View>
         </View>
