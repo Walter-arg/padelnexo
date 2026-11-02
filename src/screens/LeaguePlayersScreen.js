@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  findNodeHandle,
   Image,
   KeyboardAvoidingView,
   Modal,
@@ -174,7 +175,7 @@ export default function LeaguePlayersScreen({ navigation, route }) {
   const [saving, setSaving] = useState(false);
   const [query, setQuery] = useState("");
   const sectionListRef = useRef(null);
-  const [currentSectionOffsetY, setCurrentSectionOffsetY] = useState(0);
+  const currentSectionHeaderRef = useRef(null);
   const [guestModalVisible, setGuestModalVisible] = useState(false);
   const [guestName, setGuestName] = useState("");
   const [guestLastName, setGuestLastName] = useState("");
@@ -1167,9 +1168,29 @@ export default function LeaguePlayersScreen({ navigation, route }) {
 
   const scrollToCurrentParticipants = () => {
     const scrollResponder = sectionListRef.current?.getScrollResponder?.();
+    const headerNode = currentSectionHeaderRef.current;
+    const scrollResponderNode = scrollResponder ? findNodeHandle(scrollResponder) : null;
 
-    if (scrollResponder?.scrollTo) {
-      scrollResponder.scrollTo({ animated: true, y: Math.max(0, currentSectionOffsetY) });
+    if (scrollResponder?.scrollTo && headerNode?.measureLayout && scrollResponderNode) {
+      headerNode.measureLayout(
+        scrollResponderNode,
+        (_x, y) => {
+          scrollResponder.scrollTo({ animated: true, y: Math.max(0, y) });
+        },
+        () => {
+          // No se pudo medir; se intenta el respaldo de abajo.
+          try {
+            sectionListRef.current?.scrollToLocation({
+              animated: true,
+              itemIndex: 0,
+              sectionIndex: 1,
+              viewOffset: 0,
+            });
+          } catch (error) {
+            // El usuario puede scrollear manualmente.
+          }
+        }
+      );
       return;
     }
 
@@ -1363,12 +1384,7 @@ export default function LeaguePlayersScreen({ navigation, route }) {
                   ) : null}
                 </View>
               ) : (
-                <View
-                  onLayout={(event) =>
-                    setCurrentSectionOffsetY(event.nativeEvent.layout.y)
-                  }
-                  style={styles.currentSectionHeaderWrap}
-                >
+                <View ref={currentSectionHeaderRef} style={styles.currentSectionHeaderWrap}>
                   <Text style={styles.listSectionTitle}>{section.title}</Text>
                   {section.data.length === 0 ? (
                     <View style={styles.emptyCard}>
