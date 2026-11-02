@@ -174,6 +174,7 @@ export default function LeaguePlayersScreen({ navigation, route }) {
   const [saving, setSaving] = useState(false);
   const [query, setQuery] = useState("");
   const sectionListRef = useRef(null);
+  const [currentSectionOffsetY, setCurrentSectionOffsetY] = useState(0);
   const [guestModalVisible, setGuestModalVisible] = useState(false);
   const [guestName, setGuestName] = useState("");
   const [guestLastName, setGuestLastName] = useState("");
@@ -1165,31 +1166,23 @@ export default function LeaguePlayersScreen({ navigation, route }) {
   ];
 
   const scrollToCurrentParticipants = () => {
-    const currentSectionData = playerListSections[1]?.data || [];
+    const scrollResponder = sectionListRef.current?.getScrollResponder?.();
 
-    if (currentSectionData.length > 0) {
-      try {
-        sectionListRef.current?.scrollToLocation({
-          animated: true,
-          itemIndex: 0,
-          sectionIndex: 1,
-          viewOffset: 0,
-        });
-        return;
-      } catch (error) {
-        // Sigue al fallback de abajo si scrollToLocation no pudo resolverlo.
-      }
+    if (scrollResponder?.scrollTo) {
+      scrollResponder.scrollTo({ animated: true, y: Math.max(0, currentSectionOffsetY) });
+      return;
     }
 
-    sectionListRef.current
-      ?.getScrollResponder?.()
-      ?.scrollToEnd?.({ animated: true });
-  };
-
-  const handleScrollToIndexFailed = () => {
-    sectionListRef.current
-      ?.getScrollResponder?.()
-      ?.scrollToEnd?.({ animated: true });
+    try {
+      sectionListRef.current?.scrollToLocation({
+        animated: true,
+        itemIndex: 0,
+        sectionIndex: 1,
+        viewOffset: 0,
+      });
+    } catch (error) {
+      // No hay forma de llegar ahi; el usuario puede scrollear manualmente.
+    }
   };
 
   return (
@@ -1342,7 +1335,6 @@ export default function LeaguePlayersScreen({ navigation, route }) {
           <SectionList
             ref={sectionListRef}
             contentContainerStyle={styles.listContent}
-            onScrollToIndexFailed={handleScrollToIndexFailed}
             sections={playerListSections}
             stickySectionHeadersEnabled={false}
             ListHeaderComponent={
@@ -1371,7 +1363,12 @@ export default function LeaguePlayersScreen({ navigation, route }) {
                   ) : null}
                 </View>
               ) : (
-                <View style={styles.currentSectionHeaderWrap}>
+                <View
+                  onLayout={(event) =>
+                    setCurrentSectionOffsetY(event.nativeEvent.layout.y)
+                  }
+                  style={styles.currentSectionHeaderWrap}
+                >
                   <Text style={styles.listSectionTitle}>{section.title}</Text>
                   {section.data.length === 0 ? (
                     <View style={styles.emptyCard}>
