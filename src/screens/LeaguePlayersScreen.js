@@ -1164,6 +1164,34 @@ export default function LeaguePlayersScreen({ navigation, route }) {
     },
   ];
 
+  const scrollToCurrentParticipants = () => {
+    const currentSectionData = playerListSections[1]?.data || [];
+
+    if (currentSectionData.length > 0) {
+      try {
+        sectionListRef.current?.scrollToLocation({
+          animated: true,
+          itemIndex: 0,
+          sectionIndex: 1,
+          viewOffset: 0,
+        });
+        return;
+      } catch (error) {
+        // Sigue al fallback de abajo si scrollToLocation no pudo resolverlo.
+      }
+    }
+
+    sectionListRef.current
+      ?.getScrollResponder?.()
+      ?.scrollToEnd?.({ animated: true });
+  };
+
+  const handleScrollToIndexFailed = () => {
+    sectionListRef.current
+      ?.getScrollResponder?.()
+      ?.scrollToEnd?.({ animated: true });
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <SectionHeader onBack={() => navigation.goBack()} subtitle="Jugadores liga" />
@@ -1294,18 +1322,7 @@ export default function LeaguePlayersScreen({ navigation, route }) {
 
         {!loading ? (
           <Pressable
-            onPress={() => {
-              try {
-                sectionListRef.current?.scrollToLocation({
-                  animated: true,
-                  itemIndex: 0,
-                  sectionIndex: 1,
-                  viewOffset: 0,
-                });
-              } catch (error) {
-                // La seccion "Listado actual" puede estar vacia; no hay nada mas que hacer.
-              }
-            }}
+            onPress={scrollToCurrentParticipants}
             style={({ pressed }) => [
               styles.viewParticipantsButton,
               pressed ? styles.smallActionButtonPressed : null,
@@ -1325,6 +1342,7 @@ export default function LeaguePlayersScreen({ navigation, route }) {
           <SectionList
             ref={sectionListRef}
             contentContainerStyle={styles.listContent}
+            onScrollToIndexFailed={handleScrollToIndexFailed}
             sections={playerListSections}
             stickySectionHeadersEnabled={false}
             ListHeaderComponent={
