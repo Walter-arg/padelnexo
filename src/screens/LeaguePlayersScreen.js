@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Image,
@@ -173,6 +173,7 @@ export default function LeaguePlayersScreen({ navigation, route }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [query, setQuery] = useState("");
+  const sectionListRef = useRef(null);
   const [guestModalVisible, setGuestModalVisible] = useState(false);
   const [guestName, setGuestName] = useState("");
   const [guestLastName, setGuestLastName] = useState("");
@@ -1291,6 +1292,30 @@ export default function LeaguePlayersScreen({ navigation, route }) {
           </Pressable>
         </View>
 
+        {!loading ? (
+          <Pressable
+            onPress={() => {
+              try {
+                sectionListRef.current?.scrollToLocation({
+                  animated: true,
+                  itemIndex: 0,
+                  sectionIndex: 1,
+                  viewOffset: 0,
+                });
+              } catch (error) {
+                // La seccion "Listado actual" puede estar vacia; no hay nada mas que hacer.
+              }
+            }}
+            style={({ pressed }) => [
+              styles.viewParticipantsButton,
+              pressed ? styles.smallActionButtonPressed : null,
+            ]}
+          >
+            <Ionicons color={colors.primaryDark} name="arrow-down-circle-outline" size={14} />
+            <Text style={styles.viewParticipantsButtonText}>Ver participantes</Text>
+          </Pressable>
+        ) : null}
+
         {loading ? (
           <View style={styles.loaderWrap}>
             <ActivityIndicator color={colors.primaryDark} />
@@ -1298,6 +1323,7 @@ export default function LeaguePlayersScreen({ navigation, route }) {
           </View>
         ) : (
           <SectionList
+            ref={sectionListRef}
             contentContainerStyle={styles.listContent}
             sections={playerListSections}
             stickySectionHeadersEnabled={false}
@@ -1684,6 +1710,24 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "800",
     marginLeft: 6,
+  },
+  viewParticipantsButton: {
+    alignItems: "center",
+    alignSelf: "flex-start",
+    backgroundColor: colors.surfaceAlt,
+    borderColor: colors.border,
+    borderRadius: 12,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 4,
+    marginTop: spacing.xs,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  viewParticipantsButtonText: {
+    color: colors.primaryDark,
+    fontSize: 11,
+    fontWeight: "800",
   },
   loaderWrap: {
     alignItems: "center",
