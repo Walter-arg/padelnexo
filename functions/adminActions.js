@@ -661,6 +661,12 @@ const listAdminUsersData = onRequest(
           trialEndDate: typeof data.trialEndDate === "number" ? data.trialEndDate : 0,
           planActivatedDateMillis: resolveTimestampMillis(data.planActivatedDate),
           accountDeleted: Boolean(data.accountDeleted),
+          // Solo tiene valor cuando accountDeleted es true: el panel de admin
+          // lo usa para seguir identificando a la cuenta, ya que "name" ya
+          // quedo sobreescrito con "Usuario eliminado".
+          deletedUserName: data.accountDeleted
+            ? [data.nombreOriginal, data.apellidoOriginal].filter(Boolean).join(" ").trim()
+            : "",
           blockStatus: data.blockStatus || "none",
           blockedAtMillis: resolveTimestampMillis(data.blockedAt),
           blockedUntilMillis: Number(data.blockedUntilMillis || 0),

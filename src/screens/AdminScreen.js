@@ -92,11 +92,27 @@ function formatRoleLabel(user = {}) {
     return "Organizador";
   }
 
-  if (user.role === "blocked" || user.accountDeleted) {
+  if (user.accountDeleted) {
+    return "Cuenta eliminada";
+  }
+
+  if (user.role === "blocked") {
     return "Bloqueado";
   }
 
   return "Jugador";
+}
+
+// Despues de eliminar su cuenta, el nombre real queda sobreescrito con
+// "Usuario eliminado" para no mostrarlo a otros usuarios, pero el admin
+// necesita poder seguir identificando a la cuenta (deletedUserName lo
+// guarda aparte justo para esto, ver listAdminUsersData en adminActions.js).
+function resolveDisplayName(user = {}) {
+  if (user.accountDeleted && user.deletedUserName) {
+    return `${user.deletedUserName} (cuenta eliminada)`;
+  }
+
+  return user.name || "Usuario";
 }
 
 function formatOrganizerStatusLabel(status = "") {
@@ -1240,12 +1256,12 @@ export default function AdminScreen({ navigation, route }) {
                     ]}
                   >
                     <View style={styles.requestTopRow}>
-                      <Text style={styles.requestName}>{item.name}</Text>
+                      <Text style={styles.requestName}>{resolveDisplayName(item)}</Text>
                       <Text style={styles.statusBadge}>
                         {isAdmin
                           ? "Admin"
                           : item.accountDeleted
-                            ? "Bloqueado"
+                            ? "Cuenta eliminada"
                             : isOrganizer
                               ? "Organizador"
                               : "Jugador"}
@@ -1616,7 +1632,7 @@ export default function AdminScreen({ navigation, route }) {
                     </View>
                   )}
                   <View style={styles.profileHeaderCopy}>
-                    <Text style={styles.profileHeaderName}>{selectedUser.name}</Text>
+                    <Text style={styles.profileHeaderName}>{resolveDisplayName(selectedUser)}</Text>
                     <Text style={styles.profileHeaderMeta}>{formatRoleLabel(selectedUser)}</Text>
                   </View>
                   {selectedUser.organizerLogoUrl ? (
@@ -1628,7 +1644,7 @@ export default function AdminScreen({ navigation, route }) {
                 </View>
                 <View style={styles.detailCard}>
                   <Text style={styles.detailLabel}>Nombre</Text>
-                  <Text style={styles.detailValue}>{selectedUser.name}</Text>
+                  <Text style={styles.detailValue}>{resolveDisplayName(selectedUser)}</Text>
                   <Text style={styles.detailLabel}>Email</Text>
                   <Text style={styles.detailValue}>{selectedUser.email || "-"}</Text>
                   <Text style={styles.detailLabel}>Rol</Text>

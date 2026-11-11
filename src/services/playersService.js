@@ -55,6 +55,13 @@ function shouldIncludePlayerDoc(data = {}) {
     return false;
   }
 
+  // Refuerzo para cuentas eliminadas antes de que existiera el campo
+  // accountDeleted, o afectadas por el bug donde quedaban a medio borrar
+  // (ver deleteOwnAccount en functions/accountActions.js).
+  if (String(data.nombre || "").trim() === "Usuario eliminado") {
+    return false;
+  }
+
   const role = String(data.role || "user").trim().toLowerCase();
   const organizerStatus = String(data.organizerStatus || "none").trim().toLowerCase();
 
