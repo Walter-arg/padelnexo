@@ -157,12 +157,15 @@ export async function revokeOrganizerAccess(userId) {
   await callAdminAction("revokeOrganizerAccess", { userId });
 }
 
-export async function grantOrganizerAccess(userId) {
+export async function grantOrganizerAccess(userId, complejo) {
   if (!userId) {
     return;
   }
 
-  await callAdminAction("grantOrganizerAccess", { userId });
+  await callAdminAction("grantOrganizerAccess", {
+    userId,
+    ...(complejo ? { complejo } : {}),
+  });
 }
 
 export async function blockUserAccount(userId, mode = "indefinite") {

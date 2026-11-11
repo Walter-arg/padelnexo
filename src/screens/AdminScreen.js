@@ -13,6 +13,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
+import AdminGrantOrganizerModal from "../components/AdminGrantOrganizerModal";
 import AppButton from "../components/AppButton";
 import NumericKeyboardDoneBar from "../components/NumericKeyboardDoneBar";
 import ScreenWrapper from "../components/ScreenWrapper";
@@ -286,6 +287,7 @@ export default function AdminScreen({ navigation, route }) {
   const [userHistoryReservations, setUserHistoryReservations] = useState([]);
   const [userHistoryLoading, setUserHistoryLoading] = useState(false);
   const [userToDelete, setUserToDelete] = useState(null);
+  const [userToGrantOrganizer, setUserToGrantOrganizer] = useState(null);
   const [deletingUser, setDeletingUser] = useState(false);
   const [appAlert, setAppAlert] = useState(null);
   const [auditLog, setAuditLog] = useState([]);
@@ -1921,11 +1923,7 @@ export default function AdminScreen({ navigation, route }) {
                   ) : (
                     <AppButton
                       title="Hacer organizador"
-                      onPress={async () => {
-                        await grantOrganizerAccess(selectedUser.id);
-                        setSelectedUser(null);
-                        refreshAdminData();
-                      }}
+                      onPress={() => setUserToGrantOrganizer(selectedUser)}
                       disabled={selectedUserCriticalActionsDisabled}
                       style={styles.compactButton}
                     />
@@ -2026,6 +2024,21 @@ export default function AdminScreen({ navigation, route }) {
               </View>
             </View>
             ) : null}
+            {/* TEMPORAL: iOS no puede presentar un <Modal> nativo arriba de
+            otro ya abierto (queda invisible). Este formulario se abre desde
+            un boton dentro de este mismo Modal "Gestionar usuario", asi que
+            va embebido aca en vez de como Modal propio. */}
+            <AdminGrantOrganizerModal
+              grantOrganizerAccess={grantOrganizerAccess}
+              onClose={() => setUserToGrantOrganizer(null)}
+              onGranted={() => {
+                setUserToGrantOrganizer(null);
+                setSelectedUser(null);
+                refreshAdminData();
+              }}
+              targetUser={userToGrantOrganizer}
+              visible={Boolean(userToGrantOrganizer)}
+            />
             {Boolean(appAlert) ? appAlertCard : null}
           </View>
         </View>

@@ -108,12 +108,21 @@ const grantOrganizerAccess = onRequest(
 
     const requestData = requestSnapshot.exists ? requestSnapshot.data() || {} : {};
     const userData = userSnapshot.data() || {};
-    const complejos =
+    const existingComplejos =
       Array.isArray(userData.complejos) && userData.complejos.length
         ? userData.complejos
         : Array.isArray(requestData.complejos)
           ? requestData.complejos
           : [];
+    // El admin puede cargar el primer complejo del organizador en este mismo
+    // paso (ya geocodificado y normalizado por el cliente), para que el
+    // organizador no tenga que repetir ese trabajo despues.
+    const adminComplex = req.body?.complejo;
+    const hasValidAdminComplex =
+      adminComplex && typeof adminComplex === "object" && String(adminComplex.nombre || "").trim();
+    const complejos = hasValidAdminComplex
+      ? [...existingComplejos, adminComplex]
+      : existingComplejos;
     const batch = db.batch();
 
     const userUpdate = {
