@@ -299,7 +299,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     flexDirection: "row",
     gap: spacing.sm,
-    marginBottom: spacing.sm,
+    // Espacio extra para que el menu nativo de seleccion (cortar/copiar/
+    // compartir), que aparece pegado a la linea seleccionada dentro del
+    // cuadro de texto, no tape el boton de negrita.
+    marginBottom: 56,
   },
   boldButton: {
     alignItems: "center",
