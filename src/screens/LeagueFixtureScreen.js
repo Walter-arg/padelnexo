@@ -71,6 +71,42 @@ function buildNextFixture(currentFixture, roundId, matchId, updater) {
   };
 }
 
+// Intercambia los equipos de 2 partidos de la MISMA fecha (swapSelection y el
+// partido tocado despues). Ej: fecha 1 = pareja1 vs pareja2, pareja3 vs
+// pareja4; si se selecciona pareja1 y despues pareja4, quedan pareja4 vs
+// pareja2, y pareja3 vs pareja1 (el mismo resultado que pareja1 vs pareja4
+// y pareja2 vs pareja3, solo que en otro orden dentro de cada partido).
+function buildFixtureWithSwappedTeams(currentFixture, roundId, selection, target) {
+  return {
+    ...currentFixture,
+    rounds: currentFixture.rounds.map((round) => {
+      if (round.id !== roundId) {
+        return round;
+      }
+
+      const selectedTeam = round.matches.find((match) => match.id === selection.matchId)?.[
+        selection.side
+      ];
+      const targetTeam = round.matches.find((match) => match.id === target.matchId)?.[target.side];
+
+      return {
+        ...round,
+        matches: round.matches.map((match) => {
+          if (match.id === selection.matchId) {
+            return { ...match, [selection.side]: targetTeam };
+          }
+
+          if (match.id === target.matchId) {
+            return { ...match, [target.side]: selectedTeam };
+          }
+
+          return match;
+        }),
+      };
+    }),
+  };
+}
+
 function sanitizeSetValue(value = "", label = "") {
   const maxLength = label === "STB" ? 2 : 1;
 
@@ -987,6 +1023,8 @@ export default function LeagueFixtureScreen({ navigation, route }) {
   const setInputRefs = useRef({});
   const [confirmRegenerateVisible, setConfirmRegenerateVisible] = useState(false);
   const [confirmDeleteVisible, setConfirmDeleteVisible] = useState(false);
+  const [editFixtureMode, setEditFixtureMode] = useState(false);
+  const [fixtureSwapSelection, setFixtureSwapSelection] = useState(null);
   const [replacementPendingRemoval, setReplacementPendingRemoval] = useState(null);
   const [individualPreviewVisible, setIndividualPreviewVisible] = useState(false);
   const [savingIndividualSideId, setSavingIndividualSideId] = useState("");
@@ -3758,6 +3796,60 @@ export default function LeagueFixtureScreen({ navigation, route }) {
     );
   };
 
+  const handleFixtureTeamTap = (round, match, side) => {
+    if (isMatchCompleted(match) || hasMatchResultData(match)) {
+      showFeedback(
+        "Este partido ya tiene resultado",
+        "No se puede cambiar el cruce de un partido que ya tiene resultado cargado.",
+        "danger"
+      );
+      return;
+    }
+
+    if (!fixtureSwapSelection) {
+      setFixtureSwapSelection({ roundId: round.id, matchId: match.id, side });
+      return;
+    }
+
+    const isSameTeam =
+      fixtureSwapSelection.roundId === round.id &&
+      fixtureSwapSelection.matchId === match.id &&
+      fixtureSwapSelection.side === side;
+
+    if (isSameTeam) {
+      setFixtureSwapSelection(null);
+      return;
+    }
+
+    if (fixtureSwapSelection.roundId !== round.id) {
+      showFeedback(
+        "Solo dentro de la misma fecha",
+        "Las parejas solo se pueden intercambiar entre partidos de la misma fecha.",
+        "danger"
+      );
+      setFixtureSwapSelection({ roundId: round.id, matchId: match.id, side });
+      return;
+    }
+
+    if (fixtureSwapSelection.matchId === match.id) {
+      setFixtureSwapSelection(null);
+      return;
+    }
+
+    setFixtureDraft((current) =>
+      buildFixtureWithSwappedTeams(current, round.id, fixtureSwapSelection, {
+        matchId: match.id,
+        side,
+      })
+    );
+    setFixtureSwapSelection(null);
+    showFeedback(
+      "Parejas intercambiadas",
+      "No te olvides de tocar GUARDAR CAMBIOS para que quede guardado.",
+      "success"
+    );
+  };
+
   const renderMigrationTableTeam = ({ team, teamKey, match, roundId }) => {
     const isWinner = match?.result?.winner === teamKey;
 
@@ -4673,22 +4765,44 @@ export default function LeagueFixtureScreen({ navigation, route }) {
                           : styles.leagueMigrationPairsColumn
                       }
                     >
-                      <View style={styles.leagueMigrationTeamWrap}>
+                      <Pressable
+                        disabled={!editFixtureMode}
+                        onPress={() => handleFixtureTeamTap(round, match, "teamA")}
+                        style={[
+                          styles.leagueMigrationTeamWrap,
+                          editFixtureMode ? styles.leagueMigrationTeamWrapEditable : null,
+                          fixtureSwapSelection?.matchId === match.id &&
+                          fixtureSwapSelection?.side === "teamA"
+                            ? styles.leagueMigrationTeamWrapSelected
+                            : null,
+                        ]}
+                      >
                         {renderMigrationTableTeam({
                           match,
                           roundId: round.id,
                           team: match.teamA,
                           teamKey: "teamA",
                         })}
-                      </View>
-                      <View style={styles.leagueMigrationTeamWrap}>
+                      </Pressable>
+                      <Pressable
+                        disabled={!editFixtureMode}
+                        onPress={() => handleFixtureTeamTap(round, match, "teamB")}
+                        style={[
+                          styles.leagueMigrationTeamWrap,
+                          editFixtureMode ? styles.leagueMigrationTeamWrapEditable : null,
+                          fixtureSwapSelection?.matchId === match.id &&
+                          fixtureSwapSelection?.side === "teamB"
+                            ? styles.leagueMigrationTeamWrapSelected
+                            : null,
+                        ]}
+                      >
                         {renderMigrationTableTeam({
                           match,
                           roundId: round.id,
                           team: match.teamB,
                           teamKey: "teamB",
                         })}
-                      </View>
+                      </Pressable>
                     </View>
                     <Pressable
                       disabled={!canEditFixture}
@@ -4842,8 +4956,32 @@ export default function LeagueFixtureScreen({ navigation, route }) {
                   Boolean(savingMatchId) || generating ? styles.saveButtonDisabled : null,
                 ]}
               >
-                <Text style={styles.regenerateFixtureButtonText}>
-                  {generating ? "REGENERANDO..." : "REGENERAR FIXTURE"}
+                <Text allowFontScaling={false} numberOfLines={2} style={styles.regenerateFixtureButtonText}>
+                  {generating ? "REGENERANDO..." : "REGENERAR\nFIXTURE"}
+                </Text>
+              </Pressable>
+              <Pressable
+                disabled={Boolean(savingMatchId) || generating}
+                onPress={() => {
+                  setEditFixtureMode((current) => !current);
+                  setFixtureSwapSelection(null);
+                }}
+                style={({ pressed }) => [
+                  styles.editFixtureButton,
+                  editFixtureMode ? styles.editFixtureButtonActive : null,
+                  pressed ? styles.generateButtonPressed : null,
+                  Boolean(savingMatchId) || generating ? styles.saveButtonDisabled : null,
+                ]}
+              >
+                <Text
+                  allowFontScaling={false}
+                  numberOfLines={2}
+                  style={[
+                    styles.editFixtureButtonText,
+                    editFixtureMode ? styles.editFixtureButtonTextActive : null,
+                  ]}
+                >
+                  {editFixtureMode ? "LISTO,\nTERMINAR" : "EDITAR\nFIXTURE"}
                 </Text>
               </Pressable>
               <Pressable
@@ -4855,11 +4993,20 @@ export default function LeagueFixtureScreen({ navigation, route }) {
                   Boolean(savingMatchId) ? styles.saveButtonDisabled : null,
                 ]}
               >
-                <Text style={styles.deleteFixtureButtonText}>
-                  {savingMatchId === "deleting" ? "ELIMINANDO..." : "ELIMINAR FIXTURE"}
+                <Text allowFontScaling={false} numberOfLines={2} style={styles.deleteFixtureButtonText}>
+                  {savingMatchId === "deleting" ? "ELIMINANDO..." : "ELIMINAR\nFIXTURE"}
                 </Text>
               </Pressable>
             </View>
+            {editFixtureMode ? (
+              <View style={styles.editFixtureBanner}>
+                <Ionicons color="#1F6D69" name="information-circle-outline" size={16} />
+                <Text allowFontScaling={false} style={styles.editFixtureBannerText}>
+                  Toca una pareja y despues la otra con la que quieras que se enfrente, dentro de la
+                  misma fecha. Al terminar, no te olvides de tocar GUARDAR CAMBIOS.
+                </Text>
+              </View>
+            ) : null}
           </View>
         ) : null}
 
@@ -6972,6 +7119,19 @@ const styles = StyleSheet.create({
     minHeight: 20,
     width: "100%",
   },
+  leagueMigrationTeamWrapEditable: {
+    borderColor: "#B9D9D4",
+    borderRadius: 8,
+    borderStyle: "dashed",
+    borderWidth: 1,
+    paddingVertical: 2,
+  },
+  leagueMigrationTeamWrapSelected: {
+    backgroundColor: "#D4ECE8",
+    borderColor: "#1F6D69",
+    borderStyle: "solid",
+    borderWidth: 2,
+  },
   leagueMigrationTeamRow: {
     alignItems: "center",
     flexDirection: "row",
@@ -8787,20 +8947,61 @@ const styles = StyleSheet.create({
   },
   deleteFixtureButton: {
     flex: 1,
-    minHeight: 48,
+    minHeight: 68,
     borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "#4A4F55",
     borderWidth: 1,
     borderColor: "#2D3136",
-    paddingHorizontal: 8,
+    paddingHorizontal: 4,
   },
   deleteFixtureButtonText: {
     color: colors.surface,
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "900",
     textAlign: "center",
+  },
+  editFixtureButton: {
+    flex: 1,
+    minHeight: 68,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#E6F3F1",
+    borderWidth: 1,
+    borderColor: "#1F6D69",
+    paddingHorizontal: 4,
+  },
+  editFixtureButtonActive: {
+    backgroundColor: "#1F6D69",
+  },
+  editFixtureButtonText: {
+    color: "#1F6D69",
+    fontSize: 11,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  editFixtureButtonTextActive: {
+    color: colors.surface,
+  },
+  editFixtureBanner: {
+    alignItems: "flex-start",
+    backgroundColor: "#E6F3F1",
+    borderColor: "#B9D9D4",
+    borderRadius: 14,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: spacing.xs,
+    marginTop: spacing.sm,
+    padding: spacing.sm,
+  },
+  editFixtureBannerText: {
+    color: "#1F6D69",
+    flex: 1,
+    fontSize: 12,
+    fontWeight: "600",
+    lineHeight: 17,
   },
   fixtureStandingsShortcut: {
     alignItems: "center",
@@ -8842,18 +9043,18 @@ const styles = StyleSheet.create({
   },
   regenerateFixtureButton: {
     flex: 1,
-    minHeight: 48,
+    minHeight: 68,
     borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "#DDE1E5",
     borderWidth: 1,
     borderColor: "#AEB6BE",
-    paddingHorizontal: 8,
+    paddingHorizontal: 4,
   },
   regenerateFixtureButtonText: {
     color: "#30363D",
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "900",
     textAlign: "center",
   },
