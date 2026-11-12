@@ -1,7 +1,6 @@
 ﻿import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   Image,
   KeyboardAvoidingView,
   Linking,
@@ -882,6 +881,7 @@ export default function TurnosScreen({ navigation, route }) {
       ).includes(normalizedQuery)
     );
   }, [playerQuery, playersDirectory]);
+  const [pendingLeaveAction, setPendingLeaveAction] = useState(null);
   const organizerConfigSignature = useMemo(
     () => JSON.stringify(organizerConfig || {}),
     [organizerConfig]
@@ -900,18 +900,7 @@ export default function TurnosScreen({ navigation, route }) {
       }
 
       event.preventDefault();
-      Alert.alert(
-        "Tenes cambios sin guardar",
-        "Si salis ahora vas a perder los cambios en la disponibilidad de esta cancha.",
-        [
-          { text: "Seguir editando", style: "cancel" },
-          {
-            text: "Salir sin guardar",
-            style: "destructive",
-            onPress: () => navigation.dispatch(event.data.action),
-          },
-        ]
-      );
+      setPendingLeaveAction(event.data.action);
     });
 
     return unsubscribe;
@@ -3893,6 +3882,52 @@ export default function TurnosScreen({ navigation, route }) {
         </View>
       </Modal>
 
+      <Modal
+        animationType="fade"
+        onRequestClose={() => setPendingLeaveAction(null)}
+        transparent
+        visible={Boolean(pendingLeaveAction)}
+      >
+        <View style={styles.modalOverlay}>
+          <Pressable
+            onPress={() => setPendingLeaveAction(null)}
+            style={styles.modalBackdrop}
+          />
+          <View style={styles.modalCard}>
+            <Text allowFontScaling={false} style={styles.modalTitle}>
+              Tenes cambios sin guardar
+            </Text>
+            <Text style={styles.modalMessage}>
+              Si salis ahora vas a perder los cambios en la disponibilidad de esta cancha.
+            </Text>
+            <View style={styles.modalActionsRow}>
+              <Pressable
+                onPress={() => setPendingLeaveAction(null)}
+                style={({ pressed }) => [
+                  styles.modalSecondaryButton,
+                  pressed ? styles.pressedState : null,
+                ]}
+              >
+                <Text style={styles.modalSecondaryButtonText}>Seguir editando</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  const action = pendingLeaveAction;
+                  setPendingLeaveAction(null);
+                  navigation.dispatch(action);
+                }}
+                style={({ pressed }) => [
+                  styles.modalDangerButton,
+                  pressed ? styles.pressedState : null,
+                ]}
+              >
+                <Text style={styles.modalPrimaryButtonText}>Salir sin guardar</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       <FeedbackModal
         message={feedback.message}
         onClose={() => setFeedback({ visible: false, title: "", message: "", tone: "default" })}
@@ -4925,6 +4960,59 @@ const styles = StyleSheet.create({
   },
   modalKeyboardAvoiding: {
     flex: 1,
+  },
+  modalCard: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 24,
+    borderWidth: 1,
+    gap: spacing.md,
+    padding: spacing.lg,
+    width: "100%",
+  },
+  modalTitle: {
+    color: colors.text,
+    fontSize: 21,
+    fontWeight: "800",
+    textAlign: "center",
+  },
+  modalMessage: {
+    color: colors.muted,
+    fontSize: 15,
+    lineHeight: 22,
+    textAlign: "center",
+  },
+  modalActionsRow: {
+    flexDirection: "row",
+    gap: spacing.sm,
+  },
+  modalSecondaryButton: {
+    alignItems: "center",
+    backgroundColor: colors.background,
+    borderColor: colors.border,
+    borderRadius: 16,
+    borderWidth: 1,
+    flex: 1,
+    justifyContent: "center",
+    minHeight: 46,
+  },
+  modalSecondaryButtonText: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: "800",
+  },
+  modalDangerButton: {
+    alignItems: "center",
+    backgroundColor: colors.danger,
+    borderRadius: 16,
+    flex: 1,
+    justifyContent: "center",
+    minHeight: 46,
+  },
+  modalPrimaryButtonText: {
+    color: colors.surface,
+    fontSize: 15,
+    fontWeight: "800",
   },
   summaryCard: {
     backgroundColor: colors.surface,
