@@ -639,6 +639,16 @@ export default function CreateLeagueScreen({ navigation, route }) {
   const removeTimeSlot = (index) => {
     setForm((current) => {
       if (current.matchTimeSlots.length === 1) {
+        // En "a coordinar" el horario es opcional: se puede sacar el unico
+        // que queda y dejar la liga sin ningun horario fijo cargado. En los
+        // demas modos sigue siendo obligatorio al menos uno.
+        if (current.matchDayMode === "weekly_coordination") {
+          return {
+            ...current,
+            matchTimeSlots: [],
+          };
+        }
+
         return {
           ...current,
           matchTimeSlots: [""],
@@ -1429,11 +1439,15 @@ export default function CreateLeagueScreen({ navigation, route }) {
                 </Pressable>
               </View>
               <Pressable
-                disabled={form.matchTimeSlots.length === 1}
+                disabled={
+                  form.matchTimeSlots.length === 1 && form.matchDayMode !== "weekly_coordination"
+                }
                 onPress={() => removeTimeSlot(index)}
                 style={({ pressed }) => [
                   styles.removeSlotButton,
-                  form.matchTimeSlots.length === 1 ? styles.removeSlotButtonDisabled : null,
+                  form.matchTimeSlots.length === 1 && form.matchDayMode !== "weekly_coordination"
+                    ? styles.removeSlotButtonDisabled
+                    : null,
                   pressed && form.matchTimeSlots.length > 1 ? styles.additionalButtonPressed : null,
                 ]}
               >
@@ -1442,9 +1456,16 @@ export default function CreateLeagueScreen({ navigation, route }) {
             </View>
           ))}
 
-          <Text style={styles.scheduleHelperText}>
-            Puedes cargar entre 1 y 4 horarios. Ejemplos validos: 18:00, 19:30, 21:00.
-          </Text>
+          {form.matchTimeSlots.length === 0 ? (
+            <Text style={styles.scheduleHelperText}>
+              No cargaste ningun horario fijo: cada fecha se va a coordinar directamente con la
+              contra.
+            </Text>
+          ) : (
+            <Text style={styles.scheduleHelperText}>
+              Puedes cargar entre 1 y 4 horarios. Ejemplos validos: 18:00, 19:30, 21:00.
+            </Text>
+          )}
         </View>
 
         <View style={styles.card}>

@@ -1,7 +1,6 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  findNodeHandle,
   Image,
   KeyboardAvoidingView,
   Modal,
@@ -174,8 +173,8 @@ export default function LeaguePlayersScreen({ navigation, route }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [query, setQuery] = useState("");
+  const [isViewingParticipants, setIsViewingParticipants] = useState(false);
   const sectionListRef = useRef(null);
-  const currentSectionHeaderRef = useRef(null);
   const [guestModalVisible, setGuestModalVisible] = useState(false);
   const [guestName, setGuestName] = useState("");
   const [guestLastName, setGuestLastName] = useState("");
@@ -1152,7 +1151,7 @@ export default function LeaguePlayersScreen({ navigation, route }) {
     {
       key: "search",
       title: "Jugadores registrados en la app",
-      data: filteredRegisteredPlayers,
+      data: isViewingParticipants ? [] : filteredRegisteredPlayers,
       renderItem: renderRegisteredPlayer,
       keyExtractor: (item) => `search-${item.id}`,
     },
@@ -1166,43 +1165,28 @@ export default function LeaguePlayersScreen({ navigation, route }) {
     },
   ];
 
+  // Los 2 intentos anteriores (scrollToLocation solo, y onLayout+scrollTo)
+  // dependian de medir la posicion exacta de la seccion "current" dentro de
+  // la lista, algo que no es confiable con alturas de item variables ni con
+  // las APIs de scroll responder en esta version de React Native. En vez de
+  // medir nada, directamente ocultamos la seccion de busqueda (que es la que
+  // puede tener cientos de jugadores registrados) y volvemos al inicio de
+  // la lista con scrollToOffset, que no necesita medir ningun item.
   const scrollToCurrentParticipants = () => {
-    const scrollResponder = sectionListRef.current?.getScrollResponder?.();
-    const headerNode = currentSectionHeaderRef.current;
-    const scrollResponderNode = scrollResponder ? findNodeHandle(scrollResponder) : null;
-
-    if (scrollResponder?.scrollTo && headerNode?.measureLayout && scrollResponderNode) {
-      headerNode.measureLayout(
-        scrollResponderNode,
-        (_x, y) => {
-          scrollResponder.scrollTo({ animated: true, y: Math.max(0, y) });
-        },
-        () => {
-          // No se pudo medir; se intenta el respaldo de abajo.
-          try {
-            sectionListRef.current?.scrollToLocation({
-              animated: true,
-              itemIndex: 0,
-              sectionIndex: 1,
-              viewOffset: 0,
-            });
-          } catch (error) {
-            // El usuario puede scrollear manualmente.
-          }
-        }
-      );
-      return;
-    }
+    setIsViewingParticipants(true);
 
     try {
-      sectionListRef.current?.scrollToLocation({
-        animated: true,
-        itemIndex: 0,
-        sectionIndex: 1,
-        viewOffset: 0,
-      });
+      sectionListRef.current?.scrollToOffset?.({ animated: true, offset: 0 });
     } catch (error) {
-      // No hay forma de llegar ahi; el usuario puede scrollear manualmente.
+      // El usuario ya ve el listado actual arriba de todo, no hace falta mas.
+    }
+  };
+
+  const handleSearchQueryChange = (value) => {
+    setQuery(value);
+
+    if (isViewingParticipants) {
+      setIsViewingParticipants(false);
     }
   };
 
@@ -1360,7 +1344,7 @@ export default function LeaguePlayersScreen({ navigation, route }) {
             stickySectionHeadersEnabled={false}
             ListHeaderComponent={
               <TextInput
-                onChangeText={setQuery}
+                onChangeText={handleSearchQueryChange}
                 placeholder={
                   replacementTargetId
                     ? "Buscar jugador registrado para reemplazar"
@@ -1374,8 +1358,15 @@ export default function LeaguePlayersScreen({ navigation, route }) {
             renderSectionHeader={({ section }) =>
               section.key === "search" ? (
                 <View style={styles.searchSectionHeaderWrap}>
-                  <Text style={styles.searchSectionTitle}>{section.title}</Text>
-                  {section.data.length === 0 ? (
+                  <View style={styles.searchSectionTitleRow}>
+                    <Text style={styles.searchSectionTitle}>{section.title}</Text>
+                    {isViewingParticipants ? (
+                      <Pressable onPress={() => setIsViewingParticipants(false)}>
+                        <Text style={styles.searchSectionToggleText}>Mostrar</Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
+                  {!isViewingParticipants && section.data.length === 0 ? (
                     <View style={styles.placeholderCard}>
                       <Text style={styles.placeholderText}>
                         No encontramos jugadores registrados con esa busqueda.
@@ -1384,7 +1375,7 @@ export default function LeaguePlayersScreen({ navigation, route }) {
                   ) : null}
                 </View>
               ) : (
-                <View ref={currentSectionHeaderRef} style={styles.currentSectionHeaderWrap}>
+                <View style={styles.currentSectionHeaderWrap}>
                   <Text style={styles.listSectionTitle}>{section.title}</Text>
                   {section.data.length === 0 ? (
                     <View style={styles.emptyCard}>
@@ -1429,7 +1420,7 @@ export default function LeaguePlayersScreen({ navigation, route }) {
             }}
             style={styles.modalBackdrop}
           />
-          <View style={styles.modalCard}>
+          <View style={[styles.modalCard, { paddingBottom: spacing.xl + insets.bottom }]}>
             <Text style={styles.modalTitle}>Crear jugador solo para esta liga</Text>
             <Text style={styles.modalText}>
               Este jugador no se registra en la app. Solo servira para identificar fixture y puntajes.
@@ -1540,7 +1531,7 @@ export default function LeaguePlayersScreen({ navigation, route }) {
             }}
             style={styles.modalBackdrop}
           />
-          <View style={styles.modalCard}>
+          <View style={[styles.modalCard, { paddingBottom: spacing.xl + insets.bottom }]}>
             <Text style={styles.modalTitle}>Asignar a una pareja</Text>
             <Text style={styles.modalText}>
               Selecciona que pareja conforma. Si falta el companero, queda el espacio libre hasta
@@ -1789,12 +1780,23 @@ const styles = StyleSheet.create({
   },
   searchSectionTitle: {
     color: colors.muted,
+    flex: 1,
     fontSize: 12,
     fontWeight: "800",
     marginBottom: 8,
     marginTop: 2,
     textAlign: "center",
     textTransform: "uppercase",
+  },
+  searchSectionTitleRow: {
+    alignItems: "center",
+    flexDirection: "row",
+  },
+  searchSectionToggleText: {
+    color: colors.primaryDark,
+    fontSize: 12,
+    fontWeight: "800",
+    marginLeft: 8,
   },
   searchSectionHeaderWrap: {},
   currentSectionHeaderWrap: {},
