@@ -312,6 +312,9 @@ export default function AdminScreen({ navigation, route }) {
   const [visibleUserCount, setVisibleUserCount] = useState(20);
   const [requestsStatusFilter, setRequestsStatusFilter] = useState("pending");
   const [requestsPlanFilter, setRequestsPlanFilter] = useState("all");
+  const [leagueStatusFilter, setLeagueStatusFilter] = useState("active");
+  const [plansStatusFilter, setPlansStatusFilter] = useState("trial");
+  const [organizersPlanFilter, setOrganizersPlanFilter] = useState("trial");
 
   useEffect(() => {
     setVisibleUserCount(20);
@@ -354,6 +357,29 @@ export default function AdminScreen({ navigation, route }) {
       item.blockStatus === "temporary" ||
       item.blockStatus === "indefinite"
   );
+  const sortByExpirationAsc = (list) =>
+    [...list].sort((first, second) => {
+      const firstExpires = Number(first.planExpiresAt) || Infinity;
+      const secondExpires = Number(second.planExpiresAt) || Infinity;
+
+      return firstExpires - secondExpires;
+    });
+  const filterOrganizersByPlan = (list, filterKey) => {
+    if (filterKey === "trial") {
+      return list.filter((item) => item.planStatus === "trial");
+    }
+
+    if (filterKey === "active") {
+      return list.filter((item) => item.planStatus === "active");
+    }
+
+    return list.filter((item) => item.planStatus !== "trial" && item.planStatus !== "active");
+  };
+  const PLAN_FILTER_OPTIONS = [
+    { key: "trial", label: "En prueba" },
+    { key: "active", label: "Suscriptos" },
+    { key: "other", label: "Sin plan" },
+  ];
   const normalizedUserSearchQuery = userSearchQuery.trim().toLowerCase();
   const filterBySearch = (list) =>
     normalizedUserSearchQuery
@@ -367,10 +393,13 @@ export default function AdminScreen({ navigation, route }) {
     activeTab === "players"
       ? playerUsers
       : activeTab === "organizers"
-        ? organizerUsers
+        ? sortByExpirationAsc(filterOrganizersByPlan(organizerUsers, organizersPlanFilter))
         : blockedUsers
   );
   const visibleUserTabList = activeUserTabList.slice(0, visibleUserCount);
+  const plansTabList = sortByExpirationAsc(
+    filterOrganizersByPlan(organizerUsers, plansStatusFilter)
+  );
   const requestsByStatus = requests.filter(
     (item) => (item.status || "pending") === requestsStatusFilter
   );
@@ -392,7 +421,7 @@ export default function AdminScreen({ navigation, route }) {
       : requestsByStatus;
   const contentFiltered = contentItems.filter((item) => {
     if (activeTab === "leagues") {
-      return item.type === "league";
+      return item.type === "league" && item.progressBucket === leagueStatusFilter;
     }
 
     if (activeTab === "tournaments") {
@@ -1211,20 +1240,49 @@ export default function AdminScreen({ navigation, route }) {
                 ) : null
               }
               ListHeaderComponent={
-                <View style={styles.userSearchWrap}>
-                  <Ionicons color={colors.muted} name="search-outline" size={16} />
-                  <TextInput
-                    onChangeText={setUserSearchQuery}
-                    placeholder="Buscar por nombre, email, telefono o ciudad"
-                    placeholderTextColor={colors.muted}
-                    style={styles.userSearchInput}
-                    value={userSearchQuery}
-                  />
-                  {userSearchQuery ? (
-                    <Pressable onPress={() => setUserSearchQuery("")}>
-                      <Ionicons color={colors.muted} name="close-circle" size={18} />
-                    </Pressable>
+                <View>
+                  {activeTab === "organizers" ? (
+                    <View style={styles.requestsFilterRow}>
+                      {PLAN_FILTER_OPTIONS.map((option) => (
+                        <Pressable
+                          key={option.key}
+                          onPress={() => setOrganizersPlanFilter(option.key)}
+                          style={[
+                            styles.requestsFilterChip,
+                            organizersPlanFilter === option.key
+                              ? styles.requestsFilterChipActive
+                              : null,
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.requestsFilterChipText,
+                              organizersPlanFilter === option.key
+                                ? styles.requestsFilterChipTextActive
+                                : null,
+                            ]}
+                          >
+                            {option.label}
+                          </Text>
+                        </Pressable>
+                      ))}
+                    </View>
                   ) : null}
+                  <View style={styles.userSearchWrap}>
+                    <Ionicons color={colors.muted} name="search-outline" size={16} />
+                    <TextInput
+                      onChangeText={setUserSearchQuery}
+                      placeholder="Buscar por nombre, email, telefono o ciudad"
+                      placeholderTextColor={colors.muted}
+                      style={styles.userSearchInput}
+                      value={userSearchQuery}
+                    />
+                    {userSearchQuery ? (
+                      <Pressable onPress={() => setUserSearchQuery("")}>
+                        <Ionicons color={colors.muted} name="close-circle" size={18} />
+                      </Pressable>
+                    ) : null}
+                  </View>
                 </View>
               }
               ListEmptyComponent={
@@ -1436,11 +1494,36 @@ export default function AdminScreen({ navigation, route }) {
           ) : activeTab === "plans" ? (
             <FlatList
               contentContainerStyle={styles.listContent}
-              data={organizerUsers}
+              data={plansTabList}
               keyExtractor={(item) => item.id}
+              ListHeaderComponent={
+                <View style={styles.requestsFilterRow}>
+                  {PLAN_FILTER_OPTIONS.map((option) => (
+                    <Pressable
+                      key={option.key}
+                      onPress={() => setPlansStatusFilter(option.key)}
+                      style={[
+                        styles.requestsFilterChip,
+                        plansStatusFilter === option.key ? styles.requestsFilterChipActive : null,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.requestsFilterChipText,
+                          plansStatusFilter === option.key
+                            ? styles.requestsFilterChipTextActive
+                            : null,
+                        ]}
+                      >
+                        {option.label}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              }
               ListEmptyComponent={
                 <Text style={styles.emptyText}>
-                  {loading ? "Cargando organizadores..." : "No hay organizadores aprobados."}
+                  {loading ? "Cargando organizadores..." : "No hay organizadores en esta categoria."}
                 </Text>
               }
               renderItem={({ item }) => (
@@ -1472,18 +1555,58 @@ export default function AdminScreen({ navigation, route }) {
               contentContainerStyle={styles.listContent}
               data={contentFiltered}
               keyExtractor={(item) => `${item.type}-${item.id}`}
+              ListHeaderComponent={
+                activeTab === "leagues" ? (
+                  <View style={styles.requestsFilterRow}>
+                    {[
+                      { key: "active", label: "En curso" },
+                      { key: "finished", label: "Finalizadas" },
+                      { key: "archived", label: "Eliminadas" },
+                    ].map((option) => (
+                      <Pressable
+                        key={option.key}
+                        onPress={() => setLeagueStatusFilter(option.key)}
+                        style={[
+                          styles.requestsFilterChip,
+                          leagueStatusFilter === option.key
+                            ? styles.requestsFilterChipActive
+                            : null,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.requestsFilterChipText,
+                            leagueStatusFilter === option.key
+                              ? styles.requestsFilterChipTextActive
+                              : null,
+                          ]}
+                        >
+                          {option.label}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                ) : null
+              }
               ListEmptyComponent={
                 <Text style={styles.emptyText}>
                   {loading
                     ? "Cargando contenido..."
                     : activeTab === "leagues"
-                      ? "No hay ligas para revisar."
+                      ? "No hay ligas en esta categoria."
                       : "No hay torneos para revisar."}
                 </Text>
               }
               renderItem={({ item }) => {
                 const isLeague = item.type === "league";
                 const isArchived = item.status === "archived" || item.status === "cancelled";
+                const statusLabel = isLeague
+                  ? item.progressBucket === "archived"
+                    ? "Eliminada"
+                    : item.progressBucket === "finished"
+                      ? "Finalizada"
+                      : "En curso"
+                  : formatContentStatusLabel(item.status);
 
                 return (
                   <Pressable
@@ -1498,9 +1621,7 @@ export default function AdminScreen({ navigation, route }) {
                       <Text style={styles.requestName}>{item.title}</Text>
                       <Text style={styles.statusBadge}>{isLeague ? "Liga" : "Torneo"}</Text>
                     </View>
-                    <Text style={styles.requestMeta}>
-                      Estado: {formatContentStatusLabel(item.status)}
-                    </Text>
+                    <Text style={styles.requestMeta}>Estado: {statusLabel}</Text>
                     <Text style={styles.requestMeta}>Organizador: {item.organizerName}</Text>
                     {item.venue ? <Text style={styles.requestMeta}>Sede: {item.venue}</Text> : null}
                   </Pressable>

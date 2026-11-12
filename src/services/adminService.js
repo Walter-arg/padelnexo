@@ -19,6 +19,28 @@ function resolveTimestampMillis(value) {
   return 0;
 }
 
+// Misma logica que usa LeagueCard para mostrar "Finalizada" en la tarjeta
+// del jugador: todos los partidos jugables (sin contar los "bye") ya
+// tienen un resultado cargado.
+function deriveLeagueProgressBucket(data) {
+  if ((data.status || "active") === "archived") {
+    return "archived";
+  }
+
+  const rounds = Array.isArray(data.fixture?.rounds) ? data.fixture.rounds : [];
+  const matches = rounds.flatMap((round) => (Array.isArray(round?.matches) ? round.matches : []));
+  const playableMatches = matches.filter(
+    (match) => match?.teamA?.id !== "__bye__" && match?.teamB?.id !== "__bye__"
+  );
+  const completedMatches = playableMatches.filter((match) => Boolean(match?.result?.winner)).length;
+
+  if (playableMatches.length > 0 && completedMatches === playableMatches.length) {
+    return "finished";
+  }
+
+  return "active";
+}
+
 function mapAdminLeague(docSnapshot) {
   const data = docSnapshot.data() || {};
 
@@ -29,6 +51,7 @@ function mapAdminLeague(docSnapshot) {
     organizerId: data.organizerId || data.createdBy || "",
     organizerName: data.organizerName || data.createdByName || "Organizador",
     status: data.status || "active",
+    progressBucket: deriveLeagueProgressBucket(data),
     venue: data.complejoNombre || data.complexName || data.complejo?.nombre || "",
     createdAtMillis: resolveTimestampMillis(data.createdAt),
     updatedAtMillis: resolveTimestampMillis(data.updatedAt),
