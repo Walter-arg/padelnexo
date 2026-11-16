@@ -21,9 +21,12 @@ import { colors, spacing } from "../config/theme";
 import { useAuth } from "../context/AuthContext";
 import { canManageLeague, getLeagueById, updateLeagueRules } from "../services/leaguesService";
 
+// Reconoce **negrita** (el boton "N" de este editor) y tambien *negrita*
+// (la convencion de WhatsApp), para que un texto pegado desde ahi ya se vea
+// formateado sin tener que retocarlo.
 function parseRulesSegments(text = "") {
   const segments = [];
-  const regex = /\*\*([\s\S]+?)\*\*/g;
+  const regex = /\*\*([\s\S]+?)\*\*|\*([^*\n]+?)\*/g;
   let lastIndex = 0;
   let match = regex.exec(text);
 
@@ -32,7 +35,7 @@ function parseRulesSegments(text = "") {
       segments.push({ bold: false, text: text.slice(lastIndex, match.index) });
     }
 
-    segments.push({ bold: true, text: match[1] });
+    segments.push({ bold: true, text: match[1] !== undefined ? match[1] : match[2] });
     lastIndex = match.index + match[0].length;
     match = regex.exec(text);
   }

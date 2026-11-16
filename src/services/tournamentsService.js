@@ -417,6 +417,7 @@ function buildTournamentPayload(organizer, payload = {}, batchId = "") {
     status: normalizeTournamentStatus(payload.status, "draft"),
     description: normalizeString(payload.description),
     coverImage: normalizeString(payload.coverImage),
+    rules: normalizeString(payload.rules || organizer?.defaultTournamentRules),
     tournamentRuleSet: normalizeTournamentRuleSet(payload.tournamentRuleSet || payload.ruleSet),
     venueMode,
     venues,
@@ -1694,6 +1695,30 @@ export async function getTournamentById(tournamentId) {
   }
 
   return hydrateTournamentMercadoPagoConfig(mapTournamentDoc(snapshot));
+}
+
+export async function updateTournamentRules(tournamentId, rules = "") {
+  const normalizedRules = String(rules || "");
+  const tournament = await getTournamentById(tournamentId);
+
+  if (!tournament) {
+    throw new Error("No encontramos el torneo.");
+  }
+
+  await updateDoc(doc(db, "tournaments", tournamentId), {
+    rules: normalizedRules,
+    updatedAt: serverTimestamp(),
+  });
+
+  const organizerId = tournament.organizerId || tournament.createdBy || "";
+
+  if (organizerId) {
+    await updateDoc(doc(db, "users", organizerId), {
+      defaultTournamentRules: normalizedRules,
+    }).catch(() => {});
+  }
+
+  return normalizedRules;
 }
 
 export async function listTournaments(...queryConstraints) {

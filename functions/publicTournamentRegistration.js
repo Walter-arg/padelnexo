@@ -140,6 +140,7 @@ function buildPublicTournamentInfo(tournamentId, tournament, activeCount, organi
     organizerName: normalizeString(tournament.organizerName),
     coverImage: normalizeString(tournament.coverImage),
     organizerLogoUrl: normalizeString(organizerLogoUrl),
+    rules: String(tournament.rules || ""),
     status: tournament.status || "draft",
     open: isOpenStatus && !isFull,
     reason: !isOpenStatus ? "closed" : isFull ? "full" : "",

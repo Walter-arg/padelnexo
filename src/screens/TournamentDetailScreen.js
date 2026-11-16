@@ -2272,6 +2272,24 @@ export default function TournamentDetailScreen({ navigation, route }) {
               }) : null}
             </View>
 
+            <View style={styles.rulesButtonRow}>
+              <Pressable
+                onPress={() =>
+                  navigation.navigate("TournamentRules", {
+                    tournamentId: tournament.id,
+                    tournamentName: tournament.name || "Torneo",
+                  })
+                }
+                style={({ pressed }) => [
+                  styles.rulesButton,
+                  pressed ? styles.rulesButtonPressed : null,
+                ]}
+              >
+                <Ionicons color={colors.primaryDark} name="document-text-outline" size={15} />
+                <Text style={styles.rulesButtonText}>Reglamento</Text>
+              </Pressable>
+            </View>
+
             {tournament?.coverImage &&
             (accessMeta.role !== "organizer" || activeTab === "management") ? (
               <View style={styles.posterShortcutWrap}>
@@ -2482,6 +2500,29 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     paddingBottom: spacing.md,
     paddingTop: spacing.md,
+  },
+  rulesButtonRow: {
+    alignItems: "center",
+    marginBottom: spacing.sm,
+  },
+  rulesButton: {
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 16,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 6,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 8,
+  },
+  rulesButtonPressed: {
+    opacity: 0.85,
+  },
+  rulesButtonText: {
+    color: colors.primaryDark,
+    fontSize: 13,
+    fontWeight: "800",
   },
   tabButton: {
     alignItems: "center",
