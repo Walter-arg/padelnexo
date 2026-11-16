@@ -1211,6 +1211,11 @@ export default function CreateTournamentScreen({ navigation, route }) {
             </Pressable>
           </View>
 
+          <Text style={styles.posterPickerHint}>
+            Recomendado: ~1080x1350px, hasta 2MB. Funciona cualquier proporcion (vertical u
+            horizontal), se muestra completo sin recortar.
+          </Text>
+
           {form.coverImage ? (
             <View style={styles.posterPreviewCard}>
               <Image source={{ uri: form.coverImage }} style={styles.posterPreviewImage} />
@@ -1822,6 +1827,13 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     textAlign: "center",
     textTransform: "uppercase",
+  },
+  posterPickerHint: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "600",
+    lineHeight: 16,
+    marginTop: spacing.xs,
   },
   posterPickerCard: {
     alignItems: "center",
