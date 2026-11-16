@@ -1,5 +1,15 @@
 import { useCallback, useMemo, useState } from "react";
-import { ActivityIndicator, FlatList, Image, Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import {
+  ActivityIndicator,
+  FlatList,
+  Image,
+  Modal,
+  Pressable,
+  Share as NativeShare,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect } from "@react-navigation/native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -94,6 +104,18 @@ export default function TournamentRegistrationsScreen({ navigation, route }) {
     tone: "default",
   });
   const [registrationToDelete, setRegistrationToDelete] = useState(null);
+
+  const handleShareRegistrationLink = useCallback(async () => {
+    const registrationUrl = `https://www.padelnexo.com.ar/inscripcion/${tournamentId}`;
+
+    try {
+      await NativeShare.share({
+        message: `Inscribite al torneo "${tournament?.name || fallbackTournamentName}" en PadelNexo: ${registrationUrl}`,
+      });
+    } catch (error) {
+      // El usuario cerro el panel de compartir; no hace falta avisar nada.
+    }
+  }, [fallbackTournamentName, tournament?.name, tournamentId]);
   const currentOrganizer = useMemo(
     () => ({
       uid: userData?.uid || user?.uid || "",
@@ -377,6 +399,17 @@ export default function TournamentRegistrationsScreen({ navigation, route }) {
                   <Ionicons color={colors.surface} name="people-outline" size={18} />
                   <Text style={styles.createPairButtonText}>Inscribir nueva pareja</Text>
                 </Pressable>
+
+                <Pressable
+                  onPress={handleShareRegistrationLink}
+                  style={({ pressed }) => [
+                    styles.shareLinkButton,
+                    pressed ? styles.editButtonPressed : null,
+                  ]}
+                >
+                  <Ionicons color={colors.primaryDark} name="link-outline" size={18} />
+                  <Text style={styles.shareLinkButtonText}>Compartir link de inscripcion</Text>
+                </Pressable>
               </View>
             }
             renderItem={({ item, index }) => {
@@ -405,12 +438,26 @@ export default function TournamentRegistrationsScreen({ navigation, route }) {
                     </View>
                   </View>
 
+                  {item.registrationSource === "public_link" ? (
+                    <View style={styles.registrationSourceTag}>
+                      <Ionicons color="#4A78C0" name="link-outline" size={11} />
+                      <Text style={styles.registrationSourceTagText}>Inscripto via link</Text>
+                    </View>
+                  ) : null}
+
                   <View style={styles.playersStack}>
                     {renderPlayerRow(item.player1Id || `${item.id}-player1`, item.player1Name)}
                     {item.player2Name
                       ? renderPlayerRow(item.player2Id || `${item.id}-player2`, item.player2Name)
                       : null}
                   </View>
+
+                  {item.contactPhone ? (
+                    <Text style={styles.registrationPhoneText}>Tel: {item.contactPhone}</Text>
+                  ) : null}
+                  {item.notes ? (
+                    <Text style={styles.registrationNoteText}>{item.notes}</Text>
+                  ) : null}
 
                   <View style={styles.actionsRow}>
                     <Pressable
@@ -866,6 +913,54 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "900",
     textTransform: "uppercase",
+  },
+  shareLinkButton: {
+    alignItems: "center",
+    backgroundColor: "#F0F7F4",
+    borderColor: colors.border,
+    borderRadius: 16,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 8,
+    justifyContent: "center",
+    minHeight: 46,
+    paddingHorizontal: spacing.md,
+  },
+  shareLinkButtonText: {
+    color: colors.primaryDark,
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  registrationSourceTag: {
+    alignItems: "center",
+    alignSelf: "flex-start",
+    backgroundColor: "#EBF2FF",
+    borderColor: "#A8C6F0",
+    borderRadius: 999,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 4,
+    marginTop: spacing.xs,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  registrationSourceTagText: {
+    color: "#4A78C0",
+    fontSize: 10,
+    fontWeight: "800",
+    textTransform: "uppercase",
+  },
+  registrationNoteText: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "700",
+    marginTop: spacing.xs,
+  },
+  registrationPhoneText: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "800",
+    marginTop: spacing.xs,
   },
   confirmOverlay: {
     ...StyleSheet.absoluteFillObject,

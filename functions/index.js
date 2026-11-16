@@ -52,6 +52,17 @@ exports.mercadoPagoSyncTurnoPayment = lazyOnRequest(
 );
 exports.mercadoPagoWebhook = lazyOnRequest("./mercadoPagoCheckoutPro", "mercadoPagoWebhook");
 
+// Inscripcion publica a torneos via link, sin login (una tercera via junto a
+// la del organizador y la del jugador logueado desde la app).
+exports.getPublicTournamentInfo = lazyOnRequest(
+  "./publicTournamentRegistration",
+  "getPublicTournamentInfo"
+);
+exports.submitPublicTournamentRegistration = lazyOnRequest(
+  "./publicTournamentRegistration",
+  "submitPublicTournamentRegistration"
+);
+
 // Recibe los eventos de suscripcion de RevenueCat (compra, renovacion,
 // vencimiento) y sincroniza plan/planStatus en Firestore. El Authorization
 // header se valida contra el secreto configurado como "Authorization" en el
