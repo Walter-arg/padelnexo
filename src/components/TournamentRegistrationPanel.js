@@ -1336,6 +1336,9 @@ export default function TournamentRegistrationPanel({
     }
   };
 
+  const registrationIsOpen = ["published", "registration_open"].includes(tournament?.status);
+  const showClosedNotice = !registration && !isOrganizerCreating && !registrationIsOpen;
+
   const submitButtonTitle = registration
     ? submitting
       ? "GUARDANDO..."
@@ -1356,12 +1359,21 @@ export default function TournamentRegistrationPanel({
         <Text style={styles.blockTitleCentered}>INSCRIPCION</Text>
         {!isOrganizerCreating ? (
           <Text style={styles.blockTextCentered}>
-            {registration
+            {showClosedNotice
+              ? "El organizador cerro las inscripciones para este torneo. Ya no se pueden anotar nuevas parejas."
+              : registration
               ? isOrganizerEditing
                 ? "Edita la pareja, los pagos y la disponibilidad de esta inscripcion."
                 : "Edita tu compañero, pago y disponibilidad cuando lo necesites."
               : "Completa la pareja y el pago para enviar la inscripcion. La disponibilidad es opcional."}
           </Text>
+        ) : null}
+
+        {showClosedNotice ? (
+          <View style={styles.closedNoticeCard}>
+            <Ionicons color="#B66A16" name="lock-closed-outline" size={20} />
+            <Text style={styles.closedNoticeText}>Inscripciones cerradas</Text>
+          </View>
         ) : null}
 
         {registration && !isOrganizerCreating ? (
@@ -1447,7 +1459,7 @@ export default function TournamentRegistrationPanel({
           </View>
         ) : null}
 
-        {isOrganizerCreating ? null : <View style={styles.registrationActionRow}>
+        {isOrganizerCreating || showClosedNotice ? null : <View style={styles.registrationActionRow}>
           {registrationSteps.map((step) => (
             <Pressable
               key={step.key}
@@ -1526,7 +1538,7 @@ export default function TournamentRegistrationPanel({
         </View>}
       </View>
 
-      {isOrganizerCreating || activePanel === "partner" ? (
+      {!showClosedNotice && (isOrganizerCreating || activePanel === "partner") ? (
         <View style={styles.blockCard}>
           <Text style={styles.blockTitleCentered}>
             {isOrganizerCreating ? "CONFORMAR PAREJA" : "MI COMPAÑERO"}
@@ -1736,7 +1748,7 @@ export default function TournamentRegistrationPanel({
         </View>
       ) : null}
 
-      {!isOrganizerCreating && activePanel === "availability" ? (
+      {!showClosedNotice && !isOrganizerCreating && activePanel === "availability" ? (
         <View style={styles.blockCard}>
           <Text style={styles.blockTitleCentered}>DISPONIBILIDAD</Text>
           <Text style={styles.blockTextCentered}>
@@ -1755,7 +1767,7 @@ export default function TournamentRegistrationPanel({
         </View>
       ) : null}
 
-      {!isOrganizerCreating && activePanel === "payments" ? (
+      {!showClosedNotice && !isOrganizerCreating && activePanel === "payments" ? (
         <View style={styles.blockCard}>
           <Text style={styles.blockTitleCentered}>PAGOS</Text>
           {isOrganizerPaymentEditor ? (
@@ -1953,20 +1965,22 @@ export default function TournamentRegistrationPanel({
         </View>
       ) : null}
 
-      <AppButton
-        disabled={
-          submitting ||
-          (isOrganizerCreating && !pendingPairs.length) ||
-          (!isOrganizerCreating &&
-            !isOrganizerPaymentEditor &&
-            requiresTransferReceipt &&
-            !receiptAsset?.uri &&
-            !hasExistingReceipt &&
-            !canSubmitManualPairRequest)
-        }
-        onPress={() => handleSubmitRegistration()}
-        title={submitButtonTitle}
-      />
+      {!showClosedNotice ? (
+        <AppButton
+          disabled={
+            submitting ||
+            (isOrganizerCreating && !pendingPairs.length) ||
+            (!isOrganizerCreating &&
+              !isOrganizerPaymentEditor &&
+              requiresTransferReceipt &&
+              !receiptAsset?.uri &&
+              !hasExistingReceipt &&
+              !canSubmitManualPairRequest)
+          }
+          onPress={() => handleSubmitRegistration()}
+          title={submitButtonTitle}
+        />
+      ) : null}
 
       <AvailabilityEditor
         dayOptions={Array.isArray(tournamentDayOptions) && tournamentDayOptions.length ? tournamentDayOptions : null}
@@ -3306,6 +3320,24 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
+  },
+  closedNoticeCard: {
+    alignItems: "center",
+    backgroundColor: "#FFF7E3",
+    borderColor: "#E8D59A",
+    borderRadius: 12,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: spacing.sm,
+    justifyContent: "center",
+    marginTop: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
+  },
+  closedNoticeText: {
+    color: "#9B6A00",
+    fontSize: 14,
+    fontWeight: "800",
   },
   registrationStatusLabel: {
     color: colors.muted,

@@ -2208,26 +2208,24 @@ export default function TournamentDetailScreen({ navigation, route }) {
                     <Text style={styles.tabButtonText}>{TAB_LABELS.registration}</Text>
                   </Pressable>
 
-                  {accessMeta.role === "confirmed_player" ? (
-                    <Pressable
-                      onPress={() =>
-                        navigation.navigate("TournamentFixture", {
-                          tournamentId: tournament.id,
-                          tournamentName: tournament.name || "Torneo",
-                        })
-                      }
-                      style={styles.tabButton}
-                    >
-                      <View style={styles.tabIconWrap}>
-                        <Ionicons
-                          color={colors.primaryDark}
-                          name={TAB_ICONS.fixture}
-                          size={20}
-                        />
-                      </View>
-                      <Text style={styles.tabButtonText}>{TAB_LABELS.fixture}</Text>
-                    </Pressable>
-                  ) : null}
+                  <Pressable
+                    onPress={() =>
+                      navigation.navigate("TournamentFixture", {
+                        tournamentId: tournament.id,
+                        tournamentName: tournament.name || "Torneo",
+                      })
+                    }
+                    style={styles.tabButton}
+                  >
+                    <View style={styles.tabIconWrap}>
+                      <Ionicons
+                        color={colors.primaryDark}
+                        name={TAB_ICONS.fixture}
+                        size={20}
+                      />
+                    </View>
+                    <Text style={styles.tabButtonText}>{TAB_LABELS.fixture}</Text>
+                  </Pressable>
 
                 </>
               ) : null}
