@@ -430,7 +430,8 @@ function getRegistrationsCountMap(registrationsByTournament = []) {
 
 function buildTournamentCardData(tournament = {}, registrationMeta = null) {
   const registrationsCount = Number(tournament.registrationsCount || 0);
-  const maxPairs = Number(tournament.maxPairs || 0);
+  const pairLimitsEnabled = tournament.pairLimitsEnabled !== false;
+  const maxPairs = pairLimitsEnabled ? Number(tournament.maxPairs || 0) : 0;
   const confirmedRegistrationsCount = Number(
     tournament.confirmedRegistrationsCount || registrationsCount || 0
   );

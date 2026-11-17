@@ -1601,6 +1601,9 @@ function ManagementTab({
   const [showOccupancyCard, setShowOccupancyCard] = useState(
     Boolean(tournament?.showOccupancyCard)
   );
+  const [pairLimitsEnabled, setPairLimitsEnabled] = useState(
+    tournament?.pairLimitsEnabled !== false
+  );
 
   const runAction = async (key, action, successMessage) => {
     try {
@@ -1628,7 +1631,13 @@ function ManagementTab({
     }
     await runAction(
       "save-capacity",
-      () => updateTournamentCapacity(tournament.id, { minPairs: effectiveMin, maxPairs: max, showOccupancyCard }),
+      () =>
+        updateTournamentCapacity(tournament.id, {
+          minPairs: effectiveMin,
+          maxPairs: max,
+          showOccupancyCard,
+          pairLimitsEnabled,
+        }),
       "Los cupos del torneo fueron actualizados."
     );
   };
@@ -1671,10 +1680,20 @@ function ManagementTab({
     <View style={styles.tabBody}>
       <View style={styles.blockCard}>
         <Text style={[styles.blockTitle, { textAlign: "center" }]}>CUPOS DE PAREJAS</Text>
-        <View style={styles.managementCapacityRow}>
+        <Pressable
+          onPress={() => setPairLimitsEnabled((v) => !v)}
+          style={styles.managementCapacityToggleRow}
+        >
+          <Text style={styles.managementCapacityToggleLabel}>LIMITAR CANTIDAD DE PAREJAS</Text>
+          <View style={[styles.togglePill, pairLimitsEnabled && styles.togglePillActive]}>
+            <View style={[styles.toggleDot, pairLimitsEnabled && styles.toggleDotActive]} />
+          </View>
+        </Pressable>
+        <View style={[styles.managementCapacityRow, !pairLimitsEnabled && styles.managementCapacityRowDisabled]}>
           <View style={styles.managementCapacityField}>
             <Text style={styles.managementCapacityLabel}>CUPO MÍNIMO DE PAREJAS</Text>
             <TextInput
+              editable={pairLimitsEnabled}
               inputAccessoryViewID={
                 Platform.OS === "ios" ? NUMERIC_KEYBOARD_ACCESSORY_ID : undefined
               }
@@ -1690,6 +1709,7 @@ function ManagementTab({
           <View style={styles.managementCapacityField}>
             <Text style={styles.managementCapacityLabel}>CUPO MÁXIMO DE PAREJAS</Text>
             <TextInput
+              editable={pairLimitsEnabled}
               inputAccessoryViewID={
                 Platform.OS === "ios" ? NUMERIC_KEYBOARD_ACCESSORY_ID : undefined
               }
@@ -2927,6 +2947,9 @@ const styles = StyleSheet.create({
     gap: spacing.md,
     justifyContent: "center",
     marginTop: spacing.md,
+  },
+  managementCapacityRowDisabled: {
+    opacity: 0.4,
   },
   managementCapacityField: {
     alignItems: "center",

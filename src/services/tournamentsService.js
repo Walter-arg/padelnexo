@@ -428,6 +428,7 @@ function buildTournamentPayload(organizer, payload = {}, batchId = "") {
     thirdSetMode: normalizeThirdSetMode(payload.thirdSetMode),
     maxPairs,
     minPairs,
+    pairLimitsEnabled: payload.pairLimitsEnabled !== false,
     registrationStatus: normalizeRegistrationStatus(payload.registrationStatus, "closed"),
     registrationMode: "pair_only",
     pairConfirmationMode: normalizePairConfirmationMode(payload.pairConfirmationMode),
@@ -1851,7 +1852,7 @@ export async function listTournamentMatches(tournamentId) {
 
 export async function updateTournamentCapacity(
   tournamentId,
-  { minPairs = 0, maxPairs = 0, showOccupancyCard = false } = {}
+  { minPairs = 0, maxPairs = 0, showOccupancyCard = false, pairLimitsEnabled = true } = {}
 ) {
   if (!tournamentId) {
     throw new Error("No encontramos el torneo.");
@@ -1860,6 +1861,7 @@ export async function updateTournamentCapacity(
     minPairs: Number(minPairs) || 0,
     maxPairs: Number(maxPairs) || 0,
     showOccupancyCard: Boolean(showOccupancyCard),
+    pairLimitsEnabled: Boolean(pairLimitsEnabled),
     updatedAt: serverTimestamp(),
   });
 }
@@ -2041,7 +2043,14 @@ export async function registerPairToTournament(tournamentId, payload = {}) {
       registration.status !== "rejected" && !isRegistrationWithdrawnConfirmed(registration)
   ).length;
 
-  if (!payload.bypassMaxPairs && activeRegistrationsCount >= Number(tournament.maxPairs || 0)) {
+  const maxPairsLimit = Number(tournament.maxPairs || 0);
+
+  if (
+    tournament.pairLimitsEnabled !== false &&
+    !payload.bypassMaxPairs &&
+    maxPairsLimit > 0 &&
+    activeRegistrationsCount >= maxPairsLimit
+  ) {
     throw new Error("El torneo ya alcanzo el cupo maximo de parejas.");
   }
 
@@ -2491,7 +2500,13 @@ export async function confirmTournamentRegistration({
       !isRegistrationWithdrawnConfirmed(entry)
   ).length;
 
-  if (currentConfirmedCount >= Number(tournament.maxPairs || 0)) {
+  const confirmedMaxPairsLimit = Number(tournament.maxPairs || 0);
+
+  if (
+    tournament.pairLimitsEnabled !== false &&
+    confirmedMaxPairsLimit > 0 &&
+    currentConfirmedCount >= confirmedMaxPairsLimit
+  ) {
     throw new Error("El torneo ya alcanzo el cupo maximo de parejas confirmadas.");
   }
 

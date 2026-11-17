@@ -254,13 +254,18 @@ function buildEditablePartnerFromRegistration(registration = {}, playersSource =
   const isCurrentUserPlayer2 =
     normalizeText(registration?.player2Id) === normalizeText(currentUserId);
   const partnerSide = isCurrentUserPlayer2 ? "player1" : "player2";
-  const partnerId = getRegistrationSidePlayerKey(registration, partnerSide);
-  const partnerName = isCurrentUserPlayer2 ? registration?.player1Name : registration?.player2Name;
+  const partnerName = String(
+    (isCurrentUserPlayer2 ? registration?.player1Name : registration?.player2Name) || ""
+  ).trim();
 
-  if (!partnerId && !partnerName) {
+  // El compañero solo existe si hay un nombre real cargado: getRegistrationSidePlayerKey
+  // siempre devuelve algo (hasta un id inventado) aunque no haya nadie, asi que no sirve
+  // para decidir si mostrar un compañero ya seleccionado.
+  if (!partnerName) {
     return null;
   }
 
+  const partnerId = getRegistrationSidePlayerKey(registration, partnerSide);
   const matchedPlayer = playersSource.find(
     (player) => normalizeText(player?.id) === normalizeText(partnerId)
   );
@@ -269,8 +274,7 @@ function buildEditablePartnerFromRegistration(registration = {}, playersSource =
     return matchedPlayer;
   }
 
-  const fullName = String(partnerName || "").trim();
-  const [nombre = fullName, ...rest] = fullName.split(/\s+/);
+  const [nombre = partnerName, ...rest] = partnerName.split(/\s+/);
 
   return {
     id: partnerId || `guest-partner-${registration?.id || "registration"}`,
@@ -640,6 +644,13 @@ export default function TournamentRegistrationPanel({
   const partnerSuggestions = useMemo(() => {
     const normalizedQuery = normalizeText(partnerQuery);
 
+    // Sin busqueda todavia, no mostramos un recorte arbitrario de jugadores
+    // (antes se mostraban siempre los primeros 8 sin ningun criterio claro,
+    // y no habia forma de ver el resto): pedimos escribir para buscar.
+    if (!normalizedQuery && !registration?.player2Id) {
+      return [];
+    }
+
     return playersSource
       .filter((player) => normalizeText(player.id) !== normalizeText(currentUser?.uid))
       .filter((player) => normalizeText(player.id) !== normalizeText(selectedPlayer1Id))
@@ -659,7 +670,7 @@ export default function TournamentRegistrationPanel({
 
         return haystack.includes(normalizedQuery);
       })
-      .slice(0, 8)
+      .slice(0, 25)
       .map((player) => ({
         avatarUri: player?.foto || "",
         label: [player.categoria || "Categoria", player.ciudad || "Ciudad"].join(" · "),
@@ -1362,6 +1373,20 @@ export default function TournamentRegistrationPanel({
   const registrationIsOpen = tournament?.status === "registration_open";
   const showClosedNotice = !registration && !isOrganizerCreating && !registrationIsOpen;
 
+  // Pasos guiados (1-2-3) para el jugador que se inscribe solo. El
+  // organizador (creando o editando) sigue viendo las 3 pestañas libres.
+  const isGuidedPlayerFlow = !isOrganizerPaymentEditor;
+  const stepNumber = activePanel === "payments" ? 3 : activePanel === "availability" ? 2 : 1;
+  const entryFeeAmount = Number(tournament?.entryFee || 0);
+  const paymentStepHint =
+    entryFeeAmount <= 0
+      ? "Este torneo no tiene costo de inscripcion."
+      : tournament?.pairConfirmationMode === "both_paid"
+      ? `Para quedar confirmados, tienen que pagar los dos integrantes de la pareja ($${entryFeeAmount} cada uno).`
+      : tournament?.pairConfirmationMode === "one_paid"
+      ? `Alcanza con que uno de los dos pague la inscripcion ($${entryFeeAmount}) para quedar confirmados.`
+      : `El pago es opcional en este paso ($${entryFeeAmount}): el organizador va a confirmar la inscripcion manualmente.`;
+
   const submitButtonTitle = registration
     ? submitting
       ? "GUARDANDO..."
@@ -1390,7 +1415,11 @@ export default function TournamentRegistrationPanel({
               ? isOrganizerEditing
                 ? "Edita la pareja, los pagos y la disponibilidad de esta inscripcion."
                 : "Edita tu compañero, pago y disponibilidad cuando lo necesites."
-              : "Completa la pareja y el pago para enviar la inscripcion. La disponibilidad es opcional."}
+              : stepNumber === 1
+              ? "Elegi con quien vas a jugar este torneo."
+              : stepNumber === 2
+              ? "Contanos tus horarios disponibles para jugar. Es opcional."
+              : "Revisa el pago de la inscripcion antes de enviarla."}
           </Text>
         ) : null}
 
@@ -1400,6 +1429,15 @@ export default function TournamentRegistrationPanel({
             <Text style={styles.closedNoticeText}>
               {tournament?.status === "registration_closed" ? "Inscripciones cerradas" : "Inscripciones aun no abiertas"}
             </Text>
+          </View>
+        ) : null}
+
+        {!showClosedNotice && isGuidedPlayerFlow ? (
+          <View style={styles.stepProgressWrap}>
+            <View style={styles.stepProgressTrack}>
+              <View style={[styles.stepProgressFill, { width: `${(stepNumber / 3) * 100}%` }]} />
+            </View>
+            <Text style={styles.stepProgressLabel}>Paso {stepNumber} de 3</Text>
           </View>
         ) : null}
 
@@ -1486,7 +1524,7 @@ export default function TournamentRegistrationPanel({
           </View>
         ) : null}
 
-        {isOrganizerCreating || showClosedNotice ? null : <View style={styles.registrationActionRow}>
+        {!isOrganizerEditing || showClosedNotice ? null : <View style={styles.registrationActionRow}>
           {registrationSteps.map((step) => (
             <Pressable
               key={step.key}
@@ -1567,6 +1605,11 @@ export default function TournamentRegistrationPanel({
 
       {!showClosedNotice && (isOrganizerCreating || activePanel === "partner") ? (
         <View style={styles.blockCard}>
+          {isGuidedPlayerFlow ? (
+            <View style={styles.stepIconBadge}>
+              <Ionicons color={colors.primaryDark} name="people" size={22} />
+            </View>
+          ) : null}
           <Text style={styles.blockTitleCentered}>
             {isOrganizerCreating ? "CONFORMAR PAREJA" : "MI COMPAÑERO"}
           </Text>
@@ -1738,6 +1781,9 @@ export default function TournamentRegistrationPanel({
                 onSelect={(item) => {
                   setSelectedPartner(item.player);
                   setPartnerQuery(getPlayerDisplayName(item.player));
+                  if (isGuidedPlayerFlow) {
+                    setActivePanel("availability");
+                  }
                 }}
                 placeholder="Nombre, categoria o ciudad"
                 showSuggestions={!selectedPartner && partnerSuggestions.length > 0}
@@ -1746,6 +1792,13 @@ export default function TournamentRegistrationPanel({
               />
             ) : null
           )}
+
+          {!isOrganizerCreating && !selectedPartner && !partnerQuery && !playersLoading ? (
+            <Text style={styles.blockText}>
+              Escribi el nombre, categoria o ciudad de tu compañero para buscarlo entre los jugadores
+              registrados.
+            </Text>
+          ) : null}
 
           {playersLoading ? (
             <Text style={styles.blockText}>Cargando jugadores registrados...</Text>
@@ -1772,14 +1825,31 @@ export default function TournamentRegistrationPanel({
               </Pressable>
             </View>
           ) : null}
+
+          {isGuidedPlayerFlow && selectedPartner ? (
+            <View style={styles.stepNavRow}>
+              <AppButton
+                onPress={() => setActivePanel("availability")}
+                style={styles.stepNavButton}
+                title="SIGUIENTE"
+              />
+            </View>
+          ) : null}
         </View>
       ) : null}
 
       {!showClosedNotice && !isOrganizerCreating && activePanel === "availability" ? (
         <View style={styles.blockCard}>
+          {isGuidedPlayerFlow ? (
+            <View style={styles.stepIconBadge}>
+              <Ionicons color={colors.primaryDark} name="calendar" size={22} />
+            </View>
+          ) : null}
           <Text style={styles.blockTitleCentered}>DISPONIBILIDAD</Text>
           <Text style={styles.blockTextCentered}>
-            Si queres, podes cargar horarios para que el organizador pueda acomodar mejor el torneo.
+            {isGuidedPlayerFlow
+              ? "Contanos los horarios en los que pueden jugar. Te recomendamos cargar al menos 5 horas entre los dias del torneo para que el organizador pueda armar mejor las zonas. Es opcional, podes avanzar sin cargar nada."
+              : "Si queres, podes cargar horarios para que el organizador pueda acomodar mejor el torneo."}
           </Text>
           <AvailabilitySummary
             emptyText="Todavia no cargaste disponibilidad para este torneo."
@@ -1791,12 +1861,38 @@ export default function TournamentRegistrationPanel({
             title={availabilityItems.length ? "EDITAR DISPONIBILIDAD" : "CARGAR DISPONIBILIDAD"}
             variant="secondary"
           />
+          {isGuidedPlayerFlow ? (
+            <View style={styles.stepNavRow}>
+              <AppButton
+                onPress={() => setActivePanel("partner")}
+                style={styles.stepNavButton}
+                title="ATRAS"
+                variant="secondary"
+              />
+              <AppButton
+                onPress={() => setActivePanel("payments")}
+                style={styles.stepNavButton}
+                title="SIGUIENTE"
+              />
+            </View>
+          ) : null}
         </View>
       ) : null}
 
       {!showClosedNotice && !isOrganizerCreating && activePanel === "payments" ? (
         <View style={styles.blockCard}>
+          {isGuidedPlayerFlow ? (
+            <View style={styles.stepIconBadge}>
+              <Ionicons color={colors.primaryDark} name="card" size={22} />
+            </View>
+          ) : null}
           <Text style={styles.blockTitleCentered}>PAGOS</Text>
+          {isGuidedPlayerFlow ? (
+            <View style={styles.paymentHintCard}>
+              <Ionicons color={colors.primaryDark} name="information-circle" size={18} />
+              <Text style={styles.paymentHintText}>{paymentStepHint}</Text>
+            </View>
+          ) : null}
           {isOrganizerPaymentEditor ? (
             <>
               {organizerPaymentParticipants.length ? (
@@ -1989,10 +2085,20 @@ export default function TournamentRegistrationPanel({
               </Text>
             </View>
           )}
+          {isGuidedPlayerFlow ? (
+            <View style={styles.stepNavRow}>
+              <AppButton
+                onPress={() => setActivePanel("availability")}
+                style={styles.stepNavButton}
+                title="ATRAS"
+                variant="secondary"
+              />
+            </View>
+          ) : null}
         </View>
       ) : null}
 
-      {!showClosedNotice ? (
+      {!showClosedNotice && (isOrganizerPaymentEditor || activePanel === "payments") ? (
         <AppButton
           disabled={
             submitting ||
@@ -3298,6 +3404,67 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     gap: spacing.sm,
     marginTop: spacing.sm,
+  },
+  stepProgressWrap: {
+    marginTop: spacing.sm,
+  },
+  stepProgressTrack: {
+    backgroundColor: colors.border,
+    borderRadius: 999,
+    height: 8,
+    overflow: "hidden",
+    width: "100%",
+  },
+  stepProgressFill: {
+    backgroundColor: colors.primaryLight,
+    borderRadius: 999,
+    height: 8,
+  },
+  stepProgressLabel: {
+    color: colors.primaryDark,
+    fontSize: 12,
+    fontWeight: "900",
+    letterSpacing: 0.3,
+    marginTop: spacing.xs,
+    textAlign: "center",
+    textTransform: "uppercase",
+  },
+  stepIconBadge: {
+    alignItems: "center",
+    alignSelf: "center",
+    backgroundColor: "#EAFBF3",
+    borderRadius: 999,
+    height: 48,
+    justifyContent: "center",
+    marginBottom: spacing.xs,
+    width: 48,
+  },
+  stepNavRow: {
+    flexDirection: "row",
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  stepNavButton: {
+    flex: 1,
+    marginBottom: 0,
+  },
+  paymentHintCard: {
+    alignItems: "flex-start",
+    backgroundColor: "#F0F7F4",
+    borderColor: colors.border,
+    borderRadius: 14,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: spacing.sm,
+    marginBottom: spacing.sm,
+    padding: spacing.md,
+  },
+  paymentHintText: {
+    color: colors.text,
+    flex: 1,
+    fontSize: 13,
+    fontWeight: "700",
+    lineHeight: 18,
   },
   registrationActionText: {
     color: colors.text,
