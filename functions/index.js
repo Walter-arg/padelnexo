@@ -63,6 +63,10 @@ exports.submitPublicTournamentRegistration = lazyOnRequest(
   "submitPublicTournamentRegistration"
 );
 
+// Permite que la web dispare el mismo aviso push al telefono que la app ya
+// dispara al mandar un mensaje interno (la web no tiene el token push).
+exports.sendPushNotification = lazyOnRequest("./sendPushNotification", "sendPushNotification");
+
 // Recibe los eventos de suscripcion de RevenueCat (compra, renovacion,
 // vencimiento) y sincroniza plan/planStatus en Firestore. El Authorization
 // header se valida contra el secreto configurado como "Authorization" en el
