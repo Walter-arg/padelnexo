@@ -26,6 +26,7 @@ import { sendChatMessage } from "../services/chatService";
 import { listPlayers } from "../services/playersService";
 import { buildTournamentDayOptions, getTournamentAvailabilitySummaryItems } from "../services/tournamentAvailabilityService";
 import {
+  buildTournamentWelcomeMessage,
   confirmTournamentRegistrationWithdrawal,
   confirmTournamentRegistration,
   deleteTournamentRegistration,
@@ -190,6 +191,13 @@ export default function TournamentRegistrationsScreen({ navigation, route }) {
         registrationId: registration.id,
         tournamentId,
       });
+      const hasAvailability = Object.keys(registration?.availability || {}).length > 0;
+      const welcomeMessage = buildTournamentWelcomeMessage({
+        tournament: tournament || { name: fallbackTournamentName },
+        organizerName: currentOrganizer.name,
+        hasAvailability,
+      });
+
       await Promise.all(
         [
           { id: registration.player1Id, name: registration.player1Name },
@@ -202,9 +210,7 @@ export default function TournamentRegistrationsScreen({ navigation, route }) {
               currentUserName: currentOrganizer.name,
               otherUserId: player.id,
               otherUserName: player.name || "Jugador",
-              text: `Tu inscripcion al torneo ${
-                tournament?.name || fallbackTournamentName
-              } fue confirmada por el organizador.`,
+              text: welcomeMessage,
             }).catch(() => null)
           )
       );

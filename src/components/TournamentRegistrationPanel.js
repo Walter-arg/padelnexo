@@ -26,12 +26,14 @@ import {
   createTournamentMercadoPagoPreference,
   persistPendingMercadoPagoCheckout,
 } from "../services/mercadoPagoCheckoutService";
+import { sendChatMessage } from "../services/chatService";
 import { LEAGUE_CATEGORY_OPTIONS } from "../services/leaguesService";
 import { normalizeMercadoPagoConfig } from "../services/mercadoPagoConfigService";
 import { listPlayers } from "../services/playersService";
 import { getTournamentAvailabilitySummaryItems } from "../services/tournamentAvailabilityService";
 import { hasProfileImage } from "../utils/defaultProfileImage";
 import {
+  buildTournamentWelcomeMessage,
   cancelTournamentRegistrationWithdrawal,
   requestTournamentRegistrationWithdrawal,
   registerPairToTournament,
@@ -1200,6 +1202,27 @@ export default function TournamentRegistrationPanel({
             player1: p1,
             player2: p2,
           });
+
+          const hasAvailability = Array.isArray(meta.availability) && meta.availability.length > 0;
+          const welcomeMessage = buildTournamentWelcomeMessage({
+            tournament,
+            organizerName: currentUser?.name,
+            hasAvailability,
+          });
+
+          await Promise.all(
+            [p1, p2]
+              .filter((player) => player?.userId)
+              .map((player) =>
+                sendChatMessage({
+                  currentUserId: currentUser?.uid,
+                  currentUserName: currentUser?.name || "Organizador",
+                  otherUserId: player.userId,
+                  otherUserName: player.name || "Jugador",
+                  text: welcomeMessage,
+                }).catch(() => null)
+              )
+          );
         }
 
         await onRegistrationCreated?.();

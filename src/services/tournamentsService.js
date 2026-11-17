@@ -583,6 +583,37 @@ function buildRegistrationPairLabel(registration = {}) {
   return [registration.player1Name, registration.player2Name].filter(Boolean).join(" / ");
 }
 
+export function formatTournamentDaysLabel(tournament = {}) {
+  const start = Number(tournament?.startDateMillis || 0);
+  const end = Number(tournament?.endDateMillis || 0);
+  const formatDate = (value) =>
+    new Date(value).toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit" });
+
+  if (start && end && end !== start) {
+    return `${formatDate(start)} al ${formatDate(end)}`;
+  }
+
+  if (start) {
+    return formatDate(start);
+  }
+
+  return "a confirmar";
+}
+
+export function buildTournamentWelcomeMessage({ tournament, organizerName, hasAvailability } = {}) {
+  const name = tournament?.name || "el torneo";
+  const days = formatTournamentDaysLabel(tournament);
+  let text = `🎾 ¡Ya estás inscripto al torneo "${name}"!\n📅 Se juega los días ${days}, organizado por ${
+    organizerName || "el organizador"
+  }. ¡Mucha suerte!`;
+
+  if (!hasAvailability) {
+    text += `\n\n⏰ Recordá cargar tus horarios disponibles para jugar, así el organizador puede armar mejor las zonas.`;
+  }
+
+  return text;
+}
+
 function resolveRegistrationSidePlayerId(data = {}, payments = [], side = "player1") {
   const directId = normalizeString(data?.[`${side}Id`]);
 

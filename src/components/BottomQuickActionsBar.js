@@ -31,7 +31,13 @@ function InvitationsActionIcon() {
   );
 }
 
-function QuickActionButton({ label, onPress, renderIcon, showBadge = false, badgeTone = "default" }) {
+function QuickActionButton({
+  label,
+  onPress,
+  renderIcon,
+  badgeCount = 0,
+  badgeTone = "default",
+}) {
   return (
     <Pressable
       onPress={onPress}
@@ -39,13 +45,17 @@ function QuickActionButton({ label, onPress, renderIcon, showBadge = false, badg
     >
       <View style={styles.iconFrame}>
         {renderIcon()}
-        {showBadge ? (
+        {badgeCount > 0 ? (
           <View
             style={[
-              styles.notificationDot,
-              badgeTone === "important" ? styles.notificationDotImportant : null,
+              styles.notificationBadge,
+              badgeTone === "important" ? styles.notificationBadgeImportant : null,
             ]}
-          />
+          >
+            <Text numberOfLines={1} style={styles.notificationBadgeText}>
+              {badgeCount > 9 ? "9+" : String(badgeCount)}
+            </Text>
+          </View>
         ) : null}
       </View>
       <Text numberOfLines={1} style={styles.actionLabel}>
@@ -156,7 +166,7 @@ export default function BottomQuickActionsBar() {
               size={20}
             />
           )}
-          showBadge={unreadSummary.count > 0}
+          badgeCount={unreadSummary.count}
           badgeTone={unreadSummary.hasImportant ? "important" : "default"}
         />
         {!isOrganizer ? (
@@ -164,7 +174,8 @@ export default function BottomQuickActionsBar() {
             label="Invitaciones"
             onPress={() => navigation.navigate("Invitaciones")}
             renderIcon={() => <InvitationsActionIcon />}
-            showBadge={unreadInvitationsCount > 0}
+            badgeCount={unreadInvitationsCount}
+            badgeTone="important"
           />
         ) : null}
         {isOrganizer ? (
@@ -179,7 +190,7 @@ export default function BottomQuickActionsBar() {
                 ) : null}
               </View>
             )}
-            showBadge={pendingReplacementsCount > 0}
+            badgeCount={pendingReplacementsCount}
             badgeTone="important"
           />
         ) : null}
@@ -190,7 +201,7 @@ export default function BottomQuickActionsBar() {
             renderIcon={() => (
               <Ionicons color="#2D5E97" name="clipboard-outline" size={20} />
             )}
-            showBadge={pendingRegistrationsCount > 0}
+            badgeCount={pendingRegistrationsCount}
             badgeTone="important"
           />
         ) : null}
@@ -253,19 +264,29 @@ const styles = StyleSheet.create({
     marginTop: 6,
     textAlign: "center",
   },
-  notificationDot: {
+  notificationBadge: {
+    alignItems: "center",
     backgroundColor: "#E5484D",
     borderColor: colors.surface,
     borderRadius: 999,
     borderWidth: 2,
-    height: 12,
+    height: 18,
+    justifyContent: "center",
+    minWidth: 18,
+    paddingHorizontal: 3,
     position: "absolute",
-    right: -6,
-    top: -4,
-    width: 12,
+    right: -9,
+    top: -7,
   },
-  notificationDotImportant: {
+  notificationBadgeImportant: {
     backgroundColor: "#FF7A00",
+  },
+  notificationBadgeText: {
+    color: colors.surface,
+    fontSize: 10,
+    fontWeight: "900",
+    lineHeight: 12,
+    textAlign: "center",
   },
   composedIconWrap: {
     alignItems: "center",
