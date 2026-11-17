@@ -42,6 +42,10 @@
         "ascApiKeyPath": "D:/AuthKey_8GB7SG5895.p8",
         "ascApiKeyId": "8GB7SG5895",
         "ascApiKeyIssuerId": "ac733ea4-afc6-4b33-989b-1a0b225bbe80"
+      },
+      "android": {
+        "serviceAccountKeyPath": "D:/clave acceso a publicar app json/padelnexo-7e4d5-72ea68b38adf.json",
+        "track": "internal"
       }
     }
   }
