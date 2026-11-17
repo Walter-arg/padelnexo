@@ -28,22 +28,9 @@ function getStatusMeta(status = "") {
   return STATUS_META[status] || STATUS_META.draft;
 }
 
-function buildColorFromString(value = "") {
-  const palette = ["#E4572E", "#1C7ED6", "#0F9D58", "#C77D00", "#D63384", "#6C5CE7"];
-  const normalized = String(value || "").trim();
-
-  if (!normalized) {
-    return "#144234";
-  }
-
-  let hash = 0;
-
-  for (let index = 0; index < normalized.length; index += 1) {
-    hash = (hash * 31 + normalized.charCodeAt(index)) >>> 0;
-  }
-
-  return palette[hash % palette.length];
-}
+// Color unico y acorde a la marca para el titulo del torneo (antes rotaba
+// entre varios colores sin relacion con la paleta de la app).
+const TOURNAMENT_TITLE_COLOR = colors.primaryLight;
 
 function formatPlayDateLabel(startDateMillis = 0, endDateMillis = 0) {
   const start = Number(startDateMillis || 0);
@@ -88,7 +75,7 @@ export default function TournamentHeaderCard({
 }) {
   const statusMeta = getStatusMeta(status);
   const playDateLabel = formatPlayDateLabel(startDateMillis, endDateMillis);
-  const compactTitleColor = buildColorFromString(titleColorSeed || category || title);
+  const compactTitleColor = TOURNAMENT_TITLE_COLOR;
 
   if (compactFriendly) {
     return (
@@ -242,9 +229,9 @@ const styles = StyleSheet.create({
   },
   compactTitle: {
     flexShrink: 1,
-    fontFamily: "serif",
-    fontSize: 22,
-    fontWeight: "700",
+    fontSize: 21,
+    fontWeight: "800",
+    letterSpacing: 0.3,
     lineHeight: 25,
     textAlign: "center",
   },
@@ -327,11 +314,11 @@ const styles = StyleSheet.create({
     zIndex: 1,
   },
   title: {
-    color: colors.text,
+    color: TOURNAMENT_TITLE_COLOR,
     flex: 1,
-    fontFamily: "serif",
     fontSize: 20,
-    fontWeight: "700",
+    fontWeight: "800",
+    letterSpacing: 0.3,
     lineHeight: 24,
     textAlign: "center",
   },
