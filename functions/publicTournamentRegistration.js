@@ -138,6 +138,11 @@ function buildPublicTournamentInfo(tournamentId, tournament, activeCount, organi
     maxPairs,
     registeredCount: activeCount,
     organizerName: normalizeString(tournament.organizerName),
+    venueName: normalizeString(
+      Array.isArray(tournament.venues) && tournament.venues[0]
+        ? tournament.venues[0].name
+        : tournament.complejo?.nombre
+    ),
     coverImage: normalizeString(tournament.coverImage),
     organizerLogoUrl: normalizeString(organizerLogoUrl),
     rules: String(tournament.rules || ""),
