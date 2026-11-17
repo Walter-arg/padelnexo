@@ -2287,6 +2287,21 @@ export default function TournamentDetailScreen({ navigation, route }) {
                 <Ionicons color={colors.primaryDark} name="document-text-outline" size={15} />
                 <Text style={styles.rulesButtonText}>Reglamento</Text>
               </Pressable>
+
+              <Pressable
+                onPress={() =>
+                  navigation.navigate("TournamentRanking", {
+                    organizerId: tournament?.organizerId || tournament?.createdBy || "",
+                  })
+                }
+                style={({ pressed }) => [
+                  styles.rulesButton,
+                  pressed ? styles.rulesButtonPressed : null,
+                ]}
+              >
+                <Ionicons color={colors.primaryDark} name="trophy-outline" size={15} />
+                <Text style={styles.rulesButtonText}>Ranking</Text>
+              </Pressable>
             </View>
 
             {tournament?.coverImage &&
@@ -2502,6 +2517,9 @@ const styles = StyleSheet.create({
   },
   rulesButtonRow: {
     alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.xs,
+    justifyContent: "center",
     marginBottom: spacing.sm,
   },
   rulesButton: {

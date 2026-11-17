@@ -38,6 +38,7 @@ import TournamentPosterViewerScreen from "../screens/TournamentPosterViewerScree
 import TournamentRegistrationScreen from "../screens/TournamentRegistrationScreen";
 import TournamentRegistrationsScreen from "../screens/TournamentRegistrationsScreen";
 import TournamentRulesScreen from "../screens/TournamentRulesScreen";
+import TournamentRankingScreen from "../screens/TournamentRankingScreen";
 import TournamentZonePlanningScreen from "../screens/TournamentZonePlanningScreen";
 import TorneosScreen from "../screens/TorneosScreen";
 import TurnosScreen from "../screens/TurnosScreen";
@@ -353,6 +354,11 @@ export default function AppNavigator() {
       <Stack.Screen
         component={TournamentRulesScreen}
         name="TournamentRules"
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        component={TournamentRankingScreen}
+        name="TournamentRanking"
         options={{ headerShown: false }}
       />
       <Stack.Screen

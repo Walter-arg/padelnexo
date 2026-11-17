@@ -85,6 +85,14 @@ service cloud.firestore {
       allow update, delete: if isOrganizer(resource);
     }
 
+    // Ranking de torneos por organizador: un documento por torneo ya
+    // finalizado (se guarda al cargar el resultado de la final), pensado
+    // para sobrevivir aunque el torneo se borre despues.
+    match /tournamentRankingEntries/{tournamentId} {
+      allow read: if isAuth();
+      allow write: if isAuth() && request.resource.data.organizerId == request.auth.uid;
+    }
+
     // Torneos y subcolecciones
     match /tournaments/{tournamentId} {
       allow read: if isAuth();

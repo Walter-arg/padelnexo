@@ -40,6 +40,7 @@ import {
   listTournamentRegistrations,
   updateTournament,
 } from "../services/tournamentsService";
+import { upsertTournamentRankingEntry } from "../services/tournamentRankingService";
 import {
   buildTournamentDayOptions,
   getTournamentDayLabel,
@@ -8200,6 +8201,16 @@ export default function TournamentFixtureScreen({ navigation, route }) {
     setBracketDraft(nextBracketPreview);
     workingBracketPreviewRef.current = nextBracketPreview;
     scheduleBracketSave(nextBracketPreview);
+
+    const finalRound = (nextBracketPreview?.rounds || [])[(nextBracketPreview?.rounds || []).length - 1];
+
+    if (finalRound?.id === bracketResultEditor?.roundId) {
+      upsertTournamentRankingEntry(
+        { ...tournament, fixtureSetup: { ...tournament?.fixtureSetup, bracketPreview: nextBracketPreview } },
+        registrations
+      ).catch(() => null);
+    }
+
     closeBracketResultEditor();
   };
 
@@ -8378,6 +8389,16 @@ export default function TournamentFixtureScreen({ navigation, route }) {
     setBracketDraft(nextBracketPreview);
     workingBracketPreviewRef.current = nextBracketPreview;
     scheduleBracketSave(nextBracketPreview);
+
+    const finalRound = (nextBracketPreview?.rounds || [])[(nextBracketPreview?.rounds || []).length - 1];
+
+    if (finalRound?.id === bracketResultEditor?.roundId) {
+      upsertTournamentRankingEntry(
+        { ...tournament, fixtureSetup: { ...tournament?.fixtureSetup, bracketPreview: nextBracketPreview } },
+        registrations
+      ).catch(() => null);
+    }
+
     closeBracketResultEditor();
   };
 

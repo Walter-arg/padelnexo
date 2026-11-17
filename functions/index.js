@@ -67,6 +67,13 @@ exports.submitPublicTournamentRegistration = lazyOnRequest(
 // dispara al mandar un mensaje interno (la web no tiene el token push).
 exports.sendPushNotification = lazyOnRequest("./sendPushNotification", "sendPushNotification");
 
+// Ranking de torneos por organizador, consultable sin login (para el link
+// publico que el organizador comparte).
+exports.getPublicOrganizerRanking = lazyOnRequest(
+  "./publicTournamentRanking",
+  "getPublicOrganizerRanking"
+);
+
 // Recibe los eventos de suscripcion de RevenueCat (compra, renovacion,
 // vencimiento) y sincroniza plan/planStatus en Firestore. El Authorization
 // header se valida contra el secreto configurado como "Authorization" en el

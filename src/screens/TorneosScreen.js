@@ -1628,6 +1628,23 @@ export default function TorneosScreen({ navigation, route }) {
         subtitle={resolvedHeaderSubtitle}
       >
         <>
+          {canCreateTournament ? (
+            <View style={styles.rankingButtonRow}>
+              <Pressable
+                onPress={() =>
+                  navigation.navigate("TournamentRanking", { organizerId: currentUserId })
+                }
+                style={({ pressed }) => [
+                  styles.rankingButton,
+                  pressed ? styles.rankingButtonPressed : null,
+                ]}
+              >
+                <Ionicons color={colors.primaryDark} name="trophy-outline" size={16} />
+                <Text style={styles.rankingButtonText}>Ranking</Text>
+              </Pressable>
+            </View>
+          ) : null}
+
           <View style={styles.filterAndMenuRow}>
             <View style={styles.filterInlineWrap}>
               <SectionFilterBar
@@ -2114,6 +2131,30 @@ const styles = StyleSheet.create({
     alignItems: "center",
     flexDirection: "row",
     gap: spacing.sm,
+  },
+  rankingButtonRow: {
+    alignItems: "center",
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.xs,
+  },
+  rankingButton: {
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 999,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 6,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 8,
+  },
+  rankingButtonPressed: {
+    opacity: 0.85,
+  },
+  rankingButtonText: {
+    color: colors.primaryDark,
+    fontSize: 13,
+    fontWeight: "800",
   },
   filterAndMenuRow: {
     alignItems: "center",
