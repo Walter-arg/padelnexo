@@ -2043,6 +2043,7 @@ export default function TournamentDetailScreen({ navigation, route }) {
                 .map((value) => String(value || "").trim())
                 .filter(Boolean)
                 .join(":")}
+              venue={tournament?.venueLabel || ""}
             />
 
             {tournament?.status === "draft" && accessMeta.role === "organizer" ? (

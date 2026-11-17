@@ -11371,6 +11371,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                 .map((value) => String(value || "").trim())
                 .filter(Boolean)
                 .join(":")}
+              venue={tournament?.venueLabel || ""}
             />
 
             {canEditFixture ? (

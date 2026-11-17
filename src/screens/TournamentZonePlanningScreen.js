@@ -1607,6 +1607,7 @@ export default function TournamentZonePlanningScreen({ navigation, route }) {
                 .map((value) => String(value || "").trim())
                 .filter(Boolean)
                 .join(":")}
+              venue={tournament?.venueLabel || ""}
             >
               <Text style={styles.helperText}>
                 Selecciona las parejas y arma las zonas manualmente.

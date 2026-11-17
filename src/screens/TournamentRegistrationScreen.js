@@ -155,6 +155,7 @@ export default function TournamentRegistrationScreen({ navigation, route }) {
               organizerLogoUrl={tournament?.organizerLogoUrl || ""}
               startDateMillis={tournament?.startDateMillis || 0}
               title={tournament?.name || "Torneo"}
+              venue={tournament?.venueLabel || ""}
             />
 
             <TournamentRegistrationPanel

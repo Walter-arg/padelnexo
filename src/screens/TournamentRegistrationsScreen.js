@@ -387,6 +387,7 @@ export default function TournamentRegistrationsScreen({ navigation, route }) {
                     .map((value) => String(value || "").trim())
                     .filter(Boolean)
                     .join(":")}
+                  venue={tournament?.venueLabel || ""}
                 />
 
                 <Pressable

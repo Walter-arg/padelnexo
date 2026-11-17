@@ -754,6 +754,7 @@ export default function TournamentPaymentsScreen({ navigation, route }) {
                 .map((value) => String(value || "").trim())
                 .filter(Boolean)
                 .join(":")}
+              venue={tournament?.venueLabel || ""}
             />
 
             <View style={styles.summaryCard}>

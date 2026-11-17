@@ -93,6 +93,14 @@ export default function TournamentHeaderCard({
             <Text numberOfLines={2} style={[styles.compactTitle, { color: compactTitleColor }]}>
               {title}
             </Text>
+            {venue ? (
+              <View style={styles.compactVenueRow}>
+                <Ionicons color="#2F8FCF" name="business-outline" size={12} />
+                <Text numberOfLines={1} style={styles.compactVenueText}>
+                  {venue}
+                </Text>
+              </View>
+            ) : null}
           </View>
           {posterUrl ? (
             <View style={styles.posterThumbWrap}>
@@ -256,6 +264,18 @@ const styles = StyleSheet.create({
     letterSpacing: 0,
     lineHeight: 12,
     marginBottom: 1,
+  },
+  compactVenueRow: {
+    alignItems: "center",
+    columnGap: 4,
+    flexDirection: "row",
+    justifyContent: "center",
+    marginTop: 2,
+  },
+  compactVenueText: {
+    color: "#2F8FCF",
+    fontSize: 12,
+    fontWeight: "800",
   },
   organizerLogoPlaceholder: {
     alignItems: "center",

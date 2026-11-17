@@ -89,6 +89,17 @@ export default function LeagueHeaderCard({
         ) : null}
 
         <View style={styles.metaList}>
+          {complexName ? (
+            <View style={styles.metaItem}>
+              <View style={styles.metaIconSlot}>
+                <Ionicons color="#2F8FCF" name="business-outline" size={16} />
+              </View>
+              <Text numberOfLines={1} style={[styles.metaText, styles.metaTextStrong]}>
+                {complexName}
+              </Text>
+            </View>
+          ) : null}
+
           {metaCategory ? (
             <View style={styles.metaItem}>
               <View style={styles.metaIconSlot}>
@@ -119,17 +130,6 @@ export default function LeagueHeaderCard({
               {scheduleSummary}
             </Text>
           </View>
-
-          {complexName ? (
-            <View style={styles.metaItem}>
-              <View style={styles.metaIconSlot}>
-                <Ionicons color="#2F8FCF" name="business-outline" size={16} />
-              </View>
-              <Text numberOfLines={1} style={[styles.metaText, styles.metaTextStrong]}>
-                {complexName}
-              </Text>
-            </View>
-          ) : null}
         </View>
       </View>
 
