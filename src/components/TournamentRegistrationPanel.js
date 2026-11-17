@@ -1359,7 +1359,7 @@ export default function TournamentRegistrationPanel({
     }
   };
 
-  const registrationIsOpen = ["published", "registration_open"].includes(tournament?.status);
+  const registrationIsOpen = tournament?.status === "registration_open";
   const showClosedNotice = !registration && !isOrganizerCreating && !registrationIsOpen;
 
   const submitButtonTitle = registration
@@ -1383,7 +1383,9 @@ export default function TournamentRegistrationPanel({
         {!isOrganizerCreating ? (
           <Text style={styles.blockTextCentered}>
             {showClosedNotice
-              ? "El organizador cerro las inscripciones para este torneo. Ya no se pueden anotar nuevas parejas."
+              ? tournament?.status === "registration_closed"
+                ? "El organizador cerro las inscripciones para este torneo. Ya no se pueden anotar nuevas parejas."
+                : "El organizador todavia no abrio las inscripciones para este torneo."
               : registration
               ? isOrganizerEditing
                 ? "Edita la pareja, los pagos y la disponibilidad de esta inscripcion."
@@ -1395,7 +1397,9 @@ export default function TournamentRegistrationPanel({
         {showClosedNotice ? (
           <View style={styles.closedNoticeCard}>
             <Ionicons color="#B66A16" name="lock-closed-outline" size={20} />
-            <Text style={styles.closedNoticeText}>Inscripciones cerradas</Text>
+            <Text style={styles.closedNoticeText}>
+              {tournament?.status === "registration_closed" ? "Inscripciones cerradas" : "Inscripciones aun no abiertas"}
+            </Text>
           </View>
         ) : null}
 

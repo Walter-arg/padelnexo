@@ -492,10 +492,10 @@ function getRegistrationChipMeta(registration = null, isRegistrationClosed = fal
     }
 
     return {
-      accent: "#4C3A00",
-      border: "#D7CA22",
+      accent: "#0F7A4F",
+      border: "#9FE3C6",
       label: "Inscribirse",
-      tint: "#F8F05A",
+      tint: "#EAFBF3",
     };
   }
 
@@ -527,10 +527,10 @@ function getRegistrationChipMeta(registration = null, isRegistrationClosed = fal
   }
 
   return {
-    accent: "#111111",
-    border: "#E6D76B",
+    accent: "#9B6A18",
+    border: "#E8CF9B",
     label: "Esperando confirmacion",
-    tint: "#FFF6A8",
+    tint: "#FFF6EA",
   };
 }
 
@@ -554,7 +554,7 @@ function TournamentCard({
   const isRegistrationClosed =
     isPlayerFacingCard &&
     !hasRegistration &&
-    (item.displayStatus || item.status) === "registration_closed";
+    ["published", "registration_closed"].includes(item.displayStatus || item.status);
   const registrationChipMeta = getRegistrationChipMeta(registration, isRegistrationClosed);
   const isWithdrawnRegistration = registration?.withdrawalStatus === "confirmed";
   const isCardDisabled = isPlayerFacingCard && (isWithdrawnRegistration || isRegistrationClosed);

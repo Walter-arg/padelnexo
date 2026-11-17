@@ -2008,7 +2008,7 @@ export async function registerPairToTournament(tournamentId, payload = {}) {
     throw new Error("No encontramos el torneo.");
   }
 
-  if (!["published", "registration_open"].includes(tournament.status)) {
+  if (!payload.allowGuestPlayers && tournament.status !== "registration_open") {
     throw new Error("La inscripcion del torneo todavia no esta disponible.");
   }
 
@@ -2103,7 +2103,7 @@ export async function updateTournamentRegistration(tournamentId, registrationId,
     throw new Error("No encontramos el torneo.");
   }
 
-  if (!["published", "registration_open"].includes(tournament.status)) {
+  if (!payload.allowGuestPlayers && tournament.status !== "registration_open") {
     throw new Error("La inscripcion del torneo ya no esta disponible para editar.");
   }
 
