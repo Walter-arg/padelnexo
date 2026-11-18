@@ -127,6 +127,7 @@ function buildPublicTournamentInfo(tournamentId, tournament, activeCount, organi
   const maxPairs = Number(tournament.maxPairs || 0);
   const isOpenStatus = OPEN_STATUSES.has(String(tournament.status || ""));
   const isFull = maxPairs > 0 && activeCount >= maxPairs;
+  const composition = tournament.compositionConfig || {};
 
   return {
     id: tournamentId,
@@ -134,6 +135,11 @@ function buildPublicTournamentInfo(tournamentId, tournament, activeCount, organi
     startDateMillis: Number(tournament.startDateMillis || 0),
     endDateMillis: Number(tournament.endDateMillis || 0),
     compositionLabel: normalizeString(tournament.compositionConfig?.label || tournament.compositionLabel),
+    categoryFormat: normalizeString(composition.categoryFormat, "libre"),
+    sumRule: normalizeString(composition.sumRule),
+    sumTarget: Number(composition.sumTarget || 0),
+    fixedCategoryA: normalizeString(composition.fixedCategoryA),
+    fixedCategoryB: normalizeString(composition.fixedCategoryB),
     entryFee: Number(tournament.entryFee || 0),
     maxPairs,
     registeredCount: activeCount,
@@ -212,6 +218,8 @@ const submitPublicTournamentRegistration = onRequest({ invoker: "public" }, asyn
     const tournamentId = normalizeString(payload.tournamentId);
     const player1Name = normalizeString(payload.player1Name);
     const player2Name = normalizeString(payload.player2Name);
+    const player1Category = normalizeString(payload.player1Category).slice(0, 20);
+    const player2Category = normalizeString(payload.player2Category).slice(0, 20);
     const contactPhone = normalizeString(payload.contactPhone).slice(0, 40);
     const notes = normalizeString(payload.notes).slice(0, 500);
 
@@ -266,8 +274,10 @@ const submitPublicTournamentRegistration = onRequest({ invoker: "public" }, asyn
     const registrationPayload = {
       player1Id: "",
       player1Name,
+      player1Category,
       player2Id: "",
       player2Name,
+      player2Category,
       pairLabel,
       status: "pending",
       availability,

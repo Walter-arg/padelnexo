@@ -299,7 +299,7 @@ export default function TournamentRegistrationsScreen({ navigation, route }) {
     }
   };
 
-  const renderPlayerRow = (playerId, fallbackName) => {
+  const renderPlayerRow = (playerId, fallbackName, fallbackCategory) => {
     const player = playersMap[playerId] || null;
     const displayName =
       player ? [player.nombre, player.apellido].filter(Boolean).join(" ").trim() : fallbackName || "Jugador";
@@ -318,7 +318,7 @@ export default function TournamentRegistrationsScreen({ navigation, route }) {
         <View style={styles.playerCopy}>
           <Text style={styles.playerName}>{displayName}</Text>
           <Text style={styles.playerMeta}>
-            {player?.categoria || "Categoria a confirmar"}
+            {player?.categoria || fallbackCategory || "Categoria a confirmar"}
             {player?.ciudad ? ` · ${player.ciudad}` : ""}
           </Text>
         </View>
@@ -453,9 +453,9 @@ export default function TournamentRegistrationsScreen({ navigation, route }) {
                   ) : null}
 
                   <View style={styles.playersStack}>
-                    {renderPlayerRow(item.player1Id || `${item.id}-player1`, item.player1Name)}
+                    {renderPlayerRow(item.player1Id || `${item.id}-player1`, item.player1Name, item.player1Category)}
                     {item.player2Name
-                      ? renderPlayerRow(item.player2Id || `${item.id}-player2`, item.player2Name)
+                      ? renderPlayerRow(item.player2Id || `${item.id}-player2`, item.player2Name, item.player2Category)
                       : null}
                   </View>
 

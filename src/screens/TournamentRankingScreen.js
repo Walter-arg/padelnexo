@@ -142,10 +142,11 @@ export default function TournamentRankingScreen({ navigation, route }) {
 
   const handleShareLink = async () => {
     const url = `${PUBLIC_RANKING_BASE_URL}/${organizerId}`;
+    const clubLabel = venueName || organizerProfile?.name || "este organizador";
 
     try {
       await NativeShare.share({
-        message: `Mira el ranking de torneos de ${organizerProfile?.name || "este organizador"}: ${url}`,
+        message: `Mira el ranking de torneos de ${clubLabel}: ${url}`,
       });
     } catch (error) {
       // El usuario cerro el panel de compartir.
