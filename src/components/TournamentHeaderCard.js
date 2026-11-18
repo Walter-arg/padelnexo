@@ -149,6 +149,18 @@ export default function TournamentHeaderCard({
             </Text>
           </View>
         </View>
+        <View style={styles.compactStatusRow}>
+          <View
+            style={[
+              styles.compactStatusPill,
+              { backgroundColor: statusMeta.tint, borderColor: statusMeta.border },
+            ]}
+          >
+            <Text style={[styles.compactStatusText, { color: statusMeta.accent }]}>
+              {statusMeta.label}
+            </Text>
+          </View>
+        </View>
         {children}
       </View>
     );
@@ -388,6 +400,24 @@ const styles = StyleSheet.create({
     minHeight: 24,
     justifyContent: "center",
     paddingHorizontal: spacing.sm,
+  },
+  compactStatusRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "center",
+    marginTop: 6,
+  },
+  compactStatusPill: {
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+  },
+  compactStatusText: {
+    fontSize: 11,
+    fontWeight: "900",
+    letterSpacing: 0.3,
+    textTransform: "uppercase",
   },
   statusText: {
     fontSize: 11,

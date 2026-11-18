@@ -1,5 +1,13 @@
 import { useCallback, useMemo, useState } from "react";
-import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from "react-native";
+import {
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -140,14 +148,21 @@ export default function TournamentRegistrationScreen({ navigation, route }) {
         }
       />
 
-      <View style={styles.container}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        style={styles.container}
+      >
         {loading ? (
           <View style={styles.loaderWrap}>
             <ActivityIndicator color={colors.primaryDark} />
             <Text style={styles.loaderText}>Cargando inscripcion...</Text>
           </View>
         ) : tournament ? (
-          <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+          <ScrollView
+            contentContainerStyle={styles.scrollContent}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
             <TournamentHeaderCard
               category={tournament?.compositionConfig?.label || tournament?.compositionLabel || ""}
               compactFriendly
@@ -189,7 +204,7 @@ export default function TournamentRegistrationScreen({ navigation, route }) {
             <Text style={styles.loaderText}>No encontramos el torneo.</Text>
           </View>
         )}
-      </View>
+      </KeyboardAvoidingView>
 
       <FeedbackModal
         message={feedback.message}

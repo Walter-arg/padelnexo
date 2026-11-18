@@ -826,12 +826,21 @@ export default function HomeScreen({ navigation, route }) {
     [currentUser]
   );
   const homeTournamentSlides = useMemo(() => {
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    const todayMillis = startOfToday.getTime();
+
     const visibleTournaments = tournamentsPreview.filter(shouldShowTournamentInHomeCarousel);
     const ownTournaments = isOrganizerAccount
       ? visibleTournaments.filter((tournament) => belongsToOrganizer(tournament, userData?.uid))
       : visibleTournaments;
+    // Solo proximos: si ya tiene fechas cargadas y ya paso, no lo mostramos mas aca.
+    const upcomingTournaments = ownTournaments.filter((tournament) => {
+      const endReference = Number(tournament.endDateMillis || tournament.startDateMillis || 0);
+      return !endReference || endReference >= todayMillis;
+    });
 
-    return ownTournaments
+    return upcomingTournaments
       .sort((first, second) => {
         const firstValue = Number(first.startDateMillis || first.createdAtMillis || 0);
         const secondValue = Number(second.startDateMillis || second.createdAtMillis || 0);
@@ -1111,7 +1120,7 @@ export default function HomeScreen({ navigation, route }) {
                   : selectedMenuItem.key === "Ligas"
                     ? "RESUMEN DE LIGAS"
                     : selectedMenuItem.key === "Torneos"
-                      ? "RESUMEN DE TORNEOS"
+                      ? "PROXIMOS TORNEOS"
                       : selectedMenuItem.key === "Turnos"
                         ? "RESUMEN DE TURNOS"
                         : selectedMenuItem.label}

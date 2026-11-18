@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Animated,
   FlatList,
   Image,
   Modal,
@@ -495,7 +496,7 @@ function getRegistrationChipMeta(registration = null, isRegistrationClosed = fal
     return {
       accent: "#0F7A4F",
       border: "#9FE3C6",
-      label: "Inscribirse",
+      label: "¡Inscribite aqui! 🎾",
       tint: "#EAFBF3",
     };
   }
@@ -535,6 +536,48 @@ function getRegistrationChipMeta(registration = null, isRegistrationClosed = fal
   };
 }
 
+// Reemplaza el chip estatico de "Inscripciones abiertas" por un cartel que
+// se desliza de derecha a izquierda, para darle mas vida a esa linea.
+function MarqueeChip({ text, tint, border, accent }) {
+  const translateX = useRef(new Animated.Value(0)).current;
+  const [containerWidth, setContainerWidth] = useState(0);
+  const [textWidth, setTextWidth] = useState(0);
+
+  useEffect(() => {
+    if (!containerWidth || !textWidth) {
+      return undefined;
+    }
+
+    translateX.setValue(containerWidth);
+    const animation = Animated.loop(
+      Animated.timing(translateX, {
+        toValue: -textWidth,
+        duration: Math.max(4500, (containerWidth + textWidth) * 18),
+        isInteraction: false,
+        useNativeDriver: true,
+      })
+    );
+    animation.start();
+
+    return () => animation.stop();
+  }, [containerWidth, textWidth, translateX]);
+
+  return (
+    <View
+      onLayout={(event) => setContainerWidth(event.nativeEvent.layout.width)}
+      style={[styles.marqueeWrap, { backgroundColor: tint, borderColor: border }]}
+    >
+      <Animated.Text
+        numberOfLines={1}
+        onLayout={(event) => setTextWidth(event.nativeEvent.layout.width)}
+        style={[styles.marqueeText, { color: accent, transform: [{ translateX }] }]}
+      >
+        {text}
+      </Animated.Text>
+    </View>
+  );
+}
+
 function TournamentCard({
   canManageTournament,
   item,
@@ -564,6 +607,8 @@ function TournamentCard({
     !canManageTournament && (item.displayStatus || item.status) === "published"
       ? "Proximamente"
       : statusMeta.label;
+  const isOpenForPlayerMarquee =
+    !canManageTournament && (item.displayStatus || item.status) === "registration_open";
   const showRegistrationCta =
     !canManageTournament &&
     ["published", "registration_open", "registration_closed"].includes(
@@ -586,58 +631,67 @@ function TournamentCard({
           <View style={styles.playerStatusWrap}>
             <View style={styles.playerStatusRow}>
               <View style={styles.playerStatusLeft}>
-                <View
-                  style={[
-                    styles.statusPill,
-                    styles.playerStatusPill,
-                    canManageTournament ? styles.draftStatusPill : styles.playerStatusPillSplit,
-                    {
-                      backgroundColor: statusMeta.tint,
-                      borderColor: statusMeta.border,
-                    },
-                  ]}
-                >
-                  <View style={styles.draftStatusContent}>
-                    <Text
-                      style={[
-                        styles.statusPillText,
-                        styles.playerStatusPillText,
-                        { color: statusMeta.accent },
-                      ]}
-                    >
-                      {statusLabel}
-                    </Text>
-                    {showDraftDelete || showCancelledDelete ? (
-                      <View style={styles.draftChipActions}>
-                        {showDraftDelete ? (
+                {isOpenForPlayerMarquee ? (
+                  <MarqueeChip
+                    accent={statusMeta.accent}
+                    border={statusMeta.border}
+                    text="🎾 Inscripciones abiertas · ¡Anotate ya! 🎾"
+                    tint={statusMeta.tint}
+                  />
+                ) : (
+                  <View
+                    style={[
+                      styles.statusPill,
+                      styles.playerStatusPill,
+                      canManageTournament ? styles.draftStatusPill : styles.playerStatusPillSplit,
+                      {
+                        backgroundColor: statusMeta.tint,
+                        borderColor: statusMeta.border,
+                      },
+                    ]}
+                  >
+                    <View style={styles.draftStatusContent}>
+                      <Text
+                        style={[
+                          styles.statusPillText,
+                          styles.playerStatusPillText,
+                          { color: statusMeta.accent },
+                        ]}
+                      >
+                        {statusLabel}
+                      </Text>
+                      {showDraftDelete || showCancelledDelete ? (
+                        <View style={styles.draftChipActions}>
+                          {showDraftDelete ? (
+                            <Pressable
+                              hitSlop={8}
+                              onPress={() => onEditDraft?.(item)}
+                              style={({ pressed }) => [
+                                styles.draftChipButton,
+                                pressed && styles.draftChipButtonPressed,
+                              ]}
+                            >
+                              <Ionicons color={colors.primaryDark} name="create-outline" size={14} />
+                            </Pressable>
+                          ) : null}
                           <Pressable
                             hitSlop={8}
-                            onPress={() => onEditDraft?.(item)}
+                            onPress={() =>
+                              showCancelledDelete ? onDeleteCancelled?.(item) : onDeleteDraft?.(item)
+                            }
                             style={({ pressed }) => [
                               styles.draftChipButton,
+                              styles.draftChipDeleteButton,
                               pressed && styles.draftChipButtonPressed,
                             ]}
                           >
-                            <Ionicons color={colors.primaryDark} name="create-outline" size={14} />
+                            <Ionicons color="#B24343" name="trash-outline" size={14} />
                           </Pressable>
-                        ) : null}
-                        <Pressable
-                          hitSlop={8}
-                          onPress={() =>
-                            showCancelledDelete ? onDeleteCancelled?.(item) : onDeleteDraft?.(item)
-                          }
-                          style={({ pressed }) => [
-                            styles.draftChipButton,
-                            styles.draftChipDeleteButton,
-                            pressed && styles.draftChipButtonPressed,
-                          ]}
-                        >
-                          <Ionicons color="#B24343" name="trash-outline" size={14} />
-                        </Pressable>
-                      </View>
-                    ) : null}
+                        </View>
+                      ) : null}
+                    </View>
                   </View>
-                </View>
+                )}
                 {!canManageTournament ? (
                   <Pressable
                     disabled={isCardDisabled}
@@ -2493,6 +2547,22 @@ const styles = StyleSheet.create({
   playerStatusPill: {
     minHeight: 34,
     paddingHorizontal: spacing.sm,
+  },
+  marqueeWrap: {
+    alignItems: "center",
+    borderRadius: 999,
+    borderWidth: 1,
+    flex: 1,
+    height: 34,
+    justifyContent: "center",
+    overflow: "hidden",
+  },
+  marqueeText: {
+    fontSize: 11,
+    fontWeight: "900",
+    letterSpacing: 0.2,
+    position: "absolute",
+    textAlign: "center",
   },
   playerStatusPillSplit: {
     alignItems: "center",

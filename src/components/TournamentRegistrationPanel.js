@@ -307,6 +307,7 @@ export default function TournamentRegistrationPanel({
   const [availabilityEditorVisible, setAvailabilityEditorVisible] = useState(false);
   const [receiptAsset, setReceiptAsset] = useState(null);
   const [submitting, setSubmitting] = useState(false);
+  const [justSubmitted, setJustSubmitted] = useState(false);
   const [paymentTargetPlayerId, setPaymentTargetPlayerId] = useState("");
   const [paymentMethodByPlayer, setPaymentMethodByPlayer] = useState({});
   const [receiptAssetByPlayer, setReceiptAssetByPlayer] = useState({});
@@ -1137,14 +1138,14 @@ export default function TournamentRegistrationPanel({
     }
   };
 
-  const handleSubmitRegistration = async (bypassMaxPairs = false) => {
+  const handleSubmitRegistration = async ({ bypassMaxPairs = false, silent = false } = {}) => {
     if (!currentUser?.uid) {
       showFeedback(
         "Sesion requerida",
         "Necesitas iniciar sesion para inscribirte en un torneo.",
         "danger"
       );
-      return;
+      return false;
     }
 
     if (
@@ -1159,13 +1160,13 @@ export default function TournamentRegistrationPanel({
         "Adjunta el comprobante antes de enviar la solicitud.",
         "danger"
       );
-      return;
+      return false;
     }
 
     if (isOrganizerCreating) {
       if (!pendingPairs.length) {
         showFeedback("Sin parejas", "Selecciona al menos una pareja para inscribir.", "danger");
-        return;
+        return false;
       }
 
       if (bypassMaxPairs !== true) {
@@ -1180,7 +1181,7 @@ export default function TournamentRegistrationPanel({
               adding: pendingPairs.length,
               exceso,
             });
-            return;
+            return false;
           }
         }
       }
@@ -1247,17 +1248,19 @@ export default function TournamentRegistrationPanel({
             : `${pendingPairs.length} parejas inscriptas exitosamente.`,
           "success"
         );
+
+        return true;
       } catch (error) {
         showFeedback(
           "No pudimos cargar las parejas",
           error?.message || "Intenta nuevamente en unos instantes.",
           "danger"
         );
+
+        return false;
       } finally {
         setSubmitting(false);
       }
-
-      return;
     }
 
     try {
@@ -1282,7 +1285,7 @@ export default function TournamentRegistrationPanel({
       if (!player1Payload) {
         showFeedback("Falta jugador principal", "Selecciona o crea el jugador principal de la pareja.", "danger");
         setSubmitting(false);
-        return;
+        return false;
       }
 
       const savedRegistration = registration
@@ -1344,6 +1347,10 @@ export default function TournamentRegistrationPanel({
 
       await onRegistrationCreated?.();
 
+      if (!registration && !isOrganizerCreating && !silent) {
+        setJustSubmitted(true);
+      }
+
       showFeedback(
         registration
           ? "Inscripcion actualizada"
@@ -1359,12 +1366,16 @@ export default function TournamentRegistrationPanel({
           : "El organizador va a revisar tu solicitud. Pronto puede ser confirmada.",
         "success"
       );
+
+      return true;
     } catch (error) {
       showFeedback(
         registration ? "No pudimos actualizar la inscripcion" : "No pudimos registrar la solicitud",
         error?.message || "Intenta nuevamente en unos instantes.",
         "danger"
       );
+
+      return false;
     } finally {
       setSubmitting(false);
     }
@@ -1386,6 +1397,14 @@ export default function TournamentRegistrationPanel({
       : tournament?.pairConfirmationMode === "one_paid"
       ? `Alcanza con que uno de los dos pague la inscripcion ($${entryFeeAmount}) para quedar confirmados.`
       : `El pago es opcional en este paso ($${entryFeeAmount}): el organizador va a confirmar la inscripcion manualmente.`;
+  const paymentActionHint =
+    entryFeeAmount <= 0
+      ? ""
+      : !registration
+      ? "Primero envia la solicitud. Despues vas a poder pagar con Mercado Pago o subir el comprobante de la transferencia desde esta misma pantalla."
+      : tournamentMercadoPagoEnabled
+      ? ""
+      : "No te olvides de subir el comprobante de tu transferencia aqui abajo para que el organizador pueda confirmar el pago.";
 
   const submitButtonTitle = registration
     ? submitting
@@ -1434,10 +1453,32 @@ export default function TournamentRegistrationPanel({
 
         {!showClosedNotice && isGuidedPlayerFlow ? (
           <View style={styles.stepProgressWrap}>
-            <View style={styles.stepProgressTrack}>
-              <View style={[styles.stepProgressFill, { width: `${(stepNumber / 3) * 100}%` }]} />
+            <Text style={styles.stepProgressLabel}>PASO {stepNumber} DE 3</Text>
+            <View style={styles.stepSegmentsRow}>
+              {["Compañero", "Disponibilidad", "Pago"].map((label, index) => {
+                const step = index + 1;
+                const isDone = step < stepNumber;
+                const isActive = step === stepNumber;
+
+                return (
+                  <View key={label} style={styles.stepSegmentItem}>
+                    <View
+                      style={[
+                        styles.stepSegmentBar,
+                        (isDone || isActive) && styles.stepSegmentBarActive,
+                      ]}
+                    />
+                    <Text
+                      numberOfLines={1}
+                      style={[styles.stepSegmentLabel, isActive && styles.stepSegmentLabelActive]}
+                    >
+                      {isDone ? "✓ " : ""}
+                      {label}
+                    </Text>
+                  </View>
+                );
+              })}
             </View>
-            <Text style={styles.stepProgressLabel}>Paso {stepNumber} de 3</Text>
           </View>
         ) : null}
 
@@ -1870,7 +1911,18 @@ export default function TournamentRegistrationPanel({
                 variant="secondary"
               />
               <AppButton
-                onPress={() => setActivePanel("payments")}
+                disabled={submitting}
+                onPress={async () => {
+                  if (!tournamentMercadoPagoEnabled || registration) {
+                    setActivePanel("payments");
+                    return;
+                  }
+
+                  const success = await handleSubmitRegistration({ silent: true });
+                  if (success) {
+                    setActivePanel("payments");
+                  }
+                }}
                 style={styles.stepNavButton}
                 title="SIGUIENTE"
               />
@@ -1890,7 +1942,10 @@ export default function TournamentRegistrationPanel({
           {isGuidedPlayerFlow ? (
             <View style={styles.paymentHintCard}>
               <Ionicons color={colors.primaryDark} name="information-circle" size={18} />
-              <Text style={styles.paymentHintText}>{paymentStepHint}</Text>
+              <Text style={styles.paymentHintText}>
+                {paymentStepHint}
+                {paymentActionHint ? `\n\n${paymentActionHint}` : ""}
+              </Text>
             </View>
           ) : null}
           {isOrganizerPaymentEditor ? (
@@ -2001,6 +2056,7 @@ export default function TournamentRegistrationPanel({
               <Text style={styles.blockTextCentered}>
                 Alias: {tournament?.paymentAlias || "Alias a confirmar por organizador"}
               </Text>
+              <Text style={styles.receiptSectionTitle}>CARGAR COMPROBANTE DE TRANSFERENCIA</Text>
               {availablePayments.length > 1 ? (
                 <View style={styles.paymentTargetsRow}>
                   {availablePayments.map((payment) => {
@@ -2098,7 +2154,17 @@ export default function TournamentRegistrationPanel({
         </View>
       ) : null}
 
-      {!showClosedNotice && (isOrganizerPaymentEditor || activePanel === "payments") ? (
+      {!showClosedNotice && isGuidedPlayerFlow && justSubmitted ? (
+        <View style={styles.sentConfirmationCard}>
+          <Ionicons color="#0F5F36" name="checkmark-circle" size={20} />
+          <Text style={styles.sentConfirmationText}>
+            Tu solicitud ya fue enviada. El organizador la va a revisar.
+          </Text>
+          <Pressable onPress={() => setJustSubmitted(false)}>
+            <Text style={styles.sentConfirmationLink}>Hacer otro cambio</Text>
+          </Pressable>
+        </View>
+      ) : !showClosedNotice && (isOrganizerPaymentEditor || activePanel === "payments") ? (
         <AppButton
           disabled={
             submitting ||
@@ -2553,7 +2619,7 @@ export default function TournamentRegistrationPanel({
               <Pressable
                 onPress={() => {
                   setMaxPairsConfirm(null);
-                  handleSubmitRegistration(true);
+                  handleSubmitRegistration({ bypassMaxPairs: true });
                 }}
                 style={({ pressed }) => [styles.maxPairsBtnPrimary, pressed && styles.maxPairsBtnPressed]}
               >
@@ -2592,6 +2658,15 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     marginTop: spacing.xs,
     textAlign: "center",
+  },
+  receiptSectionTitle: {
+    color: colors.primaryDark,
+    fontSize: 13,
+    fontWeight: "900",
+    letterSpacing: 0.3,
+    marginTop: spacing.md,
+    textAlign: "center",
+    textTransform: "uppercase",
   },
   blockTitleCentered: {
     color: colors.primaryDark,
@@ -3406,28 +3481,46 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
   },
   stepProgressWrap: {
+    backgroundColor: "#F0F7F4",
+    borderRadius: 16,
     marginTop: spacing.sm,
-  },
-  stepProgressTrack: {
-    backgroundColor: colors.border,
-    borderRadius: 999,
-    height: 8,
-    overflow: "hidden",
-    width: "100%",
-  },
-  stepProgressFill: {
-    backgroundColor: colors.primaryLight,
-    borderRadius: 999,
-    height: 8,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
   },
   stepProgressLabel: {
     color: colors.primaryDark,
-    fontSize: 12,
+    fontSize: 15,
     fontWeight: "900",
-    letterSpacing: 0.3,
-    marginTop: spacing.xs,
+    letterSpacing: 0.4,
+    marginBottom: spacing.xs,
     textAlign: "center",
     textTransform: "uppercase",
+  },
+  stepSegmentsRow: {
+    flexDirection: "row",
+    gap: spacing.xs,
+  },
+  stepSegmentItem: {
+    flex: 1,
+  },
+  stepSegmentBar: {
+    backgroundColor: colors.border,
+    borderRadius: 999,
+    height: 6,
+    marginBottom: 4,
+  },
+  stepSegmentBarActive: {
+    backgroundColor: colors.primaryLight,
+  },
+  stepSegmentLabel: {
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: "700",
+    textAlign: "center",
+  },
+  stepSegmentLabelActive: {
+    color: colors.primaryDark,
+    fontWeight: "900",
   },
   stepIconBadge: {
     alignItems: "center",
@@ -3465,6 +3558,28 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "700",
     lineHeight: 18,
+  },
+  sentConfirmationCard: {
+    alignItems: "center",
+    backgroundColor: "#EEF9F1",
+    borderColor: "#B7DFBF",
+    borderRadius: 16,
+    borderWidth: 1,
+    gap: 6,
+    padding: spacing.lg,
+  },
+  sentConfirmationText: {
+    color: "#0F5F36",
+    fontSize: 14,
+    fontWeight: "800",
+    textAlign: "center",
+  },
+  sentConfirmationLink: {
+    color: colors.primaryDark,
+    fontSize: 13,
+    fontWeight: "800",
+    marginTop: spacing.xs,
+    textDecorationLine: "underline",
   },
   registrationActionText: {
     color: colors.text,
