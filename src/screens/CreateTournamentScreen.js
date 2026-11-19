@@ -699,6 +699,7 @@ export default function CreateTournamentScreen({ navigation, route }) {
     index: -1,
   });
   const [temporaryComplexVisible, setTemporaryComplexVisible] = useState(false);
+  const [ruleSetInfoExpanded, setRuleSetInfoExpanded] = useState(false);
   const [temporaryComplex, setTemporaryComplex] = useState(() => createEmptyComplex());
   const [datePickerTarget, setDatePickerTarget] = useState("");
 
@@ -1393,6 +1394,72 @@ export default function CreateTournamentScreen({ navigation, route }) {
             title="AGREGAR LUGAR TEMPORAL"
             variant="secondary"
           />
+        </View>
+
+        <View style={styles.sectionCard}>
+          <Text style={styles.sectionTitle}>TIPO DE TORNEO</Text>
+          <View style={styles.confirmationList}>
+            {TOURNAMENT_RULESET_OPTIONS.map((option) => {
+              const isActive = form.tournamentRuleSet === option.value;
+
+              return (
+                <Pressable
+                  key={option.value}
+                  onPress={() =>
+                    setForm((current) => ({ ...current, tournamentRuleSet: option.value }))
+                  }
+                  style={[
+                    styles.confirmationOption,
+                    isActive && styles.confirmationOptionActive,
+                  ]}
+                >
+                  <View
+                    style={[
+                      styles.confirmationBullet,
+                      isActive && styles.confirmationBulletActive,
+                    ]}
+                  />
+                  <Text
+                    style={[
+                      styles.confirmationOptionText,
+                      isActive && styles.confirmationOptionTextActive,
+                    ]}
+                  >
+                    {option.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          <Text style={styles.confirmationDescription}>
+            {getTournamentRuleSetOptionMeta(form.tournamentRuleSet).description}
+          </Text>
+
+          <Pressable
+            onPress={() => setRuleSetInfoExpanded((current) => !current)}
+            style={styles.ruleSetInfoToggle}
+          >
+            <Ionicons color={colors.primaryDark} name="information-circle-outline" size={14} />
+            <Text style={styles.ruleSetInfoToggleText}>
+              {ruleSetInfoExpanded ? "Ocultar explicacion" : "Como se arman las zonas y llaves"}
+            </Text>
+          </Pressable>
+          {ruleSetInfoExpanded ? (
+            <View style={styles.ruleSetInfoBox}>
+              <Text style={styles.ruleSetInfoText}>
+                <Text style={styles.ruleSetInfoBold}>Torneo FAP: </Text>
+                de cada zona de 4 parejas avanzan 3 a la fase eliminatoria. Al clasificar mas
+                parejas por zona, el cuadro final es mas grande y el torneo tiene mas partidos y
+                fechas, ideal si queres que casi todos jueguen mas de una ronda eliminatoria.
+              </Text>
+              <Text style={[styles.ruleSetInfoText, styles.ruleSetInfoTextSpaced]}>
+                <Text style={styles.ruleSetInfoBold}>Torneo APA: </Text>
+                de cada zona de 4 parejas avanzan solo 2 a la fase eliminatoria. El cuadro final
+                es mas chico, por lo que el torneo se resuelve en menos partidos y fechas, ideal
+                para torneos mas cortos o con menos dias de juego.
+              </Text>
+            </View>
+          ) : null}
         </View>
 
         <View style={styles.sectionCard}>
@@ -2101,25 +2168,37 @@ const styles = StyleSheet.create({
   confirmationOptionTextActive: {
     color: colors.primaryDark,
   },
-  ruleSetOption: {
-    alignItems: "flex-start",
-    paddingVertical: spacing.sm,
-  },
-  ruleSetCopy: {
-    flex: 1,
-  },
-  ruleSetSubtitle: {
-    color: colors.text,
-    fontSize: 12,
-    fontWeight: "800",
+  ruleSetInfoToggle: {
+    alignItems: "center",
+    alignSelf: "center",
+    flexDirection: "row",
+    gap: 4,
     marginTop: 2,
   },
-  ruleSetDescription: {
+  ruleSetInfoToggleText: {
+    color: colors.primaryDark,
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  ruleSetInfoBox: {
+    backgroundColor: "#F7FBF8",
+    borderColor: colors.border,
+    borderRadius: 10,
+    borderWidth: 1,
+    marginTop: spacing.sm,
+    padding: spacing.sm,
+  },
+  ruleSetInfoText: {
     color: colors.muted,
     fontSize: 12,
-    fontWeight: "700",
     lineHeight: 17,
-    marginTop: 3,
+  },
+  ruleSetInfoTextSpaced: {
+    marginTop: spacing.xs,
+  },
+  ruleSetInfoBold: {
+    color: colors.text,
+    fontWeight: "900",
   },
   confirmationDescription: {
     color: "#1E88C8",
