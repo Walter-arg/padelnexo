@@ -2396,14 +2396,17 @@ export default function TournamentDetailScreen({ navigation, route }) {
                   Linking.openURL(`https://wa.me/${organizerWhatsAppNumber}`).catch(() => {})
                 }
                 style={({ pressed }) => [
-                  styles.organizerWhatsAppRow,
+                  styles.organizerWhatsAppWrap,
                   pressed ? styles.organizerWhatsAppRowPressed : null,
                 ]}
               >
-                <Ionicons color="#1D9A5B" name="logo-whatsapp" size={14} />
                 <Text style={styles.organizerWhatsAppText}>
                   ¿Tenés alguna duda? Comunicate con el organizador
                 </Text>
+                <View style={styles.organizerWhatsAppChip}>
+                  <Ionicons color="#FFFFFF" name="logo-whatsapp" size={20} />
+                  <Text style={styles.organizerWhatsAppChipText}>Aquí</Text>
+                </View>
               </Pressable>
             ) : null}
 
@@ -2625,11 +2628,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginBottom: spacing.sm,
   },
-  organizerWhatsAppRow: {
+  organizerWhatsAppWrap: {
     alignItems: "center",
-    flexDirection: "row",
     gap: 6,
-    justifyContent: "center",
     marginBottom: spacing.sm,
   },
   organizerWhatsAppRowPressed: {
@@ -2639,6 +2640,22 @@ const styles = StyleSheet.create({
     color: "#5F7D72",
     fontSize: 11,
     fontWeight: "700",
+    textAlign: "center",
+  },
+  organizerWhatsAppChip: {
+    alignItems: "center",
+    backgroundColor: "#1D9A5B",
+    borderRadius: 999,
+    flexDirection: "row",
+    gap: 6,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 6,
+  },
+  organizerWhatsAppChipText: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    fontWeight: "900",
+    textTransform: "uppercase",
   },
   rulesButton: {
     alignItems: "center",
