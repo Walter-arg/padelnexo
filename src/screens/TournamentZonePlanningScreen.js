@@ -1891,6 +1891,14 @@ export default function TournamentZonePlanningScreen({ navigation, route }) {
                             const matchVenue = tournamentVenueOptions.find(
                               (venue) => venue.id === matchSchedule.venueId
                             );
+                            const matchCourtIndex = Number(matchSchedule.courtIndex || 0);
+                            const matchPlaceLabel = matchVenue?.label
+                              ? matchCourtIndex > 0
+                                ? `${matchVenue.label} · C${matchCourtIndex}`
+                                : matchVenue.label
+                              : tournamentVenueOptions.length
+                              ? "Elegir"
+                              : "Sin sede";
 
                             return (
                               <View key={`${zone.id}-${matchLabel}`} style={styles.zoneMatchTableRow}>
@@ -1935,8 +1943,8 @@ export default function TournamentZonePlanningScreen({ navigation, route }) {
                                   onPress={() => cycleZoneMatchVenue(zone, matchLabel)}
                                   style={[styles.zoneMatchPlaceButton, styles.zoneMatchPlaceColumn]}
                                 >
-                                  <Text style={styles.zoneMatchPlaceButtonText}>
-                                    {matchVenue?.label || (tournamentVenueOptions.length ? "Elegir" : "Sin sede")}
+                                  <Text numberOfLines={1} style={styles.zoneMatchPlaceButtonText}>
+                                    {matchPlaceLabel}
                                   </Text>
                                 </Pressable>
                               </View>
