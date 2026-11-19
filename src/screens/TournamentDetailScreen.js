@@ -1630,7 +1630,7 @@ function ManagementTab({
     }
   };
 
-  const handleSaveCapacity = async () => {
+  const handleSaveCuposYDisponibilidad = async () => {
     const min = Number(minPairsInput) || 0;
     const max = Number(maxPairsInput) || 0;
     const effectiveMin = min > 0 ? Math.max(min, 6) : 0;
@@ -1640,23 +1640,16 @@ function ManagementTab({
     await runAction(
       "save-capacity",
       () =>
-        updateTournamentCapacity(tournament.id, {
-          minPairs: effectiveMin,
-          maxPairs: max,
-          showOccupancyCard,
-          pairLimitsEnabled,
-        }),
-      "Los cupos del torneo fueron actualizados."
-    );
-  };
-
-  const handleSaveAvailabilityRequired = async () => {
-    await runAction(
-      "save-availability-required",
-      () => updateTournamentAvailabilityRequired(tournament.id, availabilityRequired),
-      availabilityRequired
-        ? "Ahora los jugadores tienen que cargar disponibilidad para poder inscribirse."
-        : "La disponibilidad vuelve a ser opcional para inscribirse."
+        Promise.all([
+          updateTournamentCapacity(tournament.id, {
+            minPairs: effectiveMin,
+            maxPairs: max,
+            showOccupancyCard,
+            pairLimitsEnabled,
+          }),
+          updateTournamentAvailabilityRequired(tournament.id, availabilityRequired),
+        ]),
+      "Los cupos y la disponibilidad fueron actualizados."
     );
   };
 
@@ -1751,13 +1744,6 @@ function ManagementTab({
             <View style={[styles.toggleDot, showOccupancyCard && styles.toggleDotActive]} />
           </View>
         </Pressable>
-        <AppButton
-          disabled={Boolean(actionLoadingKey)}
-          onPress={handleSaveCapacity}
-          style={styles.managementCapacitySave}
-          title={actionLoadingKey === "save-capacity" ? "Guardando..." : "Guardar cupos"}
-          variant="secondary"
-        />
       </View>
 
       <View style={styles.blockCard}>
@@ -1778,9 +1764,9 @@ function ManagementTab({
         </Text>
         <AppButton
           disabled={Boolean(actionLoadingKey)}
-          onPress={handleSaveAvailabilityRequired}
+          onPress={handleSaveCuposYDisponibilidad}
           style={styles.managementCapacitySave}
-          title={actionLoadingKey === "save-availability-required" ? "Guardando..." : "Guardar"}
+          title={actionLoadingKey === "save-capacity" ? "Guardando..." : "Guardar cambios"}
           variant="secondary"
         />
       </View>
