@@ -483,12 +483,12 @@ export default function OrganizerRegistrationsScreen({ navigation }) {
           </Text>
         </View>
 
-        <View style={styles.phoneRow}>
-          <Ionicons color={colors.muted} name="call-outline" size={15} />
-          <Text numberOfLines={1} style={styles.phoneText}>
-            {getPhoneLabel(contact.phone)}
-          </Text>
-        </View>
+        {!isLeague && item.registrationSource === "public_link" ? (
+          <View style={styles.registrationSourceTag}>
+            <Ionicons color="#4A78C0" name="link-outline" size={11} />
+            <Text style={styles.registrationSourceTagText}>Inscripto via link</Text>
+          </View>
+        ) : null}
 
         <View style={styles.reviewRow}>
           <Text style={styles.reviewText}>
@@ -1077,6 +1077,25 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 12,
     fontWeight: "800",
+  },
+  registrationSourceTag: {
+    alignItems: "center",
+    alignSelf: "flex-start",
+    backgroundColor: "#EBF2FF",
+    borderColor: "#A8C6F0",
+    borderRadius: 999,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 4,
+    marginTop: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  registrationSourceTagText: {
+    color: "#4A78C0",
+    fontSize: 10,
+    fontWeight: "800",
+    textTransform: "uppercase",
   },
   reviewRow: {
     alignItems: "center",

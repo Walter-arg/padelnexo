@@ -291,6 +291,7 @@ export default function TournamentRegistrationPanel({
   currentUser,
   editorRole = "player",
   initialPanel = "partner",
+  onDirtyChange = () => {},
   onRegistrationCreated,
   registration,
   registrations = [],
@@ -348,6 +349,27 @@ export default function TournamentRegistrationPanel({
     [registration?.payments]
   );
   const isOrganizerPaymentEditor = isOrganizerCreating || isOrganizerEditing;
+  const committedPaymentMethodByPlayer = useMemo(
+    () =>
+      registrationPayments.reduce((accumulator, payment) => {
+        const paymentKey = payment?.playerId || payment?.userId;
+
+        if (paymentKey) {
+          accumulator[paymentKey] = payment?.method || "";
+        }
+
+        return accumulator;
+      }, {}),
+    [registrationPayments]
+  );
+  const hasUnsavedPaymentChanges =
+    isOrganizerEditing &&
+    Boolean(registration) &&
+    !areSimpleObjectsEqual(paymentMethodByPlayer, committedPaymentMethodByPlayer);
+
+  useEffect(() => {
+    onDirtyChange(hasUnsavedPaymentChanges);
+  }, [hasUnsavedPaymentChanges, onDirtyChange]);
   const tournamentMercadoPagoConfig = useMemo(
     () => normalizeMercadoPagoConfig(tournament?.mercadoPagoConfig),
     [tournament?.mercadoPagoConfig]
@@ -850,7 +872,6 @@ export default function TournamentRegistrationPanel({
         setPlayerPickerQuery("");
         setPlayerCategoryFilter("");
         setPlayerSexFilter("");
-        setPlayerCityFilter("");
         setPlayerFilterVisible(false);
         return;
       }
@@ -863,7 +884,6 @@ export default function TournamentRegistrationPanel({
         setPlayerPickerQuery("");
         setPlayerCategoryFilter("");
         setPlayerSexFilter("");
-        setPlayerCityFilter("");
         setPlayerFilterVisible(false);
         return;
       }
@@ -976,7 +996,6 @@ export default function TournamentRegistrationPanel({
         setPlayerPickerQuery("");
         setPlayerCategoryFilter("");
         setPlayerSexFilter("");
-        setPlayerCityFilter("");
         setPlayerFilterVisible(false);
         setPlayerPickerVisible(true);
         return;
@@ -991,7 +1010,6 @@ export default function TournamentRegistrationPanel({
         setPlayerPickerQuery("");
         setPlayerCategoryFilter("");
         setPlayerSexFilter("");
-        setPlayerCityFilter("");
         setPlayerFilterVisible(false);
         setPlayerPickerVisible(true);
         return;
@@ -1216,11 +1234,7 @@ export default function TournamentRegistrationPanel({
           });
 
           const hasAvailability = Array.isArray(meta.availability) && meta.availability.length > 0;
-          const welcomeMessage = buildTournamentWelcomeMessage({
-            tournament,
-            organizerName: currentUser?.name,
-            hasAvailability,
-          });
+          const pushTitle = tournament?.venueLabel || currentUser?.name || "Organizador";
 
           await Promise.all(
             [p1, p2]
@@ -1231,7 +1245,12 @@ export default function TournamentRegistrationPanel({
                   currentUserName: currentUser?.name || "Organizador",
                   otherUserId: player.userId,
                   otherUserName: player.name || "Jugador",
-                  text: welcomeMessage,
+                  text: buildTournamentWelcomeMessage({
+                    tournament,
+                    playerName: player.name,
+                    hasAvailability,
+                  }),
+                  pushTitle,
                 }).catch(() => null)
               )
           );
@@ -1424,6 +1443,14 @@ export default function TournamentRegistrationPanel({
     <View style={styles.tabBody}>
       <View style={styles.blockCard}>
         <Text style={styles.blockTitleCentered}>INSCRIPCION</Text>
+        {isOrganizerEditing && registration?.pairLabel ? (
+          <View style={styles.editingPairBadge}>
+            <Ionicons color={colors.primaryDark} name="people-outline" size={14} />
+            <Text numberOfLines={1} style={styles.editingPairBadgeText}>
+              {registration.pairLabel}
+            </Text>
+          </View>
+        ) : null}
         {!isOrganizerCreating ? (
           <Text style={styles.blockTextCentered}>
             {showClosedNotice
@@ -1568,83 +1595,37 @@ export default function TournamentRegistrationPanel({
           </View>
         ) : null}
 
-        {!isOrganizerEditing || showClosedNotice ? null : <View style={styles.registrationActionRow}>
-          {registrationSteps.map((step) => (
-            <Pressable
-              key={step.key}
-              onPress={() => setActivePanel(step.key)}
-              style={[
-                styles.registrationActionButton,
-                step.key === "payments" ? styles.registrationActionButtonWide : null,
-                step.key === "payments" ? styles.registrationActionButtonCompact : null,
-                activePanel === step.key && styles.registrationActionButtonActive,
-              ]}
-            >
-              <Ionicons
-                color={activePanel === step.key ? colors.surface : colors.primaryDark}
-                name={
-                  step.key === "partner"
-                    ? "people-outline"
-                    : step.key === "availability"
-                    ? "calendar-outline"
-                    : "card-outline"
-                }
-                size={18}
-              />
-              {step.key === "payments" ? (
-                <View style={styles.registrationActionLabelRow}>
-                  <Text
-                    style={[
-                      styles.registrationActionText,
-                      activePanel === step.key && styles.registrationActionTextActive,
-                    ]}
+        {!isOrganizerEditing || showClosedNotice ? null : (
+          <View style={styles.stepProgressWrap}>
+            <View style={styles.stepSegmentsRow}>
+              {registrationSteps.map((step) => {
+                const isActive = activePanel === step.key;
+
+                return (
+                  <Pressable
+                    key={step.key}
+                    onPress={() => setActivePanel(step.key)}
+                    style={styles.stepSegmentItem}
                   >
-                    {step.title.toUpperCase()}
-                  </Text>
-                  <Ionicons
-                    color={
-                      step.ready
-                        ? activePanel === step.key
-                          ? "#A7F3D0"
-                          : "#1D7A34"
-                        : activePanel === step.key
-                        ? "#FECACA"
-                        : "#B24343"
-                    }
-                    name={step.ready ? "checkmark-circle" : "hourglass-outline"}
-                    size={16}
-                  />
-                </View>
-              ) : (
-                <>
-                  <Text
-                    style={[
-                      styles.registrationActionText,
-                      activePanel === step.key && styles.registrationActionTextActive,
-                    ]}
-                  >
-                    {step.title.toUpperCase()}
-                  </Text>
-                  <View style={styles.registrationActionStatusBelow}>
-                    <Ionicons
-                      color={
-                        step.ready
-                          ? activePanel === step.key
-                            ? "#A7F3D0"
-                            : "#1D7A34"
-                          : activePanel === step.key
-                          ? "#FECACA"
-                          : "#B24343"
-                      }
-                      name={step.ready ? "checkmark-circle" : "hourglass-outline"}
-                      size={16}
+                    <View
+                      style={[
+                        styles.stepSegmentBar,
+                        (step.ready || isActive) && styles.stepSegmentBarActive,
+                      ]}
                     />
-                  </View>
-                </>
-              )}
-            </Pressable>
-          ))}
-        </View>}
+                    <Text
+                      numberOfLines={1}
+                      style={[styles.stepSegmentLabel, isActive && styles.stepSegmentLabelActive]}
+                    >
+                      {step.ready ? "✓ " : ""}
+                      {step.title}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+        )}
       </View>
 
       {!showClosedNotice && (isOrganizerCreating || activePanel === "partner") ? (
@@ -1957,6 +1938,14 @@ export default function TournamentRegistrationPanel({
               <Text style={styles.paymentHintText}>
                 {paymentStepHint}
                 {paymentActionHint ? `\n\n${paymentActionHint}` : ""}
+              </Text>
+            </View>
+          ) : null}
+          {isOrganizerEditing && hasUnsavedPaymentChanges ? (
+            <View style={styles.unsavedPaymentBanner}>
+              <Ionicons color="#B66A16" name="alert-circle-outline" size={16} />
+              <Text style={styles.unsavedPaymentBannerText}>
+                Tenes cambios de pago sin guardar. Toca "{submitButtonTitle}" antes de salir.
               </Text>
             </View>
           ) : null}
@@ -2686,6 +2675,25 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     textAlign: "center",
     textTransform: "uppercase",
+  },
+  editingPairBadge: {
+    alignItems: "center",
+    alignSelf: "center",
+    backgroundColor: "#EEF4FF",
+    borderColor: "#C7D7F5",
+    borderRadius: 999,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 6,
+    marginTop: spacing.xs,
+    maxWidth: "100%",
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+  },
+  editingPairBadgeText: {
+    color: colors.primaryDark,
+    fontSize: 12,
+    fontWeight: "800",
   },
   paymentStatusText: {
     color: colors.primaryDark,
@@ -3451,47 +3459,6 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     marginTop: spacing.sm,
   },
-  registrationActionButton: {
-    alignItems: "center",
-    backgroundColor: "#F5FAF7",
-    borderColor: colors.border,
-    borderRadius: 12,
-    borderWidth: 1,
-    flexBasis: "48%",
-    minHeight: 84,
-    minWidth: "48%",
-    paddingHorizontal: spacing.xs,
-    paddingVertical: spacing.xs,
-  },
-  registrationActionButtonActive: {
-    backgroundColor: colors.primaryDark,
-    borderColor: colors.primaryDark,
-  },
-  registrationActionButtonWide: {
-    flexBasis: "100%",
-    minWidth: "100%",
-  },
-  registrationActionButtonCompact: {
-    minHeight: 58,
-    paddingVertical: 6,
-  },
-  registrationActionMeta: {
-    color: "#A36C17",
-    fontSize: 11,
-    fontWeight: "800",
-    marginTop: 6,
-    textAlign: "center",
-    textTransform: "uppercase",
-  },
-  registrationActionMetaActive: {
-    color: colors.surface,
-  },
-  registrationActionRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: spacing.sm,
-    marginTop: spacing.sm,
-  },
   stepProgressWrap: {
     backgroundColor: "#F0F7F4",
     borderRadius: 16,
@@ -3571,6 +3538,24 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     lineHeight: 18,
   },
+  unsavedPaymentBanner: {
+    alignItems: "flex-start",
+    backgroundColor: "#FFF4E3",
+    borderColor: "#F2C94C",
+    borderRadius: 14,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: spacing.sm,
+    marginBottom: spacing.sm,
+    padding: spacing.md,
+  },
+  unsavedPaymentBannerText: {
+    color: "#8A5A10",
+    flex: 1,
+    fontSize: 12,
+    fontWeight: "700",
+    lineHeight: 17,
+  },
   sentConfirmationCard: {
     alignItems: "center",
     backgroundColor: "#EEF9F1",
@@ -3592,26 +3577,6 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     marginTop: spacing.xs,
     textDecorationLine: "underline",
-  },
-  registrationActionText: {
-    color: colors.text,
-    fontSize: 12,
-    fontWeight: "800",
-    marginTop: 4,
-    textAlign: "center",
-    textTransform: "uppercase",
-  },
-  registrationActionTextActive: {
-    color: colors.surface,
-  },
-  registrationActionLabelRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 6,
-    marginTop: 4,
-  },
-  registrationActionStatusBelow: {
-    marginTop: 4,
   },
   registrationHintCard: {
     alignItems: "center",

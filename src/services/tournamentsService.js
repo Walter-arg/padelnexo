@@ -602,12 +602,16 @@ export function formatTournamentDaysLabel(tournament = {}) {
   return "a confirmar";
 }
 
-export function buildTournamentWelcomeMessage({ tournament, organizerName, hasAvailability } = {}) {
+export function buildTournamentWelcomeMessage({
+  tournament,
+  playerName,
+  hasAvailability,
+} = {}) {
   const name = tournament?.name || "el torneo";
   const days = formatTournamentDaysLabel(tournament);
-  let text = `🎾 ¡Ya estás inscripto al torneo "${name}"!\n📅 Se juega los días ${days}, organizado por ${
-    organizerName || "el organizador"
-  }. ¡Mucha suerte!`;
+  const clubLabel = tournament?.venueLabel || "el club organizador";
+  const greeting = playerName ? `Hola ${playerName}, ` : "";
+  let text = `🎾 ${greeting}¡ya estás inscripto al torneo "${name}"!\n📅 Se juega los días ${days}, organizado por ${clubLabel}. ¡Mucha suerte!`;
 
   if (!hasAvailability) {
     text += `\n\n⏰ Recordá cargar tus horarios disponibles para jugar, así el organizador puede armar mejor las zonas.`;

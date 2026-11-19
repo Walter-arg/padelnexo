@@ -1,8 +1,10 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
+  Modal,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -134,6 +136,21 @@ export default function TournamentRegistrationScreen({ navigation, route }) {
   );
 
   const tournamentDayOptions = useMemo(() => buildTournamentDayOptions(tournament), [tournament]);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [pendingLeaveAction, setPendingLeaveAction] = useState(null);
+
+  useEffect(() => {
+    const unsubscribe = navigation.addListener("beforeRemove", (event) => {
+      if (!hasUnsavedChanges) {
+        return;
+      }
+
+      event.preventDefault();
+      setPendingLeaveAction(event.data.action);
+    });
+
+    return unsubscribe;
+  }, [navigation, hasUnsavedChanges]);
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -179,6 +196,7 @@ export default function TournamentRegistrationScreen({ navigation, route }) {
               autoOpenAvailability={autoOpenAvailability}
               editorRole={editorRole}
               initialPanel={initialPanel}
+              onDirtyChange={setHasUnsavedChanges}
               onRegistrationCreated={async () => {
                 await loadRegistrationScreen();
 
@@ -215,6 +233,47 @@ export default function TournamentRegistrationScreen({ navigation, route }) {
         visible={feedback.visible}
       />
 
+      <Modal
+        animationType="fade"
+        onRequestClose={() => setPendingLeaveAction(null)}
+        transparent
+        visible={Boolean(pendingLeaveAction)}
+      >
+        <View style={styles.modalOverlay}>
+          <Pressable onPress={() => setPendingLeaveAction(null)} style={styles.modalBackdrop} />
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Tenes cambios sin guardar</Text>
+            <Text style={styles.modalMessage}>
+              Si salis ahora vas a perder los cambios de pago que todavia no guardaste.
+            </Text>
+            <View style={styles.modalActionsRow}>
+              <Pressable
+                onPress={() => setPendingLeaveAction(null)}
+                style={({ pressed }) => [
+                  styles.modalSecondaryButton,
+                  pressed ? styles.pressedState : null,
+                ]}
+              >
+                <Text style={styles.modalSecondaryButtonText}>Seguir editando</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  const action = pendingLeaveAction;
+                  setPendingLeaveAction(null);
+                  navigation.dispatch(action);
+                }}
+                style={({ pressed }) => [
+                  styles.modalDangerButton,
+                  pressed ? styles.pressedState : null,
+                ]}
+              >
+                <Text style={styles.modalPrimaryButtonText}>Salir sin guardar</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       <BottomQuickActionsBar />
     </SafeAreaView>
   );
@@ -245,5 +304,71 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     marginTop: spacing.sm,
     textAlign: "center",
+  },
+  modalOverlay: {
+    alignItems: "center",
+    backgroundColor: colors.overlay,
+    flex: 1,
+    justifyContent: "center",
+    padding: spacing.md,
+  },
+  modalBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  modalCard: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 24,
+    borderWidth: 1,
+    gap: spacing.md,
+    padding: spacing.lg,
+    width: "100%",
+  },
+  modalTitle: {
+    color: colors.text,
+    fontSize: 21,
+    fontWeight: "800",
+    textAlign: "center",
+  },
+  modalMessage: {
+    color: colors.muted,
+    fontSize: 15,
+    lineHeight: 22,
+    textAlign: "center",
+  },
+  modalActionsRow: {
+    flexDirection: "row",
+    gap: spacing.sm,
+  },
+  modalSecondaryButton: {
+    alignItems: "center",
+    backgroundColor: colors.background,
+    borderColor: colors.border,
+    borderRadius: 16,
+    borderWidth: 1,
+    flex: 1,
+    justifyContent: "center",
+    minHeight: 46,
+  },
+  modalSecondaryButtonText: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: "800",
+  },
+  modalDangerButton: {
+    alignItems: "center",
+    backgroundColor: colors.danger,
+    borderRadius: 16,
+    flex: 1,
+    justifyContent: "center",
+    minHeight: 46,
+  },
+  modalPrimaryButtonText: {
+    color: colors.surface,
+    fontSize: 15,
+    fontWeight: "800",
+  },
+  pressedState: {
+    opacity: 0.78,
   },
 });

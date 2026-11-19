@@ -108,15 +108,18 @@ export default function TournamentRegistrationsScreen({ navigation, route }) {
 
   const handleShareRegistrationLink = useCallback(async () => {
     const registrationUrl = `https://www.padelnexo.com.ar/inscripcion/${tournamentId}`;
+    const clubLabel = tournament?.venueLabel;
 
     try {
       await NativeShare.share({
-        message: `Inscribite al torneo "${tournament?.name || fallbackTournamentName}" en PadelNexo: ${registrationUrl}`,
+        message: `Inscribite al torneo "${tournament?.name || fallbackTournamentName}"${
+          clubLabel ? ` de ${clubLabel}` : ""
+        } en PadelNexo: ${registrationUrl}`,
       });
     } catch (error) {
       // El usuario cerro el panel de compartir; no hace falta avisar nada.
     }
-  }, [fallbackTournamentName, tournament?.name, tournamentId]);
+  }, [fallbackTournamentName, tournament?.name, tournament?.venueLabel, tournamentId]);
   const currentOrganizer = useMemo(
     () => ({
       uid: userData?.uid || user?.uid || "",
@@ -192,11 +195,8 @@ export default function TournamentRegistrationsScreen({ navigation, route }) {
         tournamentId,
       });
       const hasAvailability = Object.keys(registration?.availability || {}).length > 0;
-      const welcomeMessage = buildTournamentWelcomeMessage({
-        tournament: tournament || { name: fallbackTournamentName },
-        organizerName: currentOrganizer.name,
-        hasAvailability,
-      });
+      const effectiveTournament = tournament || { name: fallbackTournamentName };
+      const pushTitle = effectiveTournament?.venueLabel || currentOrganizer.name;
 
       await Promise.all(
         [
@@ -210,7 +210,12 @@ export default function TournamentRegistrationsScreen({ navigation, route }) {
               currentUserName: currentOrganizer.name,
               otherUserId: player.id,
               otherUserName: player.name || "Jugador",
-              text: welcomeMessage,
+              text: buildTournamentWelcomeMessage({
+                tournament: effectiveTournament,
+                playerName: player.name,
+                hasAvailability,
+              }),
+              pushTitle,
             }).catch(() => null)
           )
       );

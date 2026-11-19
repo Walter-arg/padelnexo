@@ -5079,6 +5079,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
     String(tournament?.tournamentRuleSet || tournament?.ruleSet || "fap").trim().toLowerCase()
   );
   const tournamentRuleSet = selectedRuleSet;
+  const [ruleSetInfoVisible, setRuleSetInfoVisible] = useState(false);
   const playerFixtureLastViewedSections = useMemo(
     () => userData?.tournamentFixtureLastViewedSections || {},
     [userData?.tournamentFixtureLastViewedSections]
@@ -11518,7 +11519,16 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                 </View>
 
                 <View style={styles.configurationModeCard}>
-                  <Text style={styles.configurationModeTitle}>TIPO DE TORNEO</Text>
+                  <View style={styles.configurationModeTitleRow}>
+                    <Text style={styles.configurationModeTitle}>TIPO DE TORNEO</Text>
+                    <Pressable
+                      hitSlop={8}
+                      onPress={() => setRuleSetInfoVisible(true)}
+                      style={styles.ruleSetInfoButton}
+                    >
+                      <Ionicons color={colors.primaryDark} name="information-circle-outline" size={18} />
+                    </Pressable>
+                  </View>
                   {TOURNAMENT_RULESET_OPTIONS.map((option) => {
                     const isActive = selectedRuleSet === option.value;
                     return (
@@ -13201,6 +13211,40 @@ export default function TournamentFixtureScreen({ navigation, route }) {
         </View>
       </Modal>
 
+      <Modal animationType="fade" onRequestClose={() => setRuleSetInfoVisible(false)} transparent visible={ruleSetInfoVisible}>
+        <View style={styles.ruleSetInfoOverlay}>
+          <Pressable onPress={() => setRuleSetInfoVisible(false)} style={styles.ruleSetInfoBackdrop} />
+          <View style={styles.ruleSetInfoCard}>
+            <Text style={styles.ruleSetInfoTitle}>¿Cómo se arman las zonas y llaves?</Text>
+
+            <View style={styles.ruleSetInfoSection}>
+              <Text style={styles.ruleSetInfoSectionTitle}>Torneo FAP (Federación Argentina de Pádel)</Text>
+              <Text style={styles.ruleSetInfoSectionText}>
+                De cada zona de 4 parejas avanzan 3 a la fase eliminatoria. Al clasificar más
+                parejas por zona, el cuadro final es más grande y el torneo tiene más partidos y
+                fechas, ideal si querés que casi todos jueguen más de una ronda eliminatoria.
+              </Text>
+            </View>
+
+            <View style={styles.ruleSetInfoSection}>
+              <Text style={styles.ruleSetInfoSectionTitle}>Torneo APA (Asociación Padel Argentina)</Text>
+              <Text style={styles.ruleSetInfoSectionText}>
+                De cada zona de 4 parejas avanzan solo 2 a la fase eliminatoria. El cuadro final
+                es más chico, por lo que el torneo se resuelve en menos partidos y fechas, ideal
+                para torneos más cortos o con menos días de juego.
+              </Text>
+            </View>
+
+            <Pressable
+              onPress={() => setRuleSetInfoVisible(false)}
+              style={({ pressed }) => [styles.ruleSetInfoCloseButton, pressed && styles.maxPairsBtnPressed]}
+            >
+              <Text style={styles.ruleSetInfoCloseButtonText}>Entendido</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
       <Modal animationType="fade" transparent visible={noScheduleConfirm}>
         <View style={styles.maxPairsOverlay}>
           <Pressable onPress={() => setNoScheduleConfirm(false)} style={styles.maxPairsBackdrop} />
@@ -14879,11 +14923,21 @@ const styles = StyleSheet.create({
     marginTop: spacing.md,
     padding: spacing.sm,
   },
+  configurationModeTitleRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 4,
+    justifyContent: "center",
+    marginBottom: spacing.xs,
+  },
+  ruleSetInfoButton: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
   configurationModeTitle: {
     color: colors.primaryDark,
     fontSize: 11,
     fontWeight: "900",
-    marginBottom: spacing.xs,
     textAlign: "center",
     textTransform: "uppercase",
   },
@@ -17932,5 +17986,58 @@ const styles = StyleSheet.create({
   },
   maxPairsBtnPressed: {
     opacity: 0.85,
+  },
+  ruleSetInfoOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: spacing.lg,
+  },
+  ruleSetInfoBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: colors.overlay,
+  },
+  ruleSetInfoCard: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 20,
+    borderWidth: 1,
+    maxHeight: "85%",
+    padding: spacing.lg,
+    width: "100%",
+  },
+  ruleSetInfoTitle: {
+    color: colors.text,
+    fontSize: 17,
+    fontWeight: "900",
+    marginBottom: spacing.sm,
+    textAlign: "center",
+  },
+  ruleSetInfoSection: {
+    marginBottom: spacing.sm,
+  },
+  ruleSetInfoSectionTitle: {
+    color: colors.primaryDark,
+    fontSize: 13,
+    fontWeight: "900",
+    marginBottom: 4,
+  },
+  ruleSetInfoSectionText: {
+    color: colors.muted,
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  ruleSetInfoCloseButton: {
+    alignItems: "center",
+    backgroundColor: colors.primaryDark,
+    borderRadius: 14,
+    justifyContent: "center",
+    marginTop: spacing.xs,
+    minHeight: 44,
+  },
+  ruleSetInfoCloseButtonText: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "800",
   },
 });

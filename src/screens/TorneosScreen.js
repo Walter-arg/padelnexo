@@ -810,6 +810,12 @@ function TournamentCard({
               >
                 {item.name || "Nombre del torneo"}
               </Text>
+              <View style={styles.cardVenueRow}>
+                <Ionicons color={colors.primaryDark} name="business-outline" size={14} />
+                <Text numberOfLines={1} style={styles.cardVenueText}>
+                  {item.venueLabel || "Sede a confirmar"}
+                </Text>
+              </View>
             </View>
           </View>
           {item.organizerLogoUrl ? (
@@ -874,19 +880,14 @@ function TournamentCard({
                 {item.tournamentDaysLabel}
               </Text>
             </View>
-            <View style={styles.cardFriendlyItem}>
-              <Ionicons color={colors.primaryDark} name="location-outline" size={16} />
-              <View style={styles.cardFriendlyTextWrap}>
-                <Text numberOfLines={2} style={styles.cardFriendlyText}>
-                  {item.venueLabel || "Sede a confirmar"}
+            {Number.isFinite(item.distanceKm) ? (
+              <View style={styles.cardFriendlyItem}>
+                <Ionicons color={colors.primaryDark} name="location-outline" size={16} />
+                <Text numberOfLines={1} style={styles.cardFriendlyText}>
+                  A {item.distanceKm.toFixed(1)} km
                 </Text>
-                {Number.isFinite(item.distanceKm) ? (
-                  <Text numberOfLines={1} style={styles.cardFriendlyMutedText}>
-                    A {item.distanceKm.toFixed(1)} km
-                  </Text>
-                ) : null}
               </View>
-            </View>
+            ) : null}
           </View>
         ) : null}
 
@@ -2521,21 +2522,23 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: spacing.xs,
   },
-  cardFriendlyTextWrap: {
-    flex: 1,
-  },
   cardFriendlyText: {
     color: colors.text,
     fontSize: 13,
     fontWeight: "700",
     lineHeight: 18,
   },
-  cardFriendlyMutedText: {
-    color: colors.muted,
-    fontSize: 12,
-    fontWeight: "800",
-    lineHeight: 16,
-    marginTop: 1,
+  cardVenueRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 4,
+    justifyContent: "center",
+  },
+  cardVenueText: {
+    color: colors.primaryDark,
+    fontSize: 13,
+    fontWeight: "900",
+    textAlign: "center",
   },
   cardPosterThumbButton: {
     borderRadius: 12,

@@ -86,6 +86,7 @@ export async function sendChatMessage({
   otherUserId,
   otherUserName,
   text,
+  pushTitle,
 }) {
   const normalizedText = String(text || "").trim();
 
@@ -157,7 +158,7 @@ export async function sendChatMessage({
       return getUserPushTokens(otherUserId).then((tokens) =>
         sendExpoPushNotificationAsync({
           tokens,
-          title: currentUserName || "Nuevo mensaje",
+          title: pushTitle || currentUserName || "Nuevo mensaje",
           body: normalizedText,
           data: { type: "chat_message", conversationId, senderId: currentUserId },
         })
