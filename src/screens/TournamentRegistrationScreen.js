@@ -169,6 +169,7 @@ export default function TournamentRegistrationScreen({ navigation, route }) {
               endDateMillis={tournament?.endDateMillis || 0}
               organizerLogoUrl={tournament?.organizerLogoUrl || ""}
               startDateMillis={tournament?.startDateMillis || 0}
+              status={tournament?.status || "draft"}
               title={tournament?.name || "Torneo"}
               venue={tournament?.venueLabel || ""}
             />

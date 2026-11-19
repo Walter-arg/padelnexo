@@ -568,13 +568,41 @@ function MarqueeChip({ text, tint, border, accent }) {
       style={[styles.marqueeWrap, { backgroundColor: tint, borderColor: border }]}
     >
       <Animated.Text
-        numberOfLines={1}
         onLayout={(event) => setTextWidth(event.nativeEvent.layout.width)}
         style={[styles.marqueeText, { color: accent, transform: [{ translateX }] }]}
       >
         {text}
       </Animated.Text>
     </View>
+  );
+}
+
+// Frases de animo que acompañan el sello de "ya estas inscripto". Se elige
+// una al azar (pero estable por torneo/inscripcion) para que no se repita
+// siempre la misma.
+const HYPE_PHRASES = [
+  "Dale con todo 💪",
+  "Vos podes 🙌",
+  "Dale campeon 🏆",
+  "A disfrutarlo 🎾",
+  "A romperla 🔥",
+  "Nos vemos en la cancha 🙌",
+];
+
+function pickHypePhrase(seed = "") {
+  let hash = 0;
+  for (let index = 0; index < seed.length; index += 1) {
+    hash = (hash * 31 + seed.charCodeAt(index)) >>> 0;
+  }
+  return HYPE_PHRASES[hash % HYPE_PHRASES.length];
+}
+
+function RegisteredStamp({ phrase, onPress }) {
+  return (
+    <Pressable hitSlop={6} onPress={onPress} style={styles.registeredStampWrap}>
+      <Text style={styles.registeredStampTitle}>¡Ya estas{"\n"}inscripto!</Text>
+      <Text style={styles.registeredStampPhrase}>{phrase}</Text>
+    </Pressable>
   );
 }
 
@@ -607,8 +635,13 @@ function TournamentCard({
     !canManageTournament && (item.displayStatus || item.status) === "published"
       ? "Proximamente"
       : statusMeta.label;
-  const isOpenForPlayerMarquee =
-    !canManageTournament && (item.displayStatus || item.status) === "registration_open";
+  const isOpenForPlayerMarquee = (item.displayStatus || item.status) === "registration_open";
+  const isConfirmedRegistration =
+    !canManageTournament && registration?.status === "confirmed" && !isWithdrawnRegistration;
+  const hypePhrase = useMemo(
+    () => pickHypePhrase(`${item.id || ""}-${registration?.id || ""}`),
+    [item.id, registration?.id]
+  );
   const showRegistrationCta =
     !canManageTournament &&
     ["published", "registration_open", "registration_closed"].includes(
@@ -629,16 +662,16 @@ function TournamentCard({
       >
         {showFriendlyCard ? (
           <View style={styles.playerStatusWrap}>
-            <View style={styles.playerStatusRow}>
-              <View style={styles.playerStatusLeft}>
-                {isOpenForPlayerMarquee ? (
-                  <MarqueeChip
-                    accent={statusMeta.accent}
-                    border={statusMeta.border}
-                    text="🎾 Inscripciones abiertas · ¡Anotate ya! 🎾"
-                    tint={statusMeta.tint}
-                  />
-                ) : (
+            {isOpenForPlayerMarquee ? (
+              <MarqueeChip
+                accent={statusMeta.accent}
+                border={statusMeta.border}
+                text="🎾 Inscripciones abiertas · ¡Anotate ya! 🎾"
+                tint={statusMeta.tint}
+              />
+            ) : (
+              <View style={styles.playerStatusRow}>
+                <View style={styles.playerStatusLeft}>
                   <View
                     style={[
                       styles.statusPill,
@@ -691,39 +724,74 @@ function TournamentCard({
                       ) : null}
                     </View>
                   </View>
-                )}
-                {!canManageTournament ? (
-                  <Pressable
-                    disabled={isCardDisabled}
-                    onPress={() => onOpenRegistration?.(item)}
-                    style={({ pressed }) => [
-                      styles.statusPill,
-                      styles.playerStatusPill,
-                      styles.playerStatusPillSplit,
-                      {
-                        backgroundColor: registrationChipMeta.tint,
-                        borderColor: registrationChipMeta.border,
-                      },
-                      pressed && !isWithdrawnRegistration && !isRegistrationClosed
-                        ? styles.registrationShortcutPressed
-                        : null,
-                      isCardDisabled ? styles.registrationShortcutDisabled : null,
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.statusPillText,
-                        styles.playerStatusPillText,
-                        { color: registrationChipMeta.accent },
+                  {!canManageTournament && !isConfirmedRegistration ? (
+                    <Pressable
+                      disabled={isCardDisabled}
+                      onPress={() => onOpenRegistration?.(item)}
+                      style={({ pressed }) => [
+                        styles.statusPill,
+                        styles.playerStatusPill,
+                        styles.playerStatusPillSplit,
+                        {
+                          backgroundColor: registrationChipMeta.tint,
+                          borderColor: registrationChipMeta.border,
+                        },
+                        pressed && !isWithdrawnRegistration && !isRegistrationClosed
+                          ? styles.registrationShortcutPressed
+                          : null,
+                        isCardDisabled ? styles.registrationShortcutDisabled : null,
                       ]}
                     >
-                      {registrationChipMeta.label}
-                    </Text>
-                  </Pressable>
-                ) : null}
+                      <Text
+                        style={[
+                          styles.statusPillText,
+                          styles.playerStatusPillText,
+                          { color: registrationChipMeta.accent },
+                        ]}
+                      >
+                        {registrationChipMeta.label}
+                      </Text>
+                    </Pressable>
+                  ) : null}
+                </View>
               </View>
-            </View>
+            )}
+            {isOpenForPlayerMarquee && !canManageTournament && !isConfirmedRegistration ? (
+              <View style={styles.playerStatusRow}>
+                <Pressable
+                  disabled={isCardDisabled}
+                  onPress={() => onOpenRegistration?.(item)}
+                  style={({ pressed }) => [
+                    styles.statusPill,
+                    styles.playerStatusPill,
+                    styles.playerStatusPillSplit,
+                    {
+                      backgroundColor: registrationChipMeta.tint,
+                      borderColor: registrationChipMeta.border,
+                    },
+                    pressed && !isWithdrawnRegistration && !isRegistrationClosed
+                      ? styles.registrationShortcutPressed
+                      : null,
+                    isCardDisabled ? styles.registrationShortcutDisabled : null,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.statusPillText,
+                      styles.playerStatusPillText,
+                      { color: registrationChipMeta.accent },
+                    ]}
+                  >
+                    {registrationChipMeta.label}
+                  </Text>
+                </Pressable>
+              </View>
+            ) : null}
           </View>
+        ) : null}
+
+        {isConfirmedRegistration ? (
+          <RegisteredStamp phrase={hypePhrase} onPress={() => onOpenRegistration?.(item)} />
         ) : null}
 
         <View style={styles.cardHeader}>
@@ -2529,6 +2597,7 @@ const styles = StyleSheet.create({
   },
   playerStatusWrap: {
     alignItems: "center",
+    gap: spacing.xs,
     marginBottom: spacing.sm,
   },
   playerStatusRow: {
@@ -2550,18 +2619,49 @@ const styles = StyleSheet.create({
   },
   marqueeWrap: {
     alignItems: "center",
-    borderRadius: 999,
+    borderRadius: 8,
     borderWidth: 1,
-    flex: 1,
-    height: 34,
+    height: 32,
     justifyContent: "center",
     overflow: "hidden",
+    width: "100%",
   },
   marqueeText: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: "900",
-    letterSpacing: 0.2,
+    letterSpacing: 0.4,
     position: "absolute",
+    textAlign: "center",
+    textTransform: "uppercase",
+  },
+  registeredStampWrap: {
+    alignItems: "center",
+    alignSelf: "center",
+    backgroundColor: "rgba(15,95,54,0.95)",
+    borderColor: "#CFF4D8",
+    borderRadius: 10,
+    borderWidth: 2,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    position: "absolute",
+    top: "42%",
+    transform: [{ rotate: "-9deg" }],
+    zIndex: 6,
+  },
+  registeredStampTitle: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "900",
+    letterSpacing: 0.4,
+    lineHeight: 16,
+    textAlign: "center",
+    textTransform: "uppercase",
+  },
+  registeredStampPhrase: {
+    color: "#CFF4D8",
+    fontSize: 11,
+    fontWeight: "800",
+    marginTop: 2,
     textAlign: "center",
   },
   playerStatusPillSplit: {

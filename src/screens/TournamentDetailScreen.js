@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Image,
+  Linking,
   Platform,
   Pressable,
   ScrollView,
@@ -16,6 +17,9 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import * as ImagePicker from "expo-image-picker";
 
 import AppButton from "../components/AppButton";
+import { buildWhatsAppPhoneNumber } from "../utils/whatsapp";
+import { doc, getDoc } from "../../services/firebaseFirestore";
+import { db } from "../../services/firebaseConfig";
 import AutocompleteField from "../components/AutocompleteField";
 import AvailabilityEditor from "../components/AvailabilityEditor";
 import AvailabilitySummary from "../components/AvailabilitySummary";
@@ -49,6 +53,7 @@ import {
   reviewTournamentPayment,
   uploadTournamentPaymentReceipt,
   updateTournament,
+  updateTournamentAvailabilityRequired,
   updateTournamentCapacity,
 } from "../services/tournamentsService";
 
@@ -1604,6 +1609,9 @@ function ManagementTab({
   const [pairLimitsEnabled, setPairLimitsEnabled] = useState(
     tournament?.pairLimitsEnabled !== false
   );
+  const [availabilityRequired, setAvailabilityRequired] = useState(
+    Boolean(tournament?.availabilityRequired)
+  );
 
   const runAction = async (key, action, successMessage) => {
     try {
@@ -1639,6 +1647,16 @@ function ManagementTab({
           pairLimitsEnabled,
         }),
       "Los cupos del torneo fueron actualizados."
+    );
+  };
+
+  const handleSaveAvailabilityRequired = async () => {
+    await runAction(
+      "save-availability-required",
+      () => updateTournamentAvailabilityRequired(tournament.id, availabilityRequired),
+      availabilityRequired
+        ? "Ahora los jugadores tienen que cargar disponibilidad para poder inscribirse."
+        : "La disponibilidad vuelve a ser opcional para inscribirse."
     );
   };
 
@@ -1743,6 +1761,31 @@ function ManagementTab({
       </View>
 
       <View style={styles.blockCard}>
+        <Text style={[styles.blockTitle, { textAlign: "center" }]}>DISPONIBILIDAD</Text>
+        <Pressable
+          onPress={() => setAvailabilityRequired((v) => !v)}
+          style={styles.managementCapacityToggleRow}
+        >
+          <Text style={styles.managementCapacityToggleLabel}>DISPONIBILIDAD OBLIGATORIA</Text>
+          <View style={[styles.togglePill, availabilityRequired && styles.togglePillActive]}>
+            <View style={[styles.toggleDot, availabilityRequired && styles.toggleDotActive]} />
+          </View>
+        </Pressable>
+        <Text style={styles.managementCapacityHint}>
+          {availabilityRequired
+            ? "El jugador no va a poder avanzar al paso de pago sin cargar al menos un horario."
+            : "El jugador puede avanzar al paso de pago sin cargar disponibilidad."}
+        </Text>
+        <AppButton
+          disabled={Boolean(actionLoadingKey)}
+          onPress={handleSaveAvailabilityRequired}
+          style={styles.managementCapacitySave}
+          title={actionLoadingKey === "save-availability-required" ? "Guardando..." : "Guardar"}
+          variant="secondary"
+        />
+      </View>
+
+      <View style={styles.blockCard}>
         <AppButton
           disabled={Boolean(actionLoadingKey)}
           onPress={onEditDetails}
@@ -1801,6 +1844,7 @@ export default function TournamentDetailScreen({ navigation, route }) {
   const [activeTab, setActiveTab] = useState("");
   const [pendingOrganizerArea, setPendingOrganizerArea] = useState("");
   const [loading, setLoading] = useState(true);
+  const [organizerWhatsAppNumber, setOrganizerWhatsAppNumber] = useState("");
   const [feedback, setFeedback] = useState({
     visible: false,
     title: "",
@@ -1832,6 +1876,42 @@ export default function TournamentDetailScreen({ navigation, route }) {
     setGroups(groupsResponse);
     setMatches(matchesResponse);
   }, [tournamentId]);
+
+  useEffect(() => {
+    const organizerId = tournament?.organizerId || tournament?.createdBy || "";
+
+    if (!organizerId) {
+      setOrganizerWhatsAppNumber("");
+      return;
+    }
+
+    let isMounted = true;
+
+    (async () => {
+      try {
+        const organizerSnapshot = await getDoc(doc(db, "users", organizerId));
+        const organizerData = organizerSnapshot.exists() ? organizerSnapshot.data() || {} : {};
+
+        if (!isMounted) {
+          return;
+        }
+
+        setOrganizerWhatsAppNumber(
+          organizerData.mostrarTelefono
+            ? buildWhatsAppPhoneNumber(organizerData.telefono, organizerData.countryCode)
+            : ""
+        );
+      } catch (error) {
+        if (isMounted) {
+          setOrganizerWhatsAppNumber("");
+        }
+      }
+    })();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [tournament?.organizerId, tournament?.createdBy]);
 
   const handleRemovePoster = useCallback(async () => {
     if (!tournament?.id) {
@@ -2324,6 +2404,23 @@ export default function TournamentDetailScreen({ navigation, route }) {
               </Pressable>
             </View>
 
+            {accessMeta.role !== "organizer" && organizerWhatsAppNumber ? (
+              <Pressable
+                onPress={() =>
+                  Linking.openURL(`https://wa.me/${organizerWhatsAppNumber}`).catch(() => {})
+                }
+                style={({ pressed }) => [
+                  styles.organizerWhatsAppRow,
+                  pressed ? styles.organizerWhatsAppRowPressed : null,
+                ]}
+              >
+                <Ionicons color="#1D9A5B" name="logo-whatsapp" size={14} />
+                <Text style={styles.organizerWhatsAppText}>
+                  ¿Tenés alguna duda? Comunicate con el organizador
+                </Text>
+              </Pressable>
+            ) : null}
+
             {tournament?.coverImage &&
             (accessMeta.role !== "organizer" || activeTab === "management") ? (
               <View style={styles.posterShortcutWrap}>
@@ -2541,6 +2638,21 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
     justifyContent: "center",
     marginBottom: spacing.sm,
+  },
+  organizerWhatsAppRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 6,
+    justifyContent: "center",
+    marginBottom: spacing.sm,
+  },
+  organizerWhatsAppRowPressed: {
+    opacity: 0.7,
+  },
+  organizerWhatsAppText: {
+    color: "#5F7D72",
+    fontSize: 11,
+    fontWeight: "700",
   },
   rulesButton: {
     alignItems: "center",

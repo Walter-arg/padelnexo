@@ -429,6 +429,7 @@ function buildTournamentPayload(organizer, payload = {}, batchId = "") {
     maxPairs,
     minPairs,
     pairLimitsEnabled: payload.pairLimitsEnabled !== false,
+    availabilityRequired: Boolean(payload.availabilityRequired),
     registrationStatus: normalizeRegistrationStatus(payload.registrationStatus, "closed"),
     registrationMode: "pair_only",
     pairConfirmationMode: normalizePairConfirmationMode(payload.pairConfirmationMode),
@@ -1751,6 +1752,17 @@ export async function updateTournamentRules(tournamentId, rules = "") {
   }
 
   return normalizedRules;
+}
+
+export async function updateTournamentAvailabilityRequired(tournamentId, availabilityRequired = false) {
+  if (!tournamentId) {
+    throw new Error("No encontramos el torneo.");
+  }
+
+  await updateDoc(doc(db, "tournaments", tournamentId), {
+    availabilityRequired: Boolean(availabilityRequired),
+    updatedAt: serverTimestamp(),
+  });
 }
 
 export async function listTournaments(...queryConstraints) {

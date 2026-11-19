@@ -1457,7 +1457,11 @@ export default function TournamentRegistrationPanel({
             <View style={styles.stepSegmentsRow}>
               {["Compañero", "Disponibilidad", "Pago"].map((label, index) => {
                 const step = index + 1;
-                const isDone = step < stepNumber;
+                const isPassed = step < stepNumber;
+                const stepHasContent =
+                  step === 1 ? Boolean(selectedPartner) : step === 2 ? availabilityItems.length > 0 : true;
+                const isDone = isPassed && stepHasContent;
+                const isSkipped = isPassed && !stepHasContent;
                 const isActive = step === stepNumber;
 
                 return (
@@ -1465,14 +1469,14 @@ export default function TournamentRegistrationPanel({
                     <View
                       style={[
                         styles.stepSegmentBar,
-                        (isDone || isActive) && styles.stepSegmentBarActive,
+                        (isPassed || isActive) && styles.stepSegmentBarActive,
                       ]}
                     />
                     <Text
                       numberOfLines={1}
                       style={[styles.stepSegmentLabel, isActive && styles.stepSegmentLabelActive]}
                     >
-                      {isDone ? "✓ " : ""}
+                      {isDone ? "✓ " : isSkipped ? "✗ " : ""}
                       {label}
                     </Text>
                   </View>
@@ -1512,7 +1516,6 @@ export default function TournamentRegistrationPanel({
                   pressed ? styles.withdrawalButtonPressed : null,
                 ]}
               >
-                <Ionicons color="#A43D3D" name="exit-outline" size={16} />
                 <Text style={styles.withdrawalButtonText}>Solicitar baja</Text>
               </Pressable>
             ) : withdrawalStatus === "requested" ? (
@@ -1913,6 +1916,15 @@ export default function TournamentRegistrationPanel({
               <AppButton
                 disabled={submitting}
                 onPress={async () => {
+                  if (tournament?.availabilityRequired && availabilityItems.length === 0) {
+                    showFeedback(
+                      "Falta disponibilidad",
+                      "El organizador exige cargar al menos un horario antes de continuar.",
+                      "danger"
+                    );
+                    return;
+                  }
+
                   if (!tournamentMercadoPagoEnabled || registration) {
                     setActivePanel("payments");
                     return;
@@ -3676,24 +3688,18 @@ const styles = StyleSheet.create({
   },
   withdrawalButton: {
     alignItems: "center",
-    backgroundColor: "#FFF3F3",
-    borderColor: "#E9BABA",
-    borderRadius: 12,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: 8,
     justifyContent: "center",
-    minHeight: 42,
-    paddingHorizontal: spacing.md,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
   },
   withdrawalButtonPressed: {
-    opacity: 0.84,
+    opacity: 0.7,
   },
   withdrawalButtonText: {
-    color: "#A43D3D",
-    fontSize: 13,
-    fontWeight: "900",
-    textTransform: "uppercase",
+    color: "#9B6B6B",
+    fontSize: 12,
+    fontWeight: "600",
+    textDecorationLine: "underline",
   },
   withdrawalChip: {
     alignItems: "center",

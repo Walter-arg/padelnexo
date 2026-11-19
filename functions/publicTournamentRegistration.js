@@ -140,6 +140,7 @@ function buildPublicTournamentInfo(tournamentId, tournament, activeCount, organi
     sumTarget: Number(composition.sumTarget || 0),
     fixedCategoryA: normalizeString(composition.fixedCategoryA),
     fixedCategoryB: normalizeString(composition.fixedCategoryB),
+    availabilityRequired: Boolean(tournament.availabilityRequired),
     entryFee: Number(tournament.entryFee || 0),
     maxPairs,
     registeredCount: activeCount,
@@ -265,6 +266,12 @@ const submitPublicTournamentRegistration = onRequest({ invoker: "public" }, asyn
 
     const validDayKeys = buildDayKeySet(tournament.startDateMillis, tournament.endDateMillis);
     const availability = normalizePublicAvailability(payload.availability, validDayKeys);
+
+    if (tournament.availabilityRequired && Object.keys(availability).length === 0) {
+      res.status(400).json({ error: "El organizador exige cargar al menos un horario antes de inscribirse." });
+      return;
+    }
+
     const entryFee = Number(tournament.entryFee || 0);
     const payments = [
       buildPublicPaymentEntry("player-1", player1Name, entryFee),
