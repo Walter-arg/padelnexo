@@ -104,6 +104,28 @@ async function listActiveRegistrations(db, tournamentId) {
     .filter((registration) => registration.status !== "rejected" && !isRegistrationWithdrawnConfirmed(registration));
 }
 
+async function listBatchCategories(db, tournament) {
+  const batchId = normalizeString(tournament.creationBatchId);
+
+  if (!batchId) {
+    return [];
+  }
+
+  const snapshot = await db.collection("tournaments").where("creationBatchId", "==", batchId).get();
+
+  return snapshot.docs
+    .map((docSnapshot) => {
+      const data = docSnapshot.data() || {};
+      return {
+        id: docSnapshot.id,
+        label: normalizeString(data.compositionConfig?.label || data.compositionLabel, "Categoria"),
+        createdAtMillis: data.createdAt?.toMillis ? data.createdAt.toMillis() : 0,
+      };
+    })
+    .sort((a, b) => a.createdAtMillis - b.createdAtMillis)
+    .map(({ id, label }) => ({ id, label }));
+}
+
 async function resolveOrganizerLogoUrl(db, tournament) {
   const directLogoUrl = normalizeString(tournament.organizerLogoUrl);
 
@@ -123,7 +145,7 @@ async function resolveOrganizerLogoUrl(db, tournament) {
   return normalizeString(organizerData.organizerLogoUrl);
 }
 
-function buildPublicTournamentInfo(tournamentId, tournament, activeCount, organizerLogoUrl) {
+function buildPublicTournamentInfo(tournamentId, tournament, activeCount, organizerLogoUrl, categories = []) {
   const maxPairs = Number(tournament.maxPairs || 0);
   const isOpenStatus = OPEN_STATUSES.has(String(tournament.status || ""));
   const isFull = maxPairs > 0 && activeCount >= maxPairs;
@@ -132,6 +154,8 @@ function buildPublicTournamentInfo(tournamentId, tournament, activeCount, organi
   return {
     id: tournamentId,
     name: normalizeString(tournament.name, "Torneo"),
+    baseName: normalizeString(tournament.baseName || tournament.name, "Torneo"),
+    categories,
     startDateMillis: Number(tournament.startDateMillis || 0),
     endDateMillis: Number(tournament.endDateMillis || 0),
     compositionLabel: normalizeString(tournament.compositionConfig?.label || tournament.compositionLabel),
@@ -188,14 +212,23 @@ const getPublicTournamentInfo = onRequest({ invoker: "public" }, async (req, res
     }
 
     const tournament = tournamentSnapshot.data() || {};
-    const [activeRegistrations, organizerLogoUrl] = await Promise.all([
+    const [activeRegistrations, organizerLogoUrl, categories] = await Promise.all([
       listActiveRegistrations(db, tournamentId),
       resolveOrganizerLogoUrl(db, tournament),
+      listBatchCategories(db, tournament),
     ]);
 
     res
       .status(200)
-      .json(buildPublicTournamentInfo(tournamentId, tournament, activeRegistrations.length, organizerLogoUrl));
+      .json(
+        buildPublicTournamentInfo(
+          tournamentId,
+          tournament,
+          activeRegistrations.length,
+          organizerLogoUrl,
+          categories
+        )
+      );
   } catch (error) {
     logger.error("getPublicTournamentInfo failed", error);
     res.status(500).json({ error: "No pudimos cargar el torneo." });
