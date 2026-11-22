@@ -8,13 +8,13 @@ const STATUS_META = {
   draft: { label: "Borrador", accent: "#667482", tint: "#F3F5F7", border: "#D4DBE2" },
   published: { label: "Publicado", accent: "#356CB8", tint: "#EEF5FF", border: "#BED4F7" },
   registration_open: {
-    label: "Inscripcion abierta",
+    label: "Inscripciones abiertas",
     accent: "#1FAE63",
     tint: "#E7FBEF",
     border: "#A9E8C3",
   },
   registration_closed: {
-    label: "Inscripcion cerrada",
+    label: "Inscripciones cerradas",
     accent: "#9B6A18",
     tint: "#FFF6EA",
     border: "#E8CF9B",
@@ -133,41 +133,29 @@ export default function TournamentHeaderCard({
           {title}
         </Text>
 
-        <View style={styles.compactStatusRow}>
-          <View
-            style={[
-              styles.compactStatusPill,
-              { backgroundColor: statusMeta.tint, borderColor: statusMeta.border },
-            ]}
-          >
-            <Text style={[styles.compactStatusText, { color: statusMeta.accent }]}>
-              {statusMeta.label}
-            </Text>
+        <View style={styles.compactCategoryDateRow}>
+          <View style={styles.compactCategoryDateLeft}>
+            {category ? (
+              hasCategorySwitcher ? (
+                <Pressable
+                  onPress={() => setCategoryPickerVisible(true)}
+                  style={({ pressed }) => [
+                    styles.categorySwitcherButton,
+                    pressed ? styles.categorySwitcherButtonPressed : null,
+                  ]}
+                >
+                  <Text numberOfLines={1} style={styles.categorySwitcherText}>
+                    {category}
+                  </Text>
+                  <Ionicons color={colors.primaryDark} name="chevron-down" size={16} />
+                </Pressable>
+              ) : (
+                <Text numberOfLines={1} style={styles.categoryStaticText}>
+                  {category}
+                </Text>
+              )
+            ) : null}
           </View>
-        </View>
-
-        {category ? (
-          hasCategorySwitcher ? (
-            <Pressable
-              onPress={() => setCategoryPickerVisible(true)}
-              style={({ pressed }) => [
-                styles.categorySwitcherButton,
-                pressed ? styles.categorySwitcherButtonPressed : null,
-              ]}
-            >
-              <Text numberOfLines={1} style={styles.categorySwitcherText}>
-                {category}
-              </Text>
-              <Ionicons color={colors.primaryDark} name="chevron-down" size={16} />
-            </Pressable>
-          ) : (
-            <Text numberOfLines={1} style={styles.categoryStaticText}>
-              {category}
-            </Text>
-          )
-        ) : null}
-
-        <View style={styles.compactMetaRow}>
           <View style={styles.compactMetaItem}>
             <Ionicons color={colors.primaryDark} name="calendar-outline" size={14} />
             <Text numberOfLines={1} style={styles.compactMetaText}>
@@ -175,6 +163,10 @@ export default function TournamentHeaderCard({
             </Text>
           </View>
         </View>
+
+        <Text style={[styles.statusPlainText, { color: statusMeta.accent }]}>
+          {statusMeta.label}
+        </Text>
 
         {hasCategorySwitcher ? (
           <Modal
@@ -289,12 +281,15 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     minWidth: 0,
   },
-  compactMetaRow: {
+  compactCategoryDateRow: {
     alignItems: "center",
     flexDirection: "row",
-    gap: 6,
-    justifyContent: "center",
-    minWidth: 0,
+    justifyContent: "space-between",
+    marginTop: 6,
+  },
+  compactCategoryDateLeft: {
+    flex: 1,
+    marginRight: spacing.sm,
   },
   compactMetaText: {
     color: colors.primaryDark,
@@ -346,7 +341,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     columnGap: 4,
     flexDirection: "row",
-    marginTop: 2,
     paddingHorizontal: spacing.sm,
     paddingVertical: 6,
   },
@@ -357,14 +351,21 @@ const styles = StyleSheet.create({
     color: colors.primaryDark,
     fontFamily: "Inter_700Bold",
     fontSize: 13,
-    maxWidth: 220,
+    maxWidth: 150,
   },
   categoryStaticText: {
     color: colors.primaryDark,
     fontFamily: "Inter_700Bold",
     fontSize: 13,
-    marginTop: 4,
     textAlign: "left",
+  },
+  statusPlainText: {
+    fontFamily: "Inter_900Black",
+    fontSize: 12,
+    letterSpacing: 0.3,
+    marginTop: 6,
+    textAlign: "left",
+    textTransform: "uppercase",
   },
   categoryModalOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -518,24 +519,6 @@ const styles = StyleSheet.create({
     minHeight: 24,
     justifyContent: "center",
     paddingHorizontal: spacing.sm,
-  },
-  compactStatusRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    justifyContent: "flex-start",
-    marginTop: 6,
-  },
-  compactStatusPill: {
-    borderRadius: 999,
-    borderWidth: 1,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 4,
-  },
-  compactStatusText: {
-    fontFamily: "Inter_900Black",
-    fontSize: 11,
-    letterSpacing: 0.3,
-    textTransform: "uppercase",
   },
   statusText: {
     fontSize: 11,
