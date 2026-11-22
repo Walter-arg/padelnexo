@@ -7,7 +7,6 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from "react-native";
 import DateTimePicker from "@react-native-community/datetimepicker";
@@ -18,7 +17,6 @@ import * as ImagePicker from "expo-image-picker";
 import AppButton from "../components/AppButton";
 import AppInput from "../components/AppInput";
 import FeedbackModal from "../components/FeedbackModal";
-import NumericKeyboardDoneBar from "../components/NumericKeyboardDoneBar";
 import SectionHeader from "../components/SectionHeader";
 import SelectField from "../components/SelectField";
 import { canAccessAdminPanel } from "../config/admin";
@@ -49,21 +47,6 @@ import {
 } from "../services/leaguesService";
 import { createEmptyComplex, normalizeComplex } from "../services/organizerService";
 import { auth } from "../../services/firebaseConfig";
-
-const NUMERIC_KEYBOARD_ACCESSORY_ID = "createTournamentNumericDone";
-
-const CREATION_MODE_OPTIONS = [
-  {
-    label: "Crear uno",
-    value: "single",
-    description: "Crea un torneo independiente.",
-  },
-  {
-    label: "Crear varios",
-    value: "multiple",
-    description: "Crea varios torneos iguales en una sola accion.",
-  },
-];
 
 const CATEGORY_MODE_OPTIONS = [
   {
@@ -110,6 +93,11 @@ const TOURNAMENT_RULESET_OPTIONS = [
     description: "2 clasificados por zona de 4. Modalidad mas corta.",
   },
 ];
+
+const QUANTITY_OPTIONS = Array.from({ length: 9 }, (_, index) => ({
+  label: String(index + 1),
+  value: String(index + 1),
+}));
 
 function sanitizeInteger(value, maxLength = 2) {
   return String(value || "")
@@ -168,7 +156,7 @@ function buildInitialForm(userData = {}) {
 
   return {
     creationMode: "single",
-    quantity: "2",
+    quantity: "1",
     coverImage: "",
     name: "",
     description: "",
@@ -183,7 +171,7 @@ function buildInitialForm(userData = {}) {
     sumTarget: "",
     fixedCategoryA: "",
     fixedCategoryB: "",
-    pairConfirmationMode: "manual",
+    pairConfirmationMode: "none",
     buildMode: fixtureDefaults.mode || "automatic",
     recommendedGroupSize: 3,
     startDateMillis: "",
@@ -469,9 +457,17 @@ function getPairConfirmationOptionMeta(value = "") {
     };
   }
 
+  if (value === "manual") {
+    return {
+      description: "El organizador confirma manualmente cada inscripcion. (FLEXIBLE)",
+      label: "ORGANIZADOR CONFIRMA A CADA PAREJA",
+    };
+  }
+
   return {
-    description: "El organizador confirma manualmente la inscripcion. (FLEXIBLE)",
-    label: "CONFIRMACION MANUAL",
+    description:
+      "La pareja queda confirmada apenas se inscribe, sin que el organizador tenga que confirmarla. (MAS FLEXIBLE)",
+    label: "SIN CONFIRMACION",
   };
 }
 
@@ -507,20 +503,6 @@ function getVenueModeOptionMeta(value = "") {
   return {
     description: "Usa una sede principal.",
     label: "SEDE UNICA",
-  };
-}
-
-function getCreationModeOptionMeta(value = "") {
-  if (value === "multiple") {
-    return {
-      description: "Crea varios torneos iguales en una sola accion.",
-      label: "CREAR VARIOS",
-    };
-  }
-
-  return {
-    description: "Crea un torneo independiente.",
-    label: "CREAR UNO",
   };
 }
 
@@ -700,6 +682,7 @@ export default function CreateTournamentScreen({ navigation, route }) {
   });
   const [temporaryComplexVisible, setTemporaryComplexVisible] = useState(false);
   const [ruleSetInfoExpanded, setRuleSetInfoExpanded] = useState(false);
+  const [quantityPickerVisible, setQuantityPickerVisible] = useState(false);
   const [temporaryComplex, setTemporaryComplex] = useState(() => createEmptyComplex());
   const [datePickerTarget, setDatePickerTarget] = useState("");
 
@@ -775,25 +758,19 @@ export default function CreateTournamentScreen({ navigation, route }) {
     [form.selectedVenueNames]
   );
 
-  const multiplePreviewNames = useMemo(() => {
-    const quantity = Math.max(Number.parseInt(form.quantity || "0", 10) || 0, 0);
-
-    if (form.creationMode !== "multiple" || !form.name.trim() || quantity < 2) {
-      return [];
-    }
-
-    return buildMultipleTournamentPayloads(
-      { name: form.name.trim() },
-      multipleConfigs.slice(0, quantity)
-    ).map(
-      (item) => item.name
-    );
-  }, [form.creationMode, form.name, form.quantity, multipleConfigs]);
-
   const updateField = (field, value) => {
     setForm((current) => ({
       ...current,
       [field]: value,
+    }));
+  };
+
+  const updateQuantity = (value) => {
+    const numericValue = Math.max(Number.parseInt(value, 10) || 1, 1);
+    setForm((current) => ({
+      ...current,
+      quantity: String(numericValue),
+      creationMode: numericValue > 1 ? "multiple" : "single",
     }));
   };
 
@@ -1212,10 +1189,7 @@ export default function CreateTournamentScreen({ navigation, route }) {
             </Pressable>
           </View>
 
-          <Text style={styles.posterPickerHint}>
-            Recomendado: ~1080x1350px, hasta 2MB. Funciona cualquier proporcion (vertical u
-            horizontal), se muestra completo sin recortar.
-          </Text>
+          <Text style={styles.posterPickerHint}>Recomendado 1080 x 1350 px, hasta 2 MB.</Text>
 
           {form.coverImage ? (
             <View style={styles.posterPreviewCard}>
@@ -1231,168 +1205,14 @@ export default function CreateTournamentScreen({ navigation, route }) {
         </View>
 
         <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>MODO DE ARMADO</Text>
-          <View style={styles.confirmationList}>
-            {CREATION_MODE_OPTIONS.map((option) => {
-              const optionMeta = getCreationModeOptionMeta(option.value);
-              const isActive = form.creationMode === option.value;
-
-              return (
-                <Pressable
-                  key={option.value}
-                  onPress={() => updateField("creationMode", option.value)}
-                  style={[
-                    styles.confirmationOption,
-                    isActive && styles.confirmationOptionActive,
-                  ]}
-                >
-                  <View
-                    style={[
-                      styles.confirmationBullet,
-                      isActive && styles.confirmationBulletActive,
-                    ]}
-                  />
-                  <Text
-                    style={[
-                      styles.confirmationOptionText,
-                      isActive && styles.confirmationOptionTextActive,
-                    ]}
-                  >
-                    {optionMeta.label}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-          <Text style={styles.confirmationDescription}>
-            {getCreationModeOptionMeta(form.creationMode).description}
-          </Text>
-
-          {form.creationMode === "multiple" && !isEditingDraft ? (
-            <View style={styles.inlineQuantityRow}>
-              <Text style={styles.inlineQuantityLabel}>Cantidad de torneos</Text>
-              <TextInput
-                inputAccessoryViewID={
-                  Platform.OS === "ios" ? NUMERIC_KEYBOARD_ACCESSORY_ID : undefined
-                }
-                keyboardType="number-pad"
-                maxLength={1}
-                onChangeText={(value) =>
-                  updateField("quantity", sanitizeInteger(value).slice(0, 1))
-                }
-                placeholder="2"
-                placeholderTextColor={colors.muted}
-                style={styles.inlineQuantityInput}
-                value={String(form.quantity || "").slice(0, 1)}
-              />
-            </View>
-          ) : null}
-        </View>
-
-        <View style={styles.sectionCard}>
           <AppInput
             label="Nombre del torneo"
-            labelStyle={styles.centeredFieldLabel}
+            labelStyle={styles.fieldLabelProminent}
             onChangeText={(value) => updateField("name", value.toUpperCase())}
             placeholder={
               form.creationMode === "multiple" && !isEditingDraft ? "Torneo Apertura" : "Torneo de invierno"
             }
             value={form.name}
-          />
-
-          {multiplePreviewNames.length ? (
-            <View style={styles.previewCard}>
-              <Text style={styles.previewTitle}>Se van a crear</Text>
-              {multiplePreviewNames.map((name, index) => (
-                <Text key={`${name}-${index + 1}`} style={styles.previewItem}>
-                  {name}
-                </Text>
-              ))}
-            </View>
-          ) : null}
-        </View>
-
-        <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>SELECCIONAR LUGARES DE JUEGO</Text>
-          <View style={styles.confirmationList}>
-            {VENUE_MODE_OPTIONS.map((option) => {
-              const optionMeta = getVenueModeOptionMeta(option.value);
-              const isActive = form.venueMode === option.value;
-
-              return (
-                <Pressable
-                  key={option.value}
-                  onPress={() =>
-                    setForm((current) => ({
-                      ...current,
-                      selectedVenueNames:
-                        option.value === "single"
-                          ? current.selectedVenueNames.slice(0, 1)
-                          : current.selectedVenueNames,
-                      venueMode: option.value,
-                    }))
-                  }
-                  style={[
-                    styles.confirmationOption,
-                    isActive && styles.confirmationOptionActive,
-                  ]}
-                >
-                  <View
-                    style={[
-                      styles.confirmationBullet,
-                      isActive && styles.confirmationBulletActive,
-                    ]}
-                  />
-                  <Text
-                    style={[
-                      styles.confirmationOptionText,
-                      isActive && styles.confirmationOptionTextActive,
-                    ]}
-                  >
-                    {optionMeta.label}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-          <Text style={styles.confirmationDescription}>
-            {getVenueModeOptionMeta(form.venueMode).description}
-          </Text>
-
-          <Text style={styles.inputLabel}>Complejos aprobados</Text>
-          <View style={styles.chipRow}>
-            {organizerComplexes.map((complex) => (
-              <VenueChip
-                key={`main-${complex.nombre}`}
-                active={selectedVenueNames.has(complex.nombre)}
-                label={complex.nombre}
-                onPress={() => toggleVenueSelection(complex.nombre)}
-              />
-            ))}
-          </View>
-
-          <Text style={[styles.inputLabel, styles.secondLabel]}>Lugares temporales</Text>
-          <View style={styles.chipRow}>
-            {tournamentComplexes.map((complex) => (
-              <VenueChip
-                key={`temporary-${complex.nombre}`}
-                active={selectedVenueNames.has(complex.nombre)}
-                label={complex.nombre}
-                onPress={() => toggleVenueSelection(complex.nombre)}
-                tint="temporary"
-              />
-            ))}
-          </View>
-
-          <AppButton
-            onPress={() => {
-              setTemporaryComplex(createEmptyComplex());
-              setTemporaryComplexVisible(true);
-            }}
-            style={styles.sectionButton}
-            textStyle={styles.sectionButtonText}
-            title="AGREGAR LUGAR TEMPORAL"
-            variant="secondary"
           />
         </View>
 
@@ -1425,7 +1245,7 @@ export default function CreateTournamentScreen({ navigation, route }) {
                       isActive && styles.confirmationOptionTextActive,
                     ]}
                   >
-                    {option.label}
+                    {option.label} ({option.subtitle})
                   </Text>
                 </Pressable>
               );
@@ -1437,9 +1257,12 @@ export default function CreateTournamentScreen({ navigation, route }) {
 
           <Pressable
             onPress={() => setRuleSetInfoExpanded((current) => !current)}
-            style={styles.ruleSetInfoToggle}
+            style={({ pressed }) => [
+              styles.ruleSetInfoToggle,
+              pressed && styles.ruleSetInfoTogglePressed,
+            ]}
           >
-            <Ionicons color={colors.primaryDark} name="information-circle-outline" size={14} />
+            <Ionicons color={colors.primaryDark} name="information-circle" size={18} />
             <Text style={styles.ruleSetInfoToggleText}>
               {ruleSetInfoExpanded ? "Ocultar explicacion" : "Como se arman las zonas y llaves"}
             </Text>
@@ -1458,12 +1281,35 @@ export default function CreateTournamentScreen({ navigation, route }) {
                 es mas chico, por lo que el torneo se resuelve en menos partidos y fechas, ideal
                 para torneos mas cortos o con menos dias de juego.
               </Text>
+              <Text style={[styles.ruleSetInfoText, styles.ruleSetInfoTextSpaced]}>
+                Si una zona no llega a tener 4 parejas completas, clasifican 2 en cualquiera de
+                los dos formatos.
+              </Text>
             </View>
           ) : null}
         </View>
 
         <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>SELECCIONE CATEGORIAS</Text>
+          {!isEditingDraft ? (
+            <View style={styles.quantityHeaderRow}>
+              <Text style={styles.quantityHeaderText}>Crear</Text>
+              <SelectField
+                containerStyle={styles.quantityFieldContainer}
+                fieldStyle={styles.quantityField}
+                label=""
+                onClose={() => setQuantityPickerVisible(false)}
+                onOpen={() => setQuantityPickerVisible(true)}
+                onSelect={(value) => updateQuantity(value)}
+                options={QUANTITY_OPTIONS}
+                placeholder="1"
+                value={form.quantity}
+                visible={quantityPickerVisible}
+              />
+              <Text style={styles.quantityHeaderText}>
+                {Number(form.quantity) > 1 ? "Torneos" : "Torneo"}
+              </Text>
+            </View>
+          ) : null}
 
           {form.creationMode === "multiple" && !isEditingDraft ? (
             <View style={styles.multipleTournamentConfigsWrap}>
@@ -1531,7 +1377,7 @@ export default function CreateTournamentScreen({ navigation, route }) {
                     </Text>
 
                     <SelectField
-                      label="Sexo"
+                      label="Genero"
                       labelStyle={styles.centeredFieldLabel}
                       onClose={() => setMultiplePickerState({ field: "", index: -1 })}
                       onOpen={() => setMultiplePickerState({ field: "branch", index })}
@@ -1540,7 +1386,7 @@ export default function CreateTournamentScreen({ navigation, route }) {
                         ...option,
                         label: option.value === "Masculino" ? "Caballeros" : option.label,
                       }))}
-                      placeholder="Seleccionar sexo"
+                      placeholder="Seleccionar genero"
                       value={config.branch}
                       visible={
                         multiplePickerState.field === "branch" &&
@@ -1647,7 +1493,7 @@ export default function CreateTournamentScreen({ navigation, route }) {
               </Text>
 
               <SelectField
-                label="Sexo"
+                label="Genero"
                 labelStyle={styles.centeredFieldLabel}
                 onClose={() => setBranchVisible(false)}
                 onOpen={() => setBranchVisible(true)}
@@ -1656,7 +1502,7 @@ export default function CreateTournamentScreen({ navigation, route }) {
                   ...option,
                   label: option.value === "Masculino" ? "Caballeros" : option.label,
                 }))}
-                placeholder="Seleccionar sexo"
+                placeholder="Seleccionar genero"
                 value={form.branch}
                 visible={branchVisible}
               />
@@ -1705,9 +1551,7 @@ export default function CreateTournamentScreen({ navigation, route }) {
         </View>
 
         <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>DEFINIR COSTO Y MODALIDAD</Text>
-
-          <Text style={styles.inputLabel}>¿CUANDO SE CONFIRMA LA INSCRIPCION?</Text>
+          <Text style={styles.sectionTitle}>CONFIRMAR LA INSCRIPCION DE UNA PAREJA</Text>
           <View style={styles.confirmationList}>
             {TOURNAMENT_PAIR_CONFIRMATION_OPTIONS.map((option) => {
               const optionMeta = getPairConfirmationOptionMeta(option.value);
@@ -1738,23 +1582,112 @@ export default function CreateTournamentScreen({ navigation, route }) {
           <Text style={styles.confirmationDescription}>
             {getPairConfirmationOptionMeta(form.pairConfirmationMode).description}
           </Text>
+        </View>
 
+        <View style={styles.sectionCard}>
           <AppInput
             keyboardType="decimal-pad"
-            label="VALOR DE INSCRIPCION POR JUGADOR"
+            label="Valor de inscripcion por jugador (opcional)"
             labelStyle={styles.centeredFieldLabel}
             inputStyle={styles.centeredMoneyInput}
             onChangeText={(value) => updateField("entryFee", formatMoneyInput(value))}
             placeholder="0"
             value={form.entryFee}
           />
+        </View>
+
+        <View style={styles.sectionCard}>
           <AppInput
-            label="Alias de transferencia"
+            label="Alias de transferencia (opcional)"
             labelStyle={styles.centeredFieldLabel}
             inputStyle={styles.centeredMoneyInput}
             onChangeText={(value) => updateField("paymentAlias", value)}
             placeholder="INGRESA TU ALIAS"
             value={form.paymentAlias}
+          />
+        </View>
+
+        <View style={styles.sectionCard}>
+          <Text style={styles.sectionTitle}>SELECCIONAR LUGARES DE JUEGO</Text>
+          <View style={styles.confirmationList}>
+            {VENUE_MODE_OPTIONS.map((option) => {
+              const optionMeta = getVenueModeOptionMeta(option.value);
+              const isActive = form.venueMode === option.value;
+
+              return (
+                <Pressable
+                  key={option.value}
+                  onPress={() =>
+                    setForm((current) => ({
+                      ...current,
+                      selectedVenueNames:
+                        option.value === "single"
+                          ? current.selectedVenueNames.slice(0, 1)
+                          : current.selectedVenueNames,
+                      venueMode: option.value,
+                    }))
+                  }
+                  style={[
+                    styles.confirmationOption,
+                    isActive && styles.confirmationOptionActive,
+                  ]}
+                >
+                  <View
+                    style={[
+                      styles.confirmationBullet,
+                      isActive && styles.confirmationBulletActive,
+                    ]}
+                  />
+                  <Text
+                    style={[
+                      styles.confirmationOptionText,
+                      isActive && styles.confirmationOptionTextActive,
+                    ]}
+                  >
+                    {optionMeta.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          <Text style={styles.confirmationDescription}>
+            {getVenueModeOptionMeta(form.venueMode).description}
+          </Text>
+
+          <Text style={styles.inputLabel}>Complejos aprobados</Text>
+          <View style={styles.chipRow}>
+            {organizerComplexes.map((complex) => (
+              <VenueChip
+                key={`main-${complex.nombre}`}
+                active={selectedVenueNames.has(complex.nombre)}
+                label={complex.nombre}
+                onPress={() => toggleVenueSelection(complex.nombre)}
+              />
+            ))}
+          </View>
+
+          <Text style={[styles.inputLabel, styles.secondLabel]}>Lugares temporales</Text>
+          <View style={styles.chipRow}>
+            {tournamentComplexes.map((complex) => (
+              <VenueChip
+                key={`temporary-${complex.nombre}`}
+                active={selectedVenueNames.has(complex.nombre)}
+                label={complex.nombre}
+                onPress={() => toggleVenueSelection(complex.nombre)}
+                tint="temporary"
+              />
+            ))}
+          </View>
+
+          <AppButton
+            onPress={() => {
+              setTemporaryComplex(createEmptyComplex());
+              setTemporaryComplexVisible(true);
+            }}
+            style={styles.sectionButton}
+            textStyle={styles.sectionButtonText}
+            title="AGREGAR LUGAR TEMPORAL"
+            variant="secondary"
           />
         </View>
 
@@ -1828,9 +1761,6 @@ export default function CreateTournamentScreen({ navigation, route }) {
         title={feedback.title}
         visible={feedback.visible}
       />
-      {Platform.OS === "ios" ? (
-        <NumericKeyboardDoneBar nativeID={NUMERIC_KEYBOARD_ACCESSORY_ID} />
-      ) : null}
     </SafeAreaView>
   );
 }
@@ -1875,8 +1805,8 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     color: colors.text,
+    fontFamily: "Inter_900Black",
     fontSize: 17,
-    fontWeight: "900",
     marginBottom: spacing.sm,
     textAlign: "center",
     textTransform: "uppercase",
@@ -1889,29 +1819,18 @@ const styles = StyleSheet.create({
   },
   posterPickerTitle: {
     color: colors.text,
+    fontFamily: "Inter_900Black",
     fontSize: 17,
-    fontWeight: "900",
     lineHeight: 20,
     textAlign: "center",
     textTransform: "uppercase",
   },
   posterPickerHint: {
     color: colors.muted,
+    fontFamily: "Inter_600SemiBold",
     fontSize: 12,
-    fontWeight: "600",
     lineHeight: 16,
     marginTop: spacing.xs,
-  },
-  posterPickerCard: {
-    alignItems: "center",
-    backgroundColor: "#F4FAF7",
-    borderColor: colors.border,
-    borderRadius: 12,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: spacing.sm,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
   },
   posterPickerIconButton: {
     alignItems: "center",
@@ -1929,35 +1848,6 @@ const styles = StyleSheet.create({
   posterPickerCardPressed: {
     backgroundColor: "#E8F5EE",
     borderColor: colors.primaryLight,
-  },
-  posterPickerIconWrap: {
-    alignItems: "center",
-    backgroundColor: "#E6F2EC",
-    borderRadius: 999,
-    height: 42,
-    justifyContent: "center",
-    width: 42,
-  },
-  posterPickerCopy: {
-    flex: 1,
-  },
-  posterPickerTitle: {
-    color: colors.text,
-    fontSize: 14,
-    fontWeight: "900",
-  },
-  posterPickerIconText: {
-    color: colors.primaryDark,
-    fontSize: 12,
-    fontWeight: "900",
-    textTransform: "uppercase",
-  },
-  posterPickerText: {
-    color: colors.muted,
-    fontSize: 12,
-    fontWeight: "600",
-    lineHeight: 17,
-    marginTop: 2,
   },
   posterPreviewCard: {
     backgroundColor: "#F7FBF8",
@@ -1993,31 +1883,32 @@ const styles = StyleSheet.create({
   centeredFieldLabel: {
     textAlign: "center",
   },
-  inlineQuantityRow: {
+  fieldLabelProminent: {
+    color: colors.primaryDark,
+    fontFamily: "Inter_900Black",
+    fontSize: 17,
+    textAlign: "center",
+    textTransform: "uppercase",
+  },
+  quantityHeaderRow: {
     alignItems: "center",
     flexDirection: "row",
     gap: spacing.sm,
     justifyContent: "center",
-    marginTop: spacing.xs,
   },
-  inlineQuantityLabel: {
+  quantityHeaderText: {
     color: colors.text,
-    fontSize: 15,
-    fontWeight: "700",
+    fontFamily: "Inter_900Black",
+    fontSize: 18,
   },
-  inlineQuantityInput: {
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: 12,
-    borderWidth: 1,
-    color: colors.text,
-    fontSize: 16,
-    fontWeight: "700",
+  quantityFieldContainer: {
+    marginBottom: 0,
+  },
+  quantityField: {
+    justifyContent: "center",
     minHeight: 40,
+    minWidth: 64,
     paddingHorizontal: spacing.sm,
-    paddingVertical: 0,
-    textAlign: "center",
-    width: 52,
   },
   centeredMoneyInput: {
     textAlign: "center",
@@ -2071,29 +1962,6 @@ const styles = StyleSheet.create({
   toggleCardDescriptionActive: {
     color: colors.primaryDark,
   },
-  previewCard: {
-    backgroundColor: "#F4FAF7",
-    borderColor: colors.border,
-    borderRadius: 8,
-    borderWidth: 1,
-    marginTop: spacing.sm,
-    padding: spacing.sm,
-  },
-  previewTitle: {
-    color: colors.primaryDark,
-    fontSize: 12,
-    fontWeight: "800",
-    marginBottom: spacing.xs,
-    textAlign: "center",
-    textTransform: "uppercase",
-  },
-  previewItem: {
-    color: colors.text,
-    fontSize: 13,
-    fontWeight: "700",
-    lineHeight: 20,
-    textAlign: "center",
-  },
   multipleTournamentConfigsWrap: {
     gap: spacing.md,
   },
@@ -2106,8 +1974,8 @@ const styles = StyleSheet.create({
   },
   multipleTournamentTitle: {
     color: colors.primaryDark,
+    fontFamily: "Inter_900Black",
     fontSize: 14,
-    fontWeight: "900",
     marginBottom: spacing.xs,
     textAlign: "center",
     textTransform: "uppercase",
@@ -2161,8 +2029,8 @@ const styles = StyleSheet.create({
   confirmationOptionText: {
     color: colors.text,
     flex: 1,
+    fontFamily: "Inter_800ExtraBold",
     fontSize: 12,
-    fontWeight: "800",
     textTransform: "uppercase",
   },
   confirmationOptionTextActive: {
@@ -2171,14 +2039,23 @@ const styles = StyleSheet.create({
   ruleSetInfoToggle: {
     alignItems: "center",
     alignSelf: "center",
+    backgroundColor: "#E8F5EE",
+    borderColor: colors.primaryLight,
+    borderRadius: 999,
+    borderWidth: 1,
     flexDirection: "row",
-    gap: 4,
-    marginTop: 2,
+    gap: 6,
+    marginTop: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 8,
+  },
+  ruleSetInfoTogglePressed: {
+    backgroundColor: "#D7EEE0",
   },
   ruleSetInfoToggleText: {
     color: colors.primaryDark,
-    fontSize: 12,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
+    fontSize: 13,
   },
   ruleSetInfoBox: {
     backgroundColor: "#F7FBF8",
@@ -2202,8 +2079,8 @@ const styles = StyleSheet.create({
   },
   confirmationDescription: {
     color: "#1E88C8",
+    fontFamily: "Inter_600SemiBold",
     fontSize: 12,
-    fontWeight: "600",
     lineHeight: 18,
     marginBottom: spacing.md,
     textAlign: "center",

@@ -547,6 +547,10 @@ function isRegistrationConfirmed(registration = {}, tournament = {}) {
   const pairConfirmationMode = String(tournament?.pairConfirmationMode || "").trim().toLowerCase();
   const requiresPayment = Number(tournament?.entryFee || 0) > 0;
 
+  if (pairConfirmationMode === "none") {
+    return true;
+  }
+
   if (!requiresPayment && pairConfirmationMode !== "manual") {
     return true;
   }

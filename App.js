@@ -2,6 +2,15 @@ import "@react-native-firebase/app";
 import crashlytics from "@react-native-firebase/crashlytics";
 import React, { useEffect, useState } from "react";
 import { NavigationContainer, createNavigationContainerRef } from "@react-navigation/native";
+import { useFonts } from "expo-font";
+import {
+  Inter_400Regular,
+  Inter_500Medium,
+  Inter_600SemiBold,
+  Inter_700Bold,
+  Inter_800ExtraBold,
+  Inter_900Black,
+} from "@expo-google-fonts/inter";
 import * as ExpoLinking from "expo-linking";
 import * as WebBrowser from "expo-web-browser";
 import {
@@ -618,6 +627,15 @@ export default function App() {
   const [isCheckoutBootstrapping, setIsCheckoutBootstrapping] = useState(true);
   const [updateRequired, setUpdateRequired] = useState(false);
   const [updateSuggested, setUpdateSuggested] = useState(false);
+
+  useFonts({
+    Inter_400Regular,
+    Inter_500Medium,
+    Inter_600SemiBold,
+    Inter_700Bold,
+    Inter_800ExtraBold,
+    Inter_900Black,
+  });
 
   useEffect(() => {
     configurePurchases();

@@ -58,9 +58,10 @@ export const TOURNAMENT_PAYMENT_STATUS_OPTIONS = [
 ];
 
 export const TOURNAMENT_PAIR_CONFIRMATION_OPTIONS = [
-  { label: "Deben pagar ambos", value: "both_paid" },
-  { label: "Alcanza con un pago", value: "one_paid" },
-  { label: "Confirmacion manual", value: "manual" },
+  { label: "Sin confirmacion", value: "none" },
+  { label: "Organizador confirma a cada pareja", value: "manual" },
+  { label: "Pago de uno de los 2 jugadores", value: "one_paid" },
+  { label: "Pago de ambos jugadores", value: "both_paid" },
 ];
 
 export const TOURNAMENT_BUILD_MODE_OPTIONS = [
@@ -735,6 +736,10 @@ function getRegistrationStatusFromPayments(tournament = {}, payments = [], force
   const requiresPayment = Number(tournament.entryFee || 0) > 0;
 
   if (forceManual) {
+    return "confirmed";
+  }
+
+  if (tournament.pairConfirmationMode === "none") {
     return "confirmed";
   }
 

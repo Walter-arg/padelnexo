@@ -578,7 +578,7 @@ function InfoTab({ role, tournament, groups, matches, registrations }) {
     { label: "Formato", value: tournament?.tournamentFormat === "groups_knockout" ? "Zonas + llaves" : "A confirmar" },
     { label: "Categoria", value: tournament?.compositionConfig?.label || tournament?.compositionLabel || "A confirmar" },
     { label: "Inscripcion", value: Number(tournament?.entryFee || 0) > 0 ? formatMoney(tournament.entryFee) : "Sin cargo" },
-    { label: "Confirmacion", value: tournament?.pairConfirmationMode === "both_paid" ? "Pagan ambos" : tournament?.pairConfirmationMode === "one_paid" ? "Paga uno" : "Manual" },
+    { label: "Confirmacion", value: tournament?.pairConfirmationMode === "both_paid" ? "Pagan ambos" : tournament?.pairConfirmationMode === "one_paid" ? "Paga uno" : tournament?.pairConfirmationMode === "manual" ? "Manual" : "Automatica" },
     { label: "Sedes", value: tournament?.venueMode === "multiple" ? "Multiples sedes" : "Sede unica" },
   ];
 

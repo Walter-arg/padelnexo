@@ -1409,7 +1409,9 @@ export default function TournamentRegistrationPanel({
   const stepNumber = activePanel === "payments" ? 3 : activePanel === "availability" ? 2 : 1;
   const entryFeeAmount = Number(tournament?.entryFee || 0);
   const paymentStepHint =
-    entryFeeAmount <= 0
+    tournament?.pairConfirmationMode === "none"
+      ? "🎾 ¡Ya estás inscripto al torneo! A disfrutarlo."
+      : entryFeeAmount <= 0
       ? "Este torneo no tiene costo de inscripcion."
       : tournament?.pairConfirmationMode === "both_paid"
       ? `Para quedar confirmados, tienen que pagar los dos integrantes de la pareja ($${entryFeeAmount} cada uno).`

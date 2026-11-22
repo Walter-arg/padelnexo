@@ -277,6 +277,11 @@ const submitPublicTournamentRegistration = onRequest({ invoker: "public" }, asyn
       buildPublicPaymentEntry("player-1", player1Name, entryFee),
       buildPublicPaymentEntry("player-2", player2Name, entryFee),
     ];
+    const pairConfirmationMode = normalizeString(tournament.pairConfirmationMode).toLowerCase();
+    const registrationStatus =
+      pairConfirmationMode === "none" || (entryFee <= 0 && pairConfirmationMode !== "manual")
+        ? "confirmed"
+        : "pending";
 
     const registrationPayload = {
       player1Id: "",
@@ -286,7 +291,7 @@ const submitPublicTournamentRegistration = onRequest({ invoker: "public" }, asyn
       player2Name,
       player2Category,
       pairLabel,
-      status: "pending",
+      status: registrationStatus,
       availability,
       payments,
       contactPhone,
@@ -304,7 +309,7 @@ const submitPublicTournamentRegistration = onRequest({ invoker: "public" }, asyn
       withdrawalConfirmedByName: "",
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      confirmedAt: null,
+      confirmedAt: registrationStatus === "confirmed" ? admin.firestore.FieldValue.serverTimestamp() : null,
       rejectedAt: null,
     };
 
