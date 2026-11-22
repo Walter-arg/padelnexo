@@ -1830,6 +1830,14 @@ export async function listTournamentsWithRegistrationCounts() {
   return tournamentsWithCounts;
 }
 
+export async function listTournamentsByBatchId(batchId) {
+  if (!batchId) {
+    return [];
+  }
+
+  return listTournaments(where("creationBatchId", "==", batchId));
+}
+
 export async function listOrganizerDraftTournaments(organizerId) {
   if (!organizerId) {
     return [];

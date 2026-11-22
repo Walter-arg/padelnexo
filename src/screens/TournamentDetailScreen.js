@@ -30,6 +30,7 @@ import FeedbackModal from "../components/FeedbackModal";
 import NumericKeyboardDoneBar from "../components/NumericKeyboardDoneBar";
 import SectionHeader from "../components/SectionHeader";
 import TournamentHeaderCard from "../components/TournamentHeaderCard";
+import useTournamentCategorySwitcher from "../hooks/useTournamentCategorySwitcher";
 import { colors, spacing } from "../config/theme";
 import { useAuth } from "../context/AuthContext";
 import { normalizeMercadoPagoConfig } from "../services/mercadoPagoConfigService";
@@ -1839,6 +1840,7 @@ export default function TournamentDetailScreen({ navigation, route }) {
   });
   const initialTabAppliedRef = useRef(false);
   const lastOrganizerAreaPersistedRef = useRef("");
+  const { categoryOptions, onSelectCategory } = useTournamentCategorySwitcher(tournament, navigation);
   const currentUser = useMemo(
     () => ({
       ...(userData || {}),
@@ -2113,9 +2115,12 @@ export default function TournamentDetailScreen({ navigation, route }) {
             showsVerticalScrollIndicator={false}
           >
             <TournamentHeaderCard
+              activeTournamentId={tournament?.id || ""}
               category={tournament?.compositionConfig?.label || tournament?.compositionLabel || ""}
+              categoryOptions={categoryOptions}
               compactFriendly
               endDateMillis={tournament?.endDateMillis || 0}
+              onSelectCategory={onSelectCategory}
               organizerLogoUrl={
                 tournament?.organizerLogoUrl ||
                 ((tournament?.organizerId === userData?.uid || tournament?.createdBy === userData?.uid)

@@ -20,6 +20,7 @@ import BottomQuickActionsBar, {
 import FeedbackModal from "../components/FeedbackModal";
 import SectionHeader from "../components/SectionHeader";
 import TournamentHeaderCard from "../components/TournamentHeaderCard";
+import useTournamentCategorySwitcher from "../hooks/useTournamentCategorySwitcher";
 import { colors, spacing } from "../config/theme";
 import { useAuth } from "../context/AuthContext";
 import { sendChatMessage } from "../services/chatService";
@@ -105,6 +106,7 @@ export default function TournamentRegistrationsScreen({ navigation, route }) {
     tone: "default",
   });
   const [registrationToDelete, setRegistrationToDelete] = useState(null);
+  const { categoryOptions, onSelectCategory } = useTournamentCategorySwitcher(tournament, navigation);
 
   const handleShareRegistrationLink = useCallback(async () => {
     const registrationUrl = `https://www.padelnexo.com.ar/inscripcion/${tournamentId}`;
@@ -376,9 +378,12 @@ export default function TournamentRegistrationsScreen({ navigation, route }) {
             ListHeaderComponent={
               <View style={styles.headerStack}>
                 <TournamentHeaderCard
+                  activeTournamentId={tournament?.id || ""}
                   category={tournament?.compositionConfig?.label || tournament?.compositionLabel || ""}
+                  categoryOptions={categoryOptions}
                   compactFriendly
                   endDateMillis={tournament?.endDateMillis || 0}
+                  onSelectCategory={onSelectCategory}
                   organizerLogoUrl={
                     tournament?.organizerLogoUrl ||
                     ((tournament?.organizerId === userData?.uid || tournament?.createdBy === userData?.uid)

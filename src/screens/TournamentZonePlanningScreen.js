@@ -23,6 +23,7 @@ import FeedbackModal from "../components/FeedbackModal";
 import NumericKeyboardDoneBar from "../components/NumericKeyboardDoneBar";
 import SectionHeader from "../components/SectionHeader";
 import TournamentHeaderCard from "../components/TournamentHeaderCard";
+import useTournamentCategorySwitcher from "../hooks/useTournamentCategorySwitcher";
 import { colors, spacing } from "../config/theme";
 import { useAuth } from "../context/AuthContext";
 import { getQuickSlotDefinitions } from "../services/availabilityService";
@@ -606,6 +607,7 @@ export default function TournamentZonePlanningScreen({ navigation, route }) {
   const [resultEditor, setResultEditor] = useState(null);
   const [zoneDeleteTarget, setZoneDeleteTarget] = useState(null);
   const [confirmArmadoPrompt, setConfirmArmadoPrompt] = useState(null);
+  const { categoryOptions, onSelectCategory } = useTournamentCategorySwitcher(tournament, navigation);
   const [standingsModalZoneId, setStandingsModalZoneId] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -1591,9 +1593,12 @@ export default function TournamentZonePlanningScreen({ navigation, route }) {
         ) : (
           <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
             <TournamentHeaderCard
+              activeTournamentId={tournament?.id || ""}
               category={tournamentCategoryLabel}
+              categoryOptions={categoryOptions}
               compactFriendly
               endDateMillis={tournament?.endDateMillis || 0}
+              onSelectCategory={onSelectCategory}
               organizerLogoUrl={
                 tournament?.organizerLogoUrl ||
                 ((tournament?.organizerId === userData?.uid || tournament?.createdBy === userData?.uid)

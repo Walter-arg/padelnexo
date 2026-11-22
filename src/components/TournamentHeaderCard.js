@@ -1,4 +1,5 @@
-import { Image, Pressable, StyleSheet, Text, View } from "react-native";
+import { useState } from "react";
+import { Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
 import { colors, spacing } from "../config/theme";
@@ -8,9 +9,9 @@ const STATUS_META = {
   published: { label: "Publicado", accent: "#356CB8", tint: "#EEF5FF", border: "#BED4F7" },
   registration_open: {
     label: "Inscripcion abierta",
-    accent: "#237547",
-    tint: "#EEF9F1",
-    border: "#B7DFBF",
+    accent: "#1FAE63",
+    tint: "#E7FBEF",
+    border: "#A9E8C3",
   },
   registration_closed: {
     label: "Inscripcion cerrada",
@@ -58,6 +59,8 @@ function formatPlayDateLabel(startDateMillis = 0, endDateMillis = 0) {
 
 export default function TournamentHeaderCard({
   actions = null,
+  categoryOptions = [],
+  activeTournamentId = "",
   children = null,
   category = "",
   compactFriendly = false,
@@ -65,6 +68,7 @@ export default function TournamentHeaderCard({
   organizerLogoUrl = "",
   onPosterPress = null,
   onPosterRemove = null,
+  onSelectCategory = null,
   posterUrl = "",
   subtitle = "",
   startDateMillis = 0,
@@ -76,32 +80,26 @@ export default function TournamentHeaderCard({
   const statusMeta = getStatusMeta(status);
   const playDateLabel = formatPlayDateLabel(startDateMillis, endDateMillis);
   const compactTitleColor = TOURNAMENT_TITLE_COLOR;
+  const [categoryPickerVisible, setCategoryPickerVisible] = useState(false);
+  const hasCategorySwitcher = categoryOptions.length > 1 && typeof onSelectCategory === "function";
 
   if (compactFriendly) {
     return (
       <View style={[styles.card, styles.compactCard]}>
-        <View style={styles.compactTitleRow}>
+        <View style={styles.compactOrganizerRow}>
           {organizerLogoUrl ? (
-            <Image source={{ uri: organizerLogoUrl }} style={[styles.compactSideThumb, styles.organizerLogoThumb]} />
+            <Image source={{ uri: organizerLogoUrl }} style={styles.organizerLogoThumb} />
           ) : (
-            <View style={[styles.compactSideThumb, styles.organizerLogoPlaceholder]}>
+            <View style={styles.organizerLogoPlaceholder}>
               <Ionicons color={statusMeta.accent} name="shield-checkmark-outline" size={18} />
             </View>
           )}
-          <View style={styles.compactTitleCopy}>
-            <Text style={styles.eyebrow}>TORNEO</Text>
-            <Text numberOfLines={2} style={[styles.compactTitle, { color: compactTitleColor }]}>
-              {title}
+          {venue ? (
+            <Text numberOfLines={1} style={styles.compactVenueText}>
+              {venue}
             </Text>
-            {venue ? (
-              <View style={styles.compactVenueRow}>
-                <Ionicons color="#2F8FCF" name="business-outline" size={12} />
-                <Text numberOfLines={1} style={styles.compactVenueText}>
-                  {venue}
-                </Text>
-              </View>
-            ) : null}
-          </View>
+          ) : null}
+          <View style={styles.compactHeaderSpacer} />
           {posterUrl ? (
             <View style={styles.posterThumbWrap}>
               <Pressable
@@ -130,25 +128,11 @@ export default function TournamentHeaderCard({
           {actions ? <View style={styles.compactActionsWrap}>{actions}</View> : null}
         </View>
 
-        <View style={styles.compactMetaRow}>
-          {category ? (
-            <>
-              <View style={styles.compactMetaItem}>
-                <Ionicons color={colors.primaryDark} name="ribbon-outline" size={14} />
-                <Text numberOfLines={1} style={styles.compactMetaText}>
-                  {category}
-                </Text>
-              </View>
-              <Text style={styles.compactMetaSeparator}>-</Text>
-            </>
-          ) : null}
-          <View style={styles.compactMetaItem}>
-            <Ionicons color={colors.primaryDark} name="calendar-outline" size={14} />
-            <Text numberOfLines={1} style={styles.compactMetaText}>
-              {playDateLabel}
-            </Text>
-          </View>
-        </View>
+        <Text style={styles.eyebrow}>TORNEO</Text>
+        <Text numberOfLines={2} style={[styles.compactTitle, { color: compactTitleColor }]}>
+          {title}
+        </Text>
+
         <View style={styles.compactStatusRow}>
           <View
             style={[
@@ -161,6 +145,84 @@ export default function TournamentHeaderCard({
             </Text>
           </View>
         </View>
+
+        {category ? (
+          hasCategorySwitcher ? (
+            <Pressable
+              onPress={() => setCategoryPickerVisible(true)}
+              style={({ pressed }) => [
+                styles.categorySwitcherButton,
+                pressed ? styles.categorySwitcherButtonPressed : null,
+              ]}
+            >
+              <Text numberOfLines={1} style={styles.categorySwitcherText}>
+                {category}
+              </Text>
+              <Ionicons color={colors.primaryDark} name="chevron-down" size={16} />
+            </Pressable>
+          ) : (
+            <Text numberOfLines={1} style={styles.categoryStaticText}>
+              {category}
+            </Text>
+          )
+        ) : null}
+
+        <View style={styles.compactMetaRow}>
+          <View style={styles.compactMetaItem}>
+            <Ionicons color={colors.primaryDark} name="calendar-outline" size={14} />
+            <Text numberOfLines={1} style={styles.compactMetaText}>
+              {playDateLabel}
+            </Text>
+          </View>
+        </View>
+
+        {hasCategorySwitcher ? (
+          <Modal
+            animationType="fade"
+            onRequestClose={() => setCategoryPickerVisible(false)}
+            transparent
+            visible={categoryPickerVisible}
+          >
+            <View style={styles.categoryModalOverlay}>
+              <Pressable
+                onPress={() => setCategoryPickerVisible(false)}
+                style={styles.categoryModalBackdrop}
+              />
+              <View style={styles.categoryModalCard}>
+                <Text style={styles.categoryModalTitle}>Elegir categoria</Text>
+                <ScrollView showsVerticalScrollIndicator={false}>
+                  {categoryOptions.map((option) => {
+                    const isSelected = option.value === activeTournamentId;
+
+                    return (
+                      <Pressable
+                        key={option.value}
+                        onPress={() => {
+                          onSelectCategory(option.value);
+                          setCategoryPickerVisible(false);
+                        }}
+                        style={[
+                          styles.categoryOptionRow,
+                          isSelected ? styles.categoryOptionRowSelected : null,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.categoryOptionText,
+                            isSelected ? styles.categoryOptionTextSelected : null,
+                          ]}
+                        >
+                          {option.label}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+            </View>
+          </Modal>
+        ) : null}
+
         {children}
       </View>
     );
@@ -234,60 +296,119 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     minWidth: 0,
   },
-  compactMetaSeparator: {
-    color: colors.primaryDark,
-    fontSize: 12,
-    fontWeight: "900",
-  },
   compactMetaText: {
     color: colors.primaryDark,
     flexShrink: 1,
+    fontFamily: "Inter_800ExtraBold",
     fontSize: 12,
-    fontWeight: "800",
     lineHeight: 15,
     textAlign: "center",
   },
   compactTitle: {
     flexShrink: 1,
+    fontFamily: "Inter_800ExtraBold",
     fontSize: 21,
-    fontWeight: "800",
-    letterSpacing: 0.3,
+    letterSpacing: 0.2,
     lineHeight: 25,
-    textAlign: "center",
+    textAlign: "left",
   },
-  compactTitleCopy: {
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 54,
-    width: "100%",
-  },
-  compactTitleRow: {
+  compactOrganizerRow: {
     alignItems: "center",
     columnGap: 8,
     flexDirection: "row",
-    justifyContent: "center",
     minHeight: 46,
-    position: "relative",
+  },
+  compactHeaderSpacer: {
+    flex: 1,
   },
   eyebrow: {
     color: colors.primaryDark,
+    fontFamily: "Inter_900Black",
     fontSize: 11,
-    fontWeight: "900",
     letterSpacing: 0,
     lineHeight: 12,
     marginBottom: 1,
-  },
-  compactVenueRow: {
-    alignItems: "center",
-    columnGap: 4,
-    flexDirection: "row",
-    justifyContent: "center",
     marginTop: 2,
   },
   compactVenueText: {
     color: "#2F8FCF",
-    fontSize: 12,
-    fontWeight: "800",
+    flexShrink: 1,
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 16,
+    lineHeight: 19,
+  },
+  categorySwitcherButton: {
+    alignItems: "center",
+    alignSelf: "flex-start",
+    backgroundColor: "#EEF5FF",
+    borderColor: "#BED4F7",
+    borderRadius: 999,
+    borderWidth: 1,
+    columnGap: 4,
+    flexDirection: "row",
+    marginTop: 2,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 6,
+  },
+  categorySwitcherButtonPressed: {
+    opacity: 0.85,
+  },
+  categorySwitcherText: {
+    color: colors.primaryDark,
+    fontFamily: "Inter_700Bold",
+    fontSize: 13,
+    maxWidth: 220,
+  },
+  categoryStaticText: {
+    color: colors.primaryDark,
+    fontFamily: "Inter_700Bold",
+    fontSize: 13,
+    marginTop: 4,
+    textAlign: "left",
+  },
+  categoryModalOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: "flex-end",
+  },
+  categoryModalBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: colors.overlay,
+  },
+  categoryModalCard: {
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    maxHeight: "65%",
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.xl,
+  },
+  categoryModalTitle: {
+    color: colors.text,
+    fontFamily: "Inter_800ExtraBold",
+    fontSize: 22,
+    marginBottom: spacing.md,
+    textAlign: "center",
+  },
+  categoryOptionRow: {
+    backgroundColor: colors.surfaceAlt,
+    borderRadius: 16,
+    marginBottom: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
+  },
+  categoryOptionRowSelected: {
+    backgroundColor: colors.secondary,
+    borderColor: colors.primary,
+    borderWidth: 1,
+  },
+  categoryOptionText: {
+    color: colors.text,
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 16,
+  },
+  categoryOptionTextSelected: {
+    color: colors.primaryDark,
   },
   organizerLogoPlaceholder: {
     alignItems: "center",
@@ -340,10 +461,7 @@ const styles = StyleSheet.create({
     width: "100%",
   },
   posterThumbWrap: {
-    position: "absolute",
-    right: 0,
-    top: 0,
-    zIndex: 1,
+    position: "relative",
   },
   title: {
     color: TOURNAMENT_TITLE_COLOR,
@@ -404,7 +522,7 @@ const styles = StyleSheet.create({
   compactStatusRow: {
     alignItems: "center",
     flexDirection: "row",
-    justifyContent: "center",
+    justifyContent: "flex-start",
     marginTop: 6,
   },
   compactStatusPill: {
@@ -414,8 +532,8 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   compactStatusText: {
+    fontFamily: "Inter_900Black",
     fontSize: 11,
-    fontWeight: "900",
     letterSpacing: 0.3,
     textTransform: "uppercase",
   },
@@ -430,11 +548,5 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     lineHeight: 17,
     textAlign: "center",
-  },
-  compactSideThumb: {
-    left: 0,
-    position: "absolute",
-    top: 2,
-    zIndex: 1,
   },
 });
