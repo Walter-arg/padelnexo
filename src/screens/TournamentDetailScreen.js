@@ -2117,7 +2117,7 @@ export default function TournamentDetailScreen({ navigation, route }) {
             <TournamentHeaderCard
               activeTournamentId={tournament?.id || ""}
               category={tournament?.compositionConfig?.label || tournament?.compositionLabel || ""}
-              categoryOptions={categoryOptions}
+              categoryOptions={activeTab === "management" ? [] : categoryOptions}
               compactFriendly
               endDateMillis={tournament?.endDateMillis || 0}
               onSelectCategory={onSelectCategory}
