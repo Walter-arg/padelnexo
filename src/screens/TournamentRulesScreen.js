@@ -1,6 +1,7 @@
 import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -17,8 +18,10 @@ import BottomQuickActionsBar, {
 } from "../components/BottomQuickActionsBar";
 import FeedbackModal from "../components/FeedbackModal";
 import SectionHeader from "../components/SectionHeader";
+import TournamentHeaderCard from "../components/TournamentHeaderCard";
 import { colors, spacing } from "../config/theme";
 import { useAuth } from "../context/AuthContext";
+import useTournamentCategorySwitcher from "../hooks/useTournamentCategorySwitcher";
 import { getTournamentById, updateTournamentRules } from "../services/tournamentsService";
 
 // Reconoce **negrita** (el boton "N" de este editor) y tambien *negrita*
@@ -71,6 +74,11 @@ export default function TournamentRulesScreen({ navigation, route }) {
   const [selection, setSelection] = useState({ start: 0, end: 0 });
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState({ visible: false, title: "", message: "", tone: "default" });
+  const [pendingCategorySwitchId, setPendingCategorySwitchId] = useState(null);
+  const { categoryOptions, onSelectCategory: switchCategory } = useTournamentCategorySwitcher(
+    tournament,
+    navigation
+  );
 
   const showFeedback = (title, message, tone = "default") => {
     setFeedback({ visible: true, title, message, tone });
@@ -120,6 +128,15 @@ export default function TournamentRulesScreen({ navigation, route }) {
       (tournament.organizerId === userData.uid || tournament.createdBy === userData.uid)
   );
   const hasUnsavedChanges = rulesDraft !== (tournament?.rules || "");
+
+  const handleSelectCategory = (nextTournamentId) => {
+    if (hasUnsavedChanges) {
+      setPendingCategorySwitchId(nextTournamentId);
+      return;
+    }
+
+    switchCategory(nextTournamentId);
+  };
 
   const applyBoldToSelection = () => {
     const start = Math.min(selection.start, selection.end);
@@ -186,6 +203,20 @@ export default function TournamentRulesScreen({ navigation, route }) {
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
           >
+            <TournamentHeaderCard
+              activeTournamentId={tournament?.id || ""}
+              category={tournament?.compositionConfig?.label || tournament?.compositionLabel || ""}
+              categoryOptions={categoryOptions}
+              compactFriendly
+              endDateMillis={tournament?.endDateMillis || 0}
+              onSelectCategory={handleSelectCategory}
+              organizerLogoUrl={tournament?.organizerLogoUrl || ""}
+              startDateMillis={tournament?.startDateMillis || 0}
+              status={tournament?.status || "draft"}
+              title={tournament?.name || tournamentName}
+              venue={tournament?.venueLabel || ""}
+            />
+
             <Text style={styles.sectionTitle}>Reglamento del torneo</Text>
             <Text style={styles.sectionHint}>
               Escribi o pega el reglamento (podes pegarlo directo desde WhatsApp, con emojis y
@@ -236,6 +267,20 @@ export default function TournamentRulesScreen({ navigation, route }) {
             contentContainerStyle={styles.scrollContent}
             showsVerticalScrollIndicator={false}
           >
+            <TournamentHeaderCard
+              activeTournamentId={tournament?.id || ""}
+              category={tournament?.compositionConfig?.label || tournament?.compositionLabel || ""}
+              categoryOptions={categoryOptions}
+              compactFriendly
+              endDateMillis={tournament?.endDateMillis || 0}
+              onSelectCategory={handleSelectCategory}
+              organizerLogoUrl={tournament?.organizerLogoUrl || ""}
+              startDateMillis={tournament?.startDateMillis || 0}
+              status={tournament?.status || "draft"}
+              title={tournament?.name || tournamentName}
+              venue={tournament?.venueLabel || ""}
+            />
+
             <Text style={styles.sectionTitle}>Reglamento del torneo</Text>
             {tournament?.rules ? (
               <View style={styles.readOnlyCard}>
@@ -260,6 +305,51 @@ export default function TournamentRulesScreen({ navigation, route }) {
         tone={feedback.tone}
         visible={feedback.visible}
       />
+
+      <Modal
+        animationType="fade"
+        onRequestClose={() => setPendingCategorySwitchId(null)}
+        transparent
+        visible={Boolean(pendingCategorySwitchId)}
+      >
+        <View style={styles.modalOverlay}>
+          <Pressable
+            onPress={() => setPendingCategorySwitchId(null)}
+            style={styles.modalBackdrop}
+          />
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Tenes cambios sin guardar</Text>
+            <Text style={styles.modalMessage}>
+              Si cambias de categoria ahora vas a perder los cambios del reglamento que todavia no
+              guardaste.
+            </Text>
+            <View style={styles.modalActionsRow}>
+              <Pressable
+                onPress={() => setPendingCategorySwitchId(null)}
+                style={({ pressed }) => [
+                  styles.modalSecondaryButton,
+                  pressed ? styles.pressedState : null,
+                ]}
+              >
+                <Text style={styles.modalSecondaryButtonText}>Seguir editando</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  const nextTournamentId = pendingCategorySwitchId;
+                  setPendingCategorySwitchId(null);
+                  switchCategory(nextTournamentId);
+                }}
+                style={({ pressed }) => [
+                  styles.modalDangerButton,
+                  pressed ? styles.pressedState : null,
+                ]}
+              >
+                <Text style={styles.modalPrimaryButtonText}>Cambiar sin guardar</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       <BottomQuickActionsBar navigation={navigation} />
     </SafeAreaView>
@@ -413,5 +503,71 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "600",
     textAlign: "center",
+  },
+  modalOverlay: {
+    alignItems: "center",
+    backgroundColor: colors.overlay,
+    flex: 1,
+    justifyContent: "center",
+    padding: spacing.md,
+  },
+  modalBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  modalCard: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 24,
+    borderWidth: 1,
+    gap: spacing.md,
+    padding: spacing.lg,
+    width: "100%",
+  },
+  modalTitle: {
+    color: colors.text,
+    fontSize: 21,
+    fontWeight: "800",
+    textAlign: "center",
+  },
+  modalMessage: {
+    color: colors.muted,
+    fontSize: 15,
+    lineHeight: 22,
+    textAlign: "center",
+  },
+  modalActionsRow: {
+    flexDirection: "row",
+    gap: spacing.sm,
+  },
+  modalSecondaryButton: {
+    alignItems: "center",
+    backgroundColor: colors.background,
+    borderColor: colors.border,
+    borderRadius: 16,
+    borderWidth: 1,
+    flex: 1,
+    justifyContent: "center",
+    minHeight: 46,
+  },
+  modalSecondaryButtonText: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: "800",
+  },
+  modalDangerButton: {
+    alignItems: "center",
+    backgroundColor: colors.danger,
+    borderRadius: 16,
+    flex: 1,
+    justifyContent: "center",
+    minHeight: 46,
+  },
+  modalPrimaryButtonText: {
+    color: colors.surface,
+    fontSize: 15,
+    fontWeight: "800",
+  },
+  pressedState: {
+    opacity: 0.78,
   },
 });
