@@ -317,6 +317,7 @@ function buildPayloadFromForm(
     organizerName: organizer?.name || "Organizador",
     coverImage: String(form.coverImage || "").trim(),
     name: String(form.name || "").trim(),
+    baseName: String(form.name || "").trim(),
     description: String(form.description || "").trim(),
     venueMode: form.venueMode,
     venues: selectedVenues,

@@ -22,6 +22,7 @@ import TournamentHeaderCard from "../components/TournamentHeaderCard";
 import TournamentRegistrationPanel from "../components/TournamentRegistrationPanel";
 import { colors, spacing } from "../config/theme";
 import { useAuth } from "../context/AuthContext";
+import useTournamentCategorySwitcher from "../hooks/useTournamentCategorySwitcher";
 import { buildTournamentDayOptions } from "../services/tournamentAvailabilityService";
 import {
   getTournamentById,
@@ -138,6 +139,20 @@ export default function TournamentRegistrationScreen({ navigation, route }) {
   const tournamentDayOptions = useMemo(() => buildTournamentDayOptions(tournament), [tournament]);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [pendingLeaveAction, setPendingLeaveAction] = useState(null);
+  const [pendingCategorySwitchId, setPendingCategorySwitchId] = useState(null);
+  const { categoryOptions, onSelectCategory: switchCategory } = useTournamentCategorySwitcher(
+    tournament,
+    navigation
+  );
+
+  const handleSelectCategory = (nextTournamentId) => {
+    if (hasUnsavedChanges) {
+      setPendingCategorySwitchId(nextTournamentId);
+      return;
+    }
+
+    switchCategory(nextTournamentId);
+  };
 
   useEffect(() => {
     const unsubscribe = navigation.addListener("beforeRemove", (event) => {
@@ -181,9 +196,12 @@ export default function TournamentRegistrationScreen({ navigation, route }) {
             showsVerticalScrollIndicator={false}
           >
             <TournamentHeaderCard
+              activeTournamentId={tournament?.id || ""}
               category={tournament?.compositionConfig?.label || tournament?.compositionLabel || ""}
+              categoryOptions={categoryOptions}
               compactFriendly
               endDateMillis={tournament?.endDateMillis || 0}
+              onSelectCategory={handleSelectCategory}
               organizerLogoUrl={tournament?.organizerLogoUrl || ""}
               startDateMillis={tournament?.startDateMillis || 0}
               status={tournament?.status || "draft"}
@@ -235,20 +253,34 @@ export default function TournamentRegistrationScreen({ navigation, route }) {
 
       <Modal
         animationType="fade"
-        onRequestClose={() => setPendingLeaveAction(null)}
+        onRequestClose={() => {
+          setPendingLeaveAction(null);
+          setPendingCategorySwitchId(null);
+        }}
         transparent
-        visible={Boolean(pendingLeaveAction)}
+        visible={Boolean(pendingLeaveAction) || Boolean(pendingCategorySwitchId)}
       >
         <View style={styles.modalOverlay}>
-          <Pressable onPress={() => setPendingLeaveAction(null)} style={styles.modalBackdrop} />
+          <Pressable
+            onPress={() => {
+              setPendingLeaveAction(null);
+              setPendingCategorySwitchId(null);
+            }}
+            style={styles.modalBackdrop}
+          />
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>Tenes cambios sin guardar</Text>
             <Text style={styles.modalMessage}>
-              Si salis ahora vas a perder los cambios de pago que todavia no guardaste.
+              {pendingCategorySwitchId
+                ? "Si cambias de categoria ahora vas a perder los cambios de pago que todavia no guardaste."
+                : "Si salis ahora vas a perder los cambios de pago que todavia no guardaste."}
             </Text>
             <View style={styles.modalActionsRow}>
               <Pressable
-                onPress={() => setPendingLeaveAction(null)}
+                onPress={() => {
+                  setPendingLeaveAction(null);
+                  setPendingCategorySwitchId(null);
+                }}
                 style={({ pressed }) => [
                   styles.modalSecondaryButton,
                   pressed ? styles.pressedState : null,
@@ -258,6 +290,13 @@ export default function TournamentRegistrationScreen({ navigation, route }) {
               </Pressable>
               <Pressable
                 onPress={() => {
+                  if (pendingCategorySwitchId) {
+                    const nextTournamentId = pendingCategorySwitchId;
+                    setPendingCategorySwitchId(null);
+                    switchCategory(nextTournamentId);
+                    return;
+                  }
+
                   const action = pendingLeaveAction;
                   setPendingLeaveAction(null);
                   navigation.dispatch(action);
@@ -267,7 +306,9 @@ export default function TournamentRegistrationScreen({ navigation, route }) {
                   pressed ? styles.pressedState : null,
                 ]}
               >
-                <Text style={styles.modalPrimaryButtonText}>Salir sin guardar</Text>
+                <Text style={styles.modalPrimaryButtonText}>
+                  {pendingCategorySwitchId ? "Cambiar sin guardar" : "Salir sin guardar"}
+                </Text>
               </Pressable>
             </View>
           </View>

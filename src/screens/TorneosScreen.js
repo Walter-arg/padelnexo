@@ -904,6 +904,181 @@ function TournamentSectionHeader({ title }) {
   );
 }
 
+function pickEntryTournament(categories = [], canManageTournament = false) {
+  if (!categories.length) {
+    return null;
+  }
+
+  if (canManageTournament) {
+    return categories[0];
+  }
+
+  const registered = categories.find((tournament) => tournament.userRegistration);
+  if (registered) {
+    return registered;
+  }
+
+  const open = categories.find(
+    (tournament) => (tournament.displayStatus || tournament.status) === "registration_open"
+  );
+  if (open) {
+    return open;
+  }
+
+  return categories[0];
+}
+
+function isCategoryClosedForPlayer(tournament = {}) {
+  const registration = tournament.userRegistration;
+  const isWithdrawn = registration?.withdrawalStatus === "confirmed";
+  const isClosed =
+    !registration &&
+    ["published", "registration_closed"].includes(tournament.displayStatus || tournament.status);
+
+  return isWithdrawn || isClosed;
+}
+
+function TournamentEventCard({
+  canManageTournament,
+  categories,
+  onOpenRegistration,
+  onPress,
+  onViewPoster,
+}) {
+  const representative = categories[0];
+  const titleColor = getTournamentTitleColor(representative);
+  const isCardPressEnabled =
+    canManageTournament || !categories.every(isCategoryClosedForPlayer);
+  const eventTitle = representative.baseName || representative.name || "Nombre del torneo";
+
+  const handlePress = () => {
+    const entryTournament = pickEntryTournament(categories, canManageTournament);
+
+    if (!entryTournament) {
+      return;
+    }
+
+    if (canManageTournament) {
+      onPress(entryTournament);
+    } else {
+      onOpenRegistration(entryTournament);
+    }
+  };
+
+  return (
+    <View style={styles.cardShell}>
+      <Pressable
+        disabled={!isCardPressEnabled}
+        onPress={handlePress}
+        style={({ pressed }) => [
+          styles.card,
+          pressed && isCardPressEnabled ? styles.cardPressed : null,
+          !isCardPressEnabled ? styles.cardDisabled : null,
+        ]}
+      >
+        <View style={styles.cardHeader}>
+          <View
+            style={[
+              styles.cardTitleWrap,
+              representative.organizerLogoUrl ? { paddingLeft: 50 } : null,
+              representative.coverImage ? { paddingRight: 38 } : null,
+            ]}
+          >
+            <View style={styles.cardTitleInline}>
+              <Text style={styles.cardEyebrowInline}>TORNEO</Text>
+              <Text
+                numberOfLines={eventTitle.length > 15 ? 2 : 1}
+                style={[styles.cardTitle, styles.cardTitlePlayer, { color: titleColor }]}
+              >
+                {eventTitle}
+              </Text>
+              <View style={styles.cardVenueRow}>
+                <Ionicons color={colors.primaryDark} name="business-outline" size={14} />
+                <Text numberOfLines={1} style={styles.cardVenueText}>
+                  {representative.venueLabel || "Sede a confirmar"}
+                </Text>
+              </View>
+            </View>
+          </View>
+          {representative.organizerLogoUrl ? (
+            <View pointerEvents="none" style={styles.cardHeaderLogoWrap}>
+              <View style={styles.cardPosterThumbButton}>
+                <Image source={{ uri: representative.organizerLogoUrl }} style={styles.cardPosterThumb} />
+              </View>
+            </View>
+          ) : null}
+          {representative.coverImage ? (
+            <View style={styles.cardHeaderPosterWrap}>
+              <Pressable
+                onPress={() => onViewPoster?.(representative)}
+                style={({ pressed }) => [
+                  styles.playerPosterThumbButton,
+                  pressed ? styles.playerPosterThumbButtonPressed : null,
+                ]}
+              >
+                <Image source={{ uri: representative.coverImage }} style={styles.playerPosterThumb} />
+              </Pressable>
+            </View>
+          ) : null}
+        </View>
+
+        <View style={styles.eventCategoriesWrap}>
+          {categories.map((category) => {
+            const statusMeta = getTournamentStatusMeta(category.displayStatus || category.status);
+            const registration = !canManageTournament ? category.userRegistration : null;
+            const chipMeta = registration ? getRegistrationChipMeta(registration) : null;
+            const pillMeta = chipMeta || statusMeta;
+
+            return (
+              <View key={category.id} style={styles.eventCategoryRow}>
+                <Text numberOfLines={1} style={styles.eventCategoryLabel}>
+                  {category.categoryLabel}
+                </Text>
+                <View
+                  style={[
+                    styles.statusPill,
+                    styles.eventCategoryPill,
+                    { backgroundColor: pillMeta.tint, borderColor: pillMeta.border },
+                  ]}
+                >
+                  <Text style={[styles.statusPillText, { color: pillMeta.accent }]}>
+                    {pillMeta.label}
+                  </Text>
+                </View>
+              </View>
+            );
+          })}
+        </View>
+
+        <View style={styles.cardFriendlyInfo}>
+          <View style={styles.cardFriendlyItem}>
+            <Ionicons color={colors.primaryDark} name="trophy-outline" size={16} />
+            <Text numberOfLines={2} style={styles.cardFriendlyText}>
+              {representative.tournamentFormat === "groups_knockout"
+                ? "Modalidad: Zonas + llaves"
+                : "Modalidad: Formato a confirmar"}
+            </Text>
+          </View>
+          <View style={styles.cardFriendlyItem}>
+            <Ionicons color={colors.primaryDark} name="calendar-outline" size={16} />
+            <Text numberOfLines={2} style={styles.cardFriendlyText}>
+              {representative.tournamentDaysLabel}
+            </Text>
+          </View>
+          {Number.isFinite(representative.distanceKm) ? (
+            <View style={styles.cardFriendlyItem}>
+              <Ionicons color={colors.primaryDark} name="location-outline" size={16} />
+              <Text numberOfLines={1} style={styles.cardFriendlyText}>
+                A {representative.distanceKm.toFixed(1)} km
+              </Text>
+            </View>
+          ) : null}
+        </View>
+      </Pressable>
+    </View>
+  );
+}
+
 function CreateTournamentButton({ onPress }) {
   return (
     <Pressable
@@ -1514,20 +1689,32 @@ export default function TorneosScreen({ navigation, route }) {
   ]);
 
   const listItems = useMemo(() => {
-    if (canCreateTournament) {
-      return visibleTournaments.map((tournament) => ({
-        type: "tournament",
-        id: tournament.id,
-        tournament,
-      }));
-    }
+    const items = [];
+    const eventIndexByBatchId = new Map();
 
-    return visibleTournaments.map((tournament) => ({
-      type: "tournament",
-      id: tournament.id,
-      tournament,
-    }));
-  }, [canCreateTournament, visibleTournaments]);
+    visibleTournaments.forEach((tournament) => {
+      const batchId = tournament.creationBatchId || "";
+
+      if (!batchId) {
+        items.push({ type: "tournament", id: tournament.id, tournament });
+        return;
+      }
+
+      if (eventIndexByBatchId.has(batchId)) {
+        items[eventIndexByBatchId.get(batchId)].categories.push(tournament);
+        return;
+      }
+
+      eventIndexByBatchId.set(batchId, items.length);
+      items.push({ type: "event", id: `event-${batchId}`, categories: [tournament] });
+    });
+
+    return items.map((item) =>
+      item.type === "event" && item.categories.length === 1
+        ? { type: "tournament", id: item.categories[0].id, tournament: item.categories[0] }
+        : item
+    );
+  }, [visibleTournaments]);
 
   const handleOpenTournament = (tournament) => {
     if (!tournament?.id) {
@@ -1916,8 +2103,16 @@ export default function TorneosScreen({ navigation, route }) {
           ListHeaderComponent={renderHeader}
           renderItem={({ item }) =>
             item.type === "section" ? (
-            <TournamentSectionHeader title={item.title} />
-          ) : (
+              <TournamentSectionHeader title={item.title} />
+            ) : item.type === "event" ? (
+              <TournamentEventCard
+                canManageTournament={canCreateTournament}
+                categories={item.categories}
+                onOpenRegistration={handleOpenRegistration}
+                onPress={handleOpenTournament}
+                onViewPoster={handleViewPoster}
+              />
+            ) : (
               <TournamentCard
                 canManageTournament={canCreateTournament}
                 item={item.tournament}
@@ -2506,6 +2701,26 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "800",
     marginTop: 4,
+  },
+  eventCategoriesWrap: {
+    gap: spacing.xs,
+    marginTop: spacing.md,
+  },
+  eventCategoryRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.sm,
+    justifyContent: "space-between",
+  },
+  eventCategoryLabel: {
+    color: colors.text,
+    flex: 1,
+    fontSize: 14,
+    fontWeight: "800",
+  },
+  eventCategoryPill: {
+    minHeight: 26,
+    paddingVertical: 2,
   },
   cardFriendlyInfo: {
     backgroundColor: "#F3FAF6",

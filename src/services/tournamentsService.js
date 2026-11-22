@@ -412,6 +412,7 @@ function buildTournamentPayload(organizer, payload = {}, batchId = "") {
 
   return {
     name: normalizeString(payload.name, "Torneo sin nombre"),
+    baseName: normalizeString(payload.baseName || payload.name, "Torneo sin nombre"),
     organizerId: organizer?.uid || payload.organizerId || "",
     organizerName: organizer?.name || payload.organizerName || "Organizador",
     organizerLogoUrl: normalizeString(organizer?.organizerLogoUrl || payload.organizerLogoUrl),
