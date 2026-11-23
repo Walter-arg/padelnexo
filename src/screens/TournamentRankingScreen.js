@@ -52,7 +52,7 @@ export default function TournamentRankingScreen({ navigation, route }) {
   const [organizerProfile, setOrganizerProfile] = useState(null);
   const [entries, setEntries] = useState([]);
   const [config, setConfig] = useState({ fromMillis: 0, toMillis: 0 });
-  const [activeCategory, setActiveCategory] = useState("");
+  const [activeCategory, setActiveCategory] = useState(route?.params?.initialCategory || "");
   const [configModalVisible, setConfigModalVisible] = useState(false);
   const [draftConfig, setDraftConfig] = useState({ fromMillis: 0, toMillis: 0 });
   const [datePickerTarget, setDatePickerTarget] = useState("");

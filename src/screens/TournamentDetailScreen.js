@@ -2383,6 +2383,8 @@ export default function TournamentDetailScreen({ navigation, route }) {
                 onPress={() =>
                   navigation.navigate("TournamentRanking", {
                     organizerId: tournament?.organizerId || tournament?.createdBy || "",
+                    initialCategory:
+                      tournament?.compositionConfig?.label || tournament?.compositionLabel || "",
                   })
                 }
                 style={({ pressed }) => [
