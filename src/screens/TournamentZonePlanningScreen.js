@@ -2631,7 +2631,7 @@ const styles = StyleSheet.create({
   timePickerDoneButtonText: {
     color: "#fff",
     fontSize: 15,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
   },
   container: {
     flex: 1,
@@ -2651,14 +2651,14 @@ const styles = StyleSheet.create({
   loaderText: {
     color: colors.muted,
     fontSize: 15,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
     marginTop: spacing.sm,
     textAlign: "center",
   },
   helperText: {
     color: colors.muted,
     fontSize: 12,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
     lineHeight: 15,
     marginTop: 3,
     textAlign: "center",
@@ -2689,7 +2689,7 @@ const styles = StyleSheet.create({
   unsavedChangesText: {
     color: "#A84F00",
     fontSize: 11,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textTransform: "uppercase",
   },
   dayRow: {
@@ -2722,13 +2722,13 @@ const styles = StyleSheet.create({
   dayChipText: {
     color: colors.primaryDark,
     fontSize: 11,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textAlign: "center",
   },
   dayChipDateText: {
     color: colors.primaryDark,
     fontSize: 11,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     marginTop: 2,
     textAlign: "center",
   },
@@ -2758,7 +2758,7 @@ const styles = StyleSheet.create({
   timeHeaderText: {
     color: colors.muted,
     fontSize: 11,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
   },
   pairHeaderRow: {
     flexDirection: "row",
@@ -2813,13 +2813,13 @@ const styles = StyleSheet.create({
   zoneLetterBadgeText: {
     color: "#1B5D92",
     fontSize: 10,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     lineHeight: 12,
     textAlign: "center",
   },
   pairHeaderText: {
     fontSize: 9,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     lineHeight: 10,
     textAlign: "center",
   },
@@ -2828,7 +2828,7 @@ const styles = StyleSheet.create({
   },
   pairHeaderAvailabilityText: {
     fontSize: 7,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     lineHeight: 8,
     marginTop: 2,
     opacity: 0.82,
@@ -2852,7 +2852,7 @@ const styles = StyleSheet.create({
   timeText: {
     color: colors.text,
     fontSize: 9,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
   },
   availabilityColumns: {
     flexDirection: "row",
@@ -2879,13 +2879,13 @@ const styles = StyleSheet.create({
   selectionTitle: {
     color: colors.primaryDark,
     fontSize: 12,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textAlign: "center",
   },
   selectionText: {
     color: colors.muted,
     fontSize: 10,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
     lineHeight: 13,
     marginTop: 3,
     textAlign: "center",
@@ -2901,7 +2901,7 @@ const styles = StyleSheet.create({
   addToZoneLabel: {
     color: colors.muted,
     fontSize: 11,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textAlign: "center",
     textTransform: "uppercase",
   },
@@ -2928,7 +2928,7 @@ const styles = StyleSheet.create({
   addToZoneChipText: {
     color: colors.primaryDark,
     fontSize: 11,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
   },
   addToZoneChipTextDisabled: {
     color: colors.muted,
@@ -2946,7 +2946,7 @@ const styles = StyleSheet.create({
   primaryActionText: {
     color: colors.surface,
     fontSize: 11,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textTransform: "uppercase",
   },
   secondaryAction: {
@@ -2962,7 +2962,7 @@ const styles = StyleSheet.create({
   secondaryActionText: {
     color: colors.primaryDark,
     fontSize: 11,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
   },
   zoneStack: {
     gap: spacing.sm,
@@ -2994,7 +2994,7 @@ const styles = StyleSheet.create({
   zoneUnscheduledBannerText: {
     color: colors.danger,
     fontSize: 11,
-    fontWeight: "600",
+    fontFamily: "Inter_600SemiBold",
   },
   hiddenSection: {
     display: "none",
@@ -3011,7 +3011,7 @@ const styles = StyleSheet.create({
   zoneTitle: {
     color: colors.primaryDark,
     fontSize: 15,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textTransform: "uppercase",
   },
   zoneCompactPairs: {
@@ -3033,12 +3033,12 @@ const styles = StyleSheet.create({
   },
   zoneCompactPairNumberText: {
     fontSize: 11,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
   },
   zoneCompactPairName: {
     flex: 1,
     fontSize: 11,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
   },
   zoneCompactPairRemove: {
     alignItems: "center",
@@ -3049,7 +3049,7 @@ const styles = StyleSheet.create({
   zoneSubtitle: {
     color: colors.muted,
     fontSize: 12,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
     marginTop: 2,
   },
   removeZoneButton: {
@@ -3081,7 +3081,7 @@ const styles = StyleSheet.create({
   },
   zonePairChipText: {
     fontSize: 11,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
   },
   zonePairRemoveButton: {
     alignItems: "center",
@@ -3107,7 +3107,7 @@ const styles = StyleSheet.create({
   zoneMatchTableHeaderText: {
     color: colors.primaryDark,
     fontSize: 9,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     paddingHorizontal: 5,
     paddingVertical: 7,
     textAlign: "center",
@@ -3122,7 +3122,7 @@ const styles = StyleSheet.create({
   zoneMatchTableCellText: {
     color: colors.text,
     fontSize: 10,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     paddingHorizontal: 5,
     textAlign: "center",
   },
@@ -3136,7 +3136,7 @@ const styles = StyleSheet.create({
   zoneMatchWinnerNumberText: {
     color: "#39FF14",
     fontSize: 12,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
   },
   zoneMatchDayButton: {
     alignItems: "center",
@@ -3147,7 +3147,7 @@ const styles = StyleSheet.create({
   zoneMatchDayButtonText: {
     color: colors.primaryDark,
     fontSize: 9,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textAlign: "center",
   },
   zoneMatchPairColumn: {
@@ -3174,7 +3174,7 @@ const styles = StyleSheet.create({
   zoneMatchResultButtonText: {
     color: colors.muted,
     fontSize: 8,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textAlign: "center",
   },
   zoneMatchResultButtonTextLoaded: {
@@ -3190,7 +3190,7 @@ const styles = StyleSheet.create({
   zoneMatchTimeButtonText: {
     color: "#214A84",
     fontSize: 10,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
   },
   zoneMatchPlaceButton: {
     alignItems: "center",
@@ -3201,13 +3201,13 @@ const styles = StyleSheet.create({
   zoneMatchPlaceButtonText: {
     color: colors.text,
     fontSize: 9,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textAlign: "center",
   },
   zoneMatchTableEmpty: {
     color: colors.muted,
     fontSize: 12,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
     lineHeight: 17,
     padding: spacing.sm,
     textAlign: "center",
@@ -3231,7 +3231,7 @@ const styles = StyleSheet.create({
   zoneQualifierText: {
     color: colors.text,
     fontSize: 10,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
   },
   zoneStandingsButton: {
     alignItems: "center",
@@ -3246,7 +3246,7 @@ const styles = StyleSheet.create({
   zoneStandingsButtonText: {
     color: "#176B5B",
     fontSize: 10,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
   },
   resultModalOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -3273,7 +3273,7 @@ const styles = StyleSheet.create({
   dayPickerModalTitle: {
     color: colors.primaryDark,
     fontSize: 18,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textAlign: "center",
   },
   dayPickerMatchPreview: {
@@ -3300,17 +3300,17 @@ const styles = StyleSheet.create({
   },
   dayPickerParticipantNumberText: {
     fontSize: 11,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
   },
   dayPickerParticipantName: {
     fontSize: 12,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textAlign: "center",
   },
   dayPickerVsText: {
     color: colors.muted,
     fontSize: 10,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     lineHeight: 12,
     textAlign: "center",
     textTransform: "uppercase",
@@ -3337,12 +3337,12 @@ const styles = StyleSheet.create({
   dayPickerOptionText: {
     color: colors.primaryDark,
     fontSize: 13,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
   },
   dayPickerOptionMeta: {
     color: colors.muted,
     fontSize: 12,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
   },
   dayPickerOptionTextSelected: {
     color: "#176B5B",
@@ -3360,7 +3360,7 @@ const styles = StyleSheet.create({
   dayPickerCancelButtonText: {
     color: colors.muted,
     fontSize: 12,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
   },
   resultModalCard: {
     backgroundColor: colors.surface,
@@ -3379,13 +3379,13 @@ const styles = StyleSheet.create({
   resultModalTitle: {
     color: colors.primaryDark,
     fontSize: 20,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textAlign: "center",
   },
   resultModalSubtitle: {
     color: colors.muted,
     fontSize: 12,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
     lineHeight: 17,
     marginTop: spacing.xs,
     textAlign: "center",
@@ -3411,7 +3411,7 @@ const styles = StyleSheet.create({
   winnerOptionText: {
     color: colors.primaryDark,
     fontSize: 12,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textAlign: "center",
   },
   winnerOptionTextSelected: {
@@ -3420,14 +3420,14 @@ const styles = StyleSheet.create({
   winnerBadgeText: {
     color: "#176B5B",
     fontSize: 9,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     marginTop: 2,
     textAlign: "center",
   },
   resultNoWinnerText: {
     color: colors.muted,
     fontSize: 12,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     lineHeight: 16,
     marginTop: spacing.md,
     textAlign: "center",
@@ -3445,7 +3445,7 @@ const styles = StyleSheet.create({
   setLabel: {
     color: colors.primaryDark,
     fontSize: 11,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textAlign: "right",
     width: 102,
   },
@@ -3460,7 +3460,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     color: colors.text,
     fontSize: 16,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     height: 42,
     paddingHorizontal: spacing.sm,
     textAlign: "center",
@@ -3485,7 +3485,7 @@ const styles = StyleSheet.create({
   resultCancelButtonText: {
     color: colors.primaryDark,
     fontSize: 13,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
   },
   resultSaveButton: {
     alignItems: "center",
@@ -3498,7 +3498,7 @@ const styles = StyleSheet.create({
   resultSaveButtonText: {
     color: colors.surface,
     fontSize: 13,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
   },
   standingsModalOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -3517,7 +3517,7 @@ const styles = StyleSheet.create({
   standingsModalTitle: {
     color: colors.primaryDark,
     fontSize: 18,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textAlign: "center",
     textTransform: "uppercase",
   },
@@ -3546,7 +3546,7 @@ const styles = StyleSheet.create({
     color: colors.primaryDark,
     flex: 0.48,
     fontSize: 9,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     paddingVertical: 8,
     textAlign: "center",
   },
@@ -3554,7 +3554,7 @@ const styles = StyleSheet.create({
     color: colors.text,
     flex: 0.48,
     fontSize: 10,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textAlign: "center",
   },
   standingsPairColumn: {
@@ -3574,7 +3574,7 @@ const styles = StyleSheet.create({
   standingsLegendTitle: {
     color: colors.primaryDark,
     fontSize: 11,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     marginBottom: 5,
     textAlign: "center",
     textTransform: "uppercase",
@@ -3587,7 +3587,7 @@ const styles = StyleSheet.create({
   standingsLegendItem: {
     color: colors.muted,
     fontSize: 9,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     lineHeight: 13,
     width: "50%",
     textAlign: "left",
@@ -3603,7 +3603,7 @@ const styles = StyleSheet.create({
   standingsCloseButtonText: {
     color: colors.surface,
     fontSize: 13,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
   },
   deleteModalOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -3622,13 +3622,13 @@ const styles = StyleSheet.create({
   deleteModalTitle: {
     color: colors.text,
     fontSize: 20,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textAlign: "center",
   },
   deleteModalText: {
     color: colors.muted,
     fontSize: 14,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
     lineHeight: 20,
     marginTop: spacing.sm,
     textAlign: "center",
@@ -3649,7 +3649,7 @@ const styles = StyleSheet.create({
   deleteCancelButtonText: {
     color: colors.primaryDark,
     fontSize: 13,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
   },
   deleteConfirmButton: {
     alignItems: "center",
@@ -3662,12 +3662,12 @@ const styles = StyleSheet.create({
   deleteConfirmButtonText: {
     color: colors.surface,
     fontSize: 13,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
   },
   emptyText: {
     color: colors.muted,
     fontSize: 13,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
     textAlign: "center",
   },
   bottomActions: {
@@ -3719,7 +3719,7 @@ const styles = StyleSheet.create({
   saveActionText: {
     color: colors.primaryDark,
     fontSize: 13,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
   },
   confirmAction: {
     alignItems: "center",
@@ -3732,7 +3732,7 @@ const styles = StyleSheet.create({
   confirmActionText: {
     color: colors.surface,
     fontSize: 13,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
   },
   actionDisabled: {
     opacity: 0.65,
@@ -3755,7 +3755,7 @@ const styles = StyleSheet.create({
   customScheduleTitle: {
     color: colors.text,
     fontSize: 17,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textAlign: "center",
   },
   customScheduleSummary: {
@@ -3772,17 +3772,17 @@ const styles = StyleSheet.create({
   customScheduleDayText: {
     color: colors.muted,
     fontSize: 13,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
   },
   customScheduleTimeText: {
     color: colors.primaryDark,
     fontSize: 22,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
   },
   customScheduleLabel: {
     color: colors.muted,
     fontSize: 11,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     letterSpacing: 0.4,
     marginBottom: 6,
     textTransform: "uppercase",
@@ -3805,7 +3805,7 @@ const styles = StyleSheet.create({
   customScheduleChipText: {
     color: colors.muted,
     fontSize: 13,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
   },
   customScheduleChipTextActive: {
     color: colors.surface,
@@ -3832,7 +3832,7 @@ const styles = StyleSheet.create({
   customScheduleCourtText: {
     color: colors.text,
     fontSize: 16,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
   },
   customScheduleCourtTextActive: {
     color: colors.surface,
@@ -3852,7 +3852,7 @@ const styles = StyleSheet.create({
     color: colors.danger,
     flex: 1,
     fontSize: 13,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
   },
   customScheduleActions: {
     flexDirection: "row",
@@ -3870,7 +3870,7 @@ const styles = StyleSheet.create({
   customScheduleCancelText: {
     color: colors.muted,
     fontSize: 14,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
   },
   customScheduleConfirmButton: {
     alignItems: "center",
@@ -3886,7 +3886,7 @@ const styles = StyleSheet.create({
   customScheduleConfirmText: {
     color: colors.surface,
     fontSize: 13,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
   },
   slotPickerOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -3908,21 +3908,21 @@ const styles = StyleSheet.create({
   slotPickerTitle: {
     color: colors.text,
     fontSize: 20,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     marginBottom: 2,
     textAlign: "center",
   },
   slotPickerSubtitle: {
     color: colors.muted,
     fontSize: 12,
-    fontWeight: "500",
+    fontFamily: "Inter_500Medium",
     marginBottom: spacing.md,
     textAlign: "center",
   },
   slotPickerEmptyText: {
     color: colors.muted,
     fontSize: 13,
-    fontWeight: "600",
+    fontFamily: "Inter_600SemiBold",
     paddingVertical: spacing.lg,
     textAlign: "center",
   },
@@ -3948,7 +3948,7 @@ const styles = StyleSheet.create({
   slotPickerDayChipText: {
     color: colors.muted,
     fontSize: 13,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
   },
   slotPickerDayChipTextActive: {
     color: colors.surface,
@@ -3963,7 +3963,7 @@ const styles = StyleSheet.create({
   slotPickerSingleVenueText: {
     color: colors.primaryDark,
     fontSize: 13,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
   },
   slotPickerVenueRow: {
     flexGrow: 0,
@@ -3987,7 +3987,7 @@ const styles = StyleSheet.create({
   slotPickerVenueChipText: {
     color: colors.muted,
     fontSize: 12,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
   },
   slotPickerVenueChipTextActive: {
     color: "#1B5D92",
@@ -3995,7 +3995,7 @@ const styles = StyleSheet.create({
   slotPickerSlotsLabel: {
     color: colors.muted,
     fontSize: 11,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     letterSpacing: 0.4,
     marginBottom: 6,
     marginTop: spacing.sm,
@@ -4023,7 +4023,7 @@ const styles = StyleSheet.create({
   slotPickerSlotTime: {
     color: colors.text,
     fontSize: 16,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     minWidth: 60,
   },
   slotPickerSlotTimeSelected: {
@@ -4033,7 +4033,7 @@ const styles = StyleSheet.create({
     color: colors.muted,
     flex: 1,
     fontSize: 13,
-    fontWeight: "600",
+    fontFamily: "Inter_600SemiBold",
   },
   slotPickerSlotCourtSelected: {
     color: "#1B5D92",
@@ -4061,7 +4061,7 @@ const styles = StyleSheet.create({
   slotPickerClearButtonText: {
     color: "#B04040",
     fontSize: 12,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
   },
   slotPickerDefineButton: {
     alignItems: "center",
@@ -4076,7 +4076,7 @@ const styles = StyleSheet.create({
   slotPickerDefineButtonText: {
     color: colors.surface,
     fontSize: 12,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
   },
   slotPickerCancelButton: {
     alignItems: "center",
@@ -4087,6 +4087,6 @@ const styles = StyleSheet.create({
   slotPickerCancelText: {
     color: colors.muted,
     fontSize: 12,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
   },
 });

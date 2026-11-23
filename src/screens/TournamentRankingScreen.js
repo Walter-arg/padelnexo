@@ -388,7 +388,7 @@ const styles = StyleSheet.create({
   loaderText: {
     color: colors.muted,
     fontSize: 13,
-    fontWeight: "600",
+    fontFamily: "Inter_600SemiBold",
     marginTop: spacing.sm,
   },
   scrollContent: {
@@ -429,19 +429,19 @@ const styles = StyleSheet.create({
   venueText: {
     color: "#2F8FCF",
     fontSize: 13,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     marginBottom: 2,
   },
   rankingTitle: {
     color: colors.primaryLight,
     fontSize: 22,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     letterSpacing: 0.3,
   },
   organizerNameText: {
     color: colors.muted,
     fontSize: 12,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
     marginTop: 2,
   },
   chipsRow: {
@@ -465,7 +465,7 @@ const styles = StyleSheet.create({
   chipText: {
     color: colors.primaryDark,
     fontSize: 12,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
   },
   chipTextActive: {
     color: colors.surface,
@@ -478,7 +478,7 @@ const styles = StyleSheet.create({
   rowsHeaderText: {
     color: colors.muted,
     fontSize: 11,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textTransform: "uppercase",
   },
   rankCol: {
@@ -504,7 +504,7 @@ const styles = StyleSheet.create({
   emptyText: {
     color: colors.muted,
     fontSize: 13,
-    fontWeight: "600",
+    fontFamily: "Inter_600SemiBold",
     textAlign: "center",
   },
   row: {
@@ -521,15 +521,15 @@ const styles = StyleSheet.create({
   rowText: {
     color: colors.text,
     fontSize: 14,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
   },
   rankText: {
     color: colors.muted,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
   },
   pointsText: {
     color: colors.primaryDark,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
   },
   actionsWrap: {
     marginTop: spacing.md,
@@ -554,7 +554,7 @@ const styles = StyleSheet.create({
   shareButtonText: {
     color: colors.primaryDark,
     fontSize: 12,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
   },
   configButton: {
     alignItems: "center",
@@ -570,7 +570,7 @@ const styles = StyleSheet.create({
   configButtonText: {
     color: colors.primaryDark,
     fontSize: 13,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
   },
   modalOverlay: {
     alignItems: "center",
@@ -594,12 +594,12 @@ const styles = StyleSheet.create({
   modalTitle: {
     color: colors.text,
     fontSize: 16,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
   },
   modalHint: {
     color: colors.muted,
     fontSize: 12,
-    fontWeight: "600",
+    fontFamily: "Inter_600SemiBold",
     marginBottom: spacing.md,
   },
   dateField: {
@@ -614,13 +614,13 @@ const styles = StyleSheet.create({
   dateFieldLabel: {
     color: colors.muted,
     fontSize: 11,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     textTransform: "uppercase",
   },
   dateFieldValue: {
     color: colors.text,
     fontSize: 15,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     marginTop: 2,
   },
   resetButton: {
@@ -639,7 +639,7 @@ const styles = StyleSheet.create({
   resetButtonText: {
     color: "#B24343",
     fontSize: 13,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
   },
   modalActions: {
     flexDirection: "row",
@@ -655,7 +655,7 @@ const styles = StyleSheet.create({
   modalCancelText: {
     color: colors.text,
     fontSize: 14,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
   },
   modalSaveButton: {
     alignItems: "center",
@@ -667,6 +667,6 @@ const styles = StyleSheet.create({
   modalSaveText: {
     color: colors.surface,
     fontSize: 14,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
   },
 });

@@ -673,7 +673,7 @@ const styles = StyleSheet.create({
   loaderText: {
     color: colors.muted,
     fontSize: 15,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
     marginTop: spacing.sm,
     textAlign: "center",
   },
@@ -687,7 +687,7 @@ const styles = StyleSheet.create({
   emptyTitle: {
     color: colors.text,
     fontSize: 17,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     textAlign: "center",
   },
   emptyText: {
@@ -720,12 +720,12 @@ const styles = StyleSheet.create({
   registrationTitle: {
     color: colors.text,
     fontSize: 15,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     textTransform: "uppercase",
   },
   registrationStatus: {
     fontSize: 12,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     textTransform: "uppercase",
   },
   registrationStatusConfirmed: {
@@ -743,7 +743,7 @@ const styles = StyleSheet.create({
   registrationMeta: {
     color: colors.muted,
     fontSize: 13,
-    fontWeight: "600",
+    fontFamily: "Inter_600SemiBold",
     lineHeight: 18,
     marginTop: spacing.xs,
   },
@@ -781,12 +781,12 @@ const styles = StyleSheet.create({
   playerName: {
     color: colors.text,
     fontSize: 13,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
   },
   playerMeta: {
     color: colors.muted,
     fontSize: 11,
-    fontWeight: "600",
+    fontFamily: "Inter_600SemiBold",
     marginTop: 2,
   },
   profileButton: {
@@ -810,7 +810,7 @@ const styles = StyleSheet.create({
   profileButtonText: {
     color: colors.primaryDark,
     fontSize: 11,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
   },
   profileButtonTextDisabled: {
     color: "#96A6A0",
@@ -842,7 +842,7 @@ const styles = StyleSheet.create({
   },
   summaryChipText: {
     fontSize: 11,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
   },
   summaryChipTextReady: {
     color: "#1D7A34",
@@ -874,7 +874,7 @@ const styles = StyleSheet.create({
   editButtonText: {
     color: colors.primaryDark,
     fontSize: 11,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
   },
   deleteIconButton: {
     alignItems: "center",
@@ -911,7 +911,7 @@ const styles = StyleSheet.create({
   confirmButtonText: {
     color: colors.surface,
     fontSize: 11,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
   },
   createPairButton: {
     alignItems: "center",
@@ -928,7 +928,7 @@ const styles = StyleSheet.create({
   createPairButtonText: {
     color: colors.surface,
     fontSize: 14,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textTransform: "uppercase",
   },
   shareLinkButton: {
@@ -946,7 +946,7 @@ const styles = StyleSheet.create({
   shareLinkButtonText: {
     color: colors.primaryDark,
     fontSize: 13,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
   },
   registrationSourceTag: {
     alignItems: "center",
@@ -964,19 +964,19 @@ const styles = StyleSheet.create({
   registrationSourceTagText: {
     color: "#4A78C0",
     fontSize: 10,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     textTransform: "uppercase",
   },
   registrationNoteText: {
     color: colors.muted,
     fontSize: 12,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
     marginTop: spacing.xs,
   },
   registrationPhoneText: {
     color: colors.muted,
     fontSize: 12,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     marginTop: spacing.xs,
   },
   confirmOverlay: {
@@ -1000,7 +1000,7 @@ const styles = StyleSheet.create({
   confirmTitle: {
     color: colors.text,
     fontSize: 22,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     textAlign: "center",
   },
   confirmMessage: {
@@ -1034,11 +1034,11 @@ const styles = StyleSheet.create({
   confirmModalButtonSecondaryText: {
     color: colors.primaryDark,
     fontSize: 15,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
   },
   confirmModalButtonDangerText: {
     color: colors.surface,
     fontSize: 15,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
   },
 });

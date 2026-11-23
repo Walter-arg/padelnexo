@@ -2519,7 +2519,7 @@ const styles = StyleSheet.create({
   loaderText: {
     color: colors.muted,
     fontSize: 15,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
     marginTop: spacing.sm,
     textAlign: "center",
   },
@@ -2570,13 +2570,13 @@ const styles = StyleSheet.create({
   posterShortcutTitle: {
     color: colors.primaryDark,
     fontSize: 13,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textTransform: "uppercase",
   },
   posterShortcutText: {
     color: colors.muted,
     fontSize: 13,
-    fontWeight: "600",
+    fontFamily: "Inter_600SemiBold",
     marginTop: 4,
   },
   posterRemoveIconButton: {
@@ -2612,13 +2612,13 @@ const styles = StyleSheet.create({
   draftBannerTitle: {
     color: "#7A4F00",
     fontSize: 11,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     letterSpacing: 0.5,
   },
   draftBannerText: {
     color: "#9A6800",
     fontSize: 12,
-    fontWeight: "500",
+    fontFamily: "Inter_500Medium",
     lineHeight: 17,
   },
   tabsGrid: {
@@ -2646,7 +2646,7 @@ const styles = StyleSheet.create({
   organizerWhatsAppText: {
     color: "#5F7D72",
     fontSize: 11,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
     textAlign: "center",
   },
   organizerWhatsAppChip: {
@@ -2661,7 +2661,7 @@ const styles = StyleSheet.create({
   organizerWhatsAppChipText: {
     color: "#FFFFFF",
     fontSize: 13,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textTransform: "uppercase",
   },
   rulesButton: {
@@ -2681,7 +2681,7 @@ const styles = StyleSheet.create({
   rulesButtonText: {
     color: colors.primaryDark,
     fontSize: 13,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
   },
   tabButton: {
     alignItems: "center",
@@ -2719,7 +2719,7 @@ const styles = StyleSheet.create({
   tabButtonText: {
     color: colors.primaryDark,
     fontSize: 12,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     textAlign: "center",
     textTransform: "uppercase",
   },
@@ -2739,12 +2739,12 @@ const styles = StyleSheet.create({
   blockTitle: {
     color: colors.text,
     fontSize: 16,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
   },
   blockText: {
     color: colors.muted,
     fontSize: 14,
-    fontWeight: "600",
+    fontFamily: "Inter_600SemiBold",
     lineHeight: 21,
     marginTop: 6,
   },
@@ -2765,26 +2765,26 @@ const styles = StyleSheet.create({
   metricLabel: {
     color: colors.muted,
     fontSize: 11,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     textTransform: "uppercase",
   },
   metricValue: {
     color: colors.text,
     fontSize: 13,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
     marginTop: 4,
   },
   blockTitleCentered: {
     color: colors.text,
     fontSize: 16,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textAlign: "center",
     textTransform: "uppercase",
   },
   blockTextCentered: {
     color: colors.muted,
     fontSize: 14,
-    fontWeight: "600",
+    fontFamily: "Inter_600SemiBold",
     lineHeight: 21,
     marginTop: 6,
     textAlign: "center",
@@ -2817,7 +2817,7 @@ const styles = StyleSheet.create({
   registrationActionText: {
     color: colors.text,
     fontSize: 13,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     marginTop: 6,
     textAlign: "center",
     textTransform: "uppercase",
@@ -2828,7 +2828,7 @@ const styles = StyleSheet.create({
   registrationStepDescription: {
     color: colors.muted,
     fontSize: 12,
-    fontWeight: "600",
+    fontFamily: "Inter_600SemiBold",
     lineHeight: 18,
     marginTop: 4,
     textAlign: "center",
@@ -2839,7 +2839,7 @@ const styles = StyleSheet.create({
   registrationActionMeta: {
     color: "#A36C17",
     fontSize: 11,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     marginTop: spacing.sm,
     textAlign: "center",
     textTransform: "uppercase",
@@ -2865,7 +2865,7 @@ const styles = StyleSheet.create({
     color: colors.text,
     flex: 1,
     fontSize: 13,
-    fontWeight: "600",
+    fontFamily: "Inter_600SemiBold",
     lineHeight: 19,
     marginLeft: spacing.sm,
   },
@@ -2888,19 +2888,19 @@ const styles = StyleSheet.create({
   fixtureSummaryLabel: {
     color: colors.muted,
     fontSize: 11,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     textTransform: "uppercase",
   },
   fixtureSummaryValue: {
     color: colors.text,
     fontSize: 13,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     marginTop: 4,
   },
   fixtureSectionLabel: {
     color: colors.primaryDark,
     fontSize: 12,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     marginTop: spacing.md,
     textAlign: "center",
     textTransform: "uppercase",
@@ -2929,7 +2929,7 @@ const styles = StyleSheet.create({
   fixtureOptionChipText: {
     color: colors.primaryDark,
     fontSize: 12,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     textAlign: "center",
     textTransform: "uppercase",
   },
@@ -2955,7 +2955,7 @@ const styles = StyleSheet.create({
   fixturePathTitle: {
     color: colors.text,
     fontSize: 13,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textAlign: "center",
   },
   fixturePathTitleActive: {
@@ -2964,7 +2964,7 @@ const styles = StyleSheet.create({
   fixturePathDescription: {
     color: colors.muted,
     fontSize: 12,
-    fontWeight: "600",
+    fontFamily: "Inter_600SemiBold",
     lineHeight: 18,
     marginTop: 4,
     textAlign: "center",
@@ -2984,14 +2984,14 @@ const styles = StyleSheet.create({
   fixtureRecommendationTitle: {
     color: colors.primaryDark,
     fontSize: 12,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textAlign: "center",
     textTransform: "uppercase",
   },
   fixtureRecommendationText: {
     color: colors.text,
     fontSize: 13,
-    fontWeight: "600",
+    fontFamily: "Inter_600SemiBold",
     lineHeight: 19,
     marginTop: 6,
     textAlign: "center",
@@ -2999,7 +2999,7 @@ const styles = StyleSheet.create({
   fixtureRecommendationHint: {
     color: colors.muted,
     fontSize: 12,
-    fontWeight: "600",
+    fontFamily: "Inter_600SemiBold",
     lineHeight: 18,
     marginTop: spacing.sm,
     textAlign: "center",
@@ -3031,7 +3031,7 @@ const styles = StyleSheet.create({
   fixtureZoneHintBadgeText: {
     color: colors.primaryDark,
     fontSize: 11,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textAlign: "center",
     textTransform: "uppercase",
   },
@@ -3039,7 +3039,7 @@ const styles = StyleSheet.create({
     color: colors.text,
     flex: 1,
     fontSize: 13,
-    fontWeight: "600",
+    fontFamily: "Inter_600SemiBold",
     lineHeight: 19,
   },
   fixtureModeSummaryCard: {
@@ -3057,7 +3057,7 @@ const styles = StyleSheet.create({
     color: colors.text,
     flex: 1,
     fontSize: 13,
-    fontWeight: "600",
+    fontFamily: "Inter_600SemiBold",
     lineHeight: 19,
     marginLeft: spacing.sm,
   },
@@ -3081,7 +3081,7 @@ const styles = StyleSheet.create({
   managementCapacityLabel: {
     color: colors.textSecondary,
     fontSize: 10,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
     letterSpacing: 0.5,
     marginBottom: 6,
     textAlign: "center",
@@ -3093,7 +3093,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     color: colors.text,
     fontSize: 22,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     height: 52,
     textAlign: "center",
     width: "100%",
@@ -3116,7 +3116,7 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     flex: 1,
     fontSize: 11,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
     letterSpacing: 0.4,
     textAlign: "center",
   },
@@ -3153,7 +3153,7 @@ const styles = StyleSheet.create({
   managementCancelLinkText: {
     color: colors.danger,
     fontSize: 13,
-    fontWeight: "600",
+    fontFamily: "Inter_600SemiBold",
   },
   dangerButtonText: {
     color: colors.danger,
@@ -3175,12 +3175,12 @@ const styles = StyleSheet.create({
   managementRegistrationTitle: {
     color: colors.text,
     fontSize: 14,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
   },
   managementRegistrationMeta: {
     color: colors.muted,
     fontSize: 12,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
     marginTop: 2,
   },
   confirmButton: {
@@ -3200,12 +3200,12 @@ const styles = StyleSheet.create({
   paymentReviewTitle: {
     color: colors.text,
     fontSize: 13,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
   },
   paymentReviewMeta: {
     color: colors.muted,
     fontSize: 12,
-    fontWeight: "600",
+    fontFamily: "Inter_600SemiBold",
     marginTop: 2,
   },
   paymentReviewActions: {
@@ -3226,7 +3226,7 @@ const styles = StyleSheet.create({
   inlineActionButtonText: {
     color: "#5E6C78",
     fontSize: 11,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
   },
   inlineApproveButton: {
     backgroundColor: "#EEF9F1",
@@ -3255,13 +3255,13 @@ const styles = StyleSheet.create({
     color: colors.text,
     flex: 1,
     fontSize: 13,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
     marginRight: spacing.sm,
   },
   inlineRowValue: {
     color: colors.primaryDark,
     fontSize: 12,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
   },
   listRow: {
     borderTopColor: "#EEF2F4",
@@ -3278,19 +3278,19 @@ const styles = StyleSheet.create({
   listRowTitle: {
     color: colors.text,
     fontSize: 14,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
   },
   listRowSubtext: {
     color: colors.muted,
     fontSize: 12,
-    fontWeight: "600",
+    fontFamily: "Inter_600SemiBold",
     lineHeight: 18,
     marginTop: 4,
   },
   listRowBadge: {
     color: colors.primaryDark,
     fontSize: 12,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
   },
   noticeCard: {
     alignItems: "flex-start",
@@ -3305,7 +3305,7 @@ const styles = StyleSheet.create({
     color: colors.text,
     flex: 1,
     fontSize: 13,
-    fontWeight: "600",
+    fontFamily: "Inter_600SemiBold",
     lineHeight: 20,
     marginLeft: spacing.sm,
   },
@@ -3328,18 +3328,18 @@ const styles = StyleSheet.create({
   selectedPartnerTitle: {
     color: colors.text,
     fontSize: 14,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
   },
   selectedPartnerSubtitle: {
     color: colors.muted,
     fontSize: 12,
-    fontWeight: "600",
+    fontFamily: "Inter_600SemiBold",
     marginTop: 2,
   },
   selectedPartnerRemove: {
     color: "#B44B4B",
     fontSize: 12,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
   },
   receiptPreviewCard: {
     alignItems: "center",
@@ -3359,7 +3359,7 @@ const styles = StyleSheet.create({
   receiptPreviewName: {
     color: colors.text,
     fontSize: 12,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
     marginTop: spacing.sm,
   },
 });

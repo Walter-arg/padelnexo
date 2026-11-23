@@ -853,7 +853,7 @@ function TournamentCard({
                   numberOfLines={2}
                   style={[
                     styles.cardFriendlyText,
-                    item.occupancyInfo.color ? { color: item.occupancyInfo.color, fontWeight: "700" } : null,
+                    item.occupancyInfo.color ? { color: item.occupancyInfo.color, fontFamily: "Inter_700Bold" } : null,
                   ]}
                 >
                   {item.occupancyInfo.text}
@@ -2318,14 +2318,14 @@ const styles = StyleSheet.create({
   locationOptionsSubtitle: {
     color: colors.muted,
     fontSize: 13,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
     lineHeight: 18,
     textAlign: "center",
   },
   locationOptionsLabel: {
     color: colors.text,
     fontSize: 12,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textAlign: "center",
     textTransform: "uppercase",
   },
@@ -2350,7 +2350,7 @@ const styles = StyleSheet.create({
   radiusOptionText: {
     color: colors.muted,
     fontSize: 12,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
   },
   radiusOptionTextActive: {
     color: colors.primaryDark,
@@ -2365,7 +2365,7 @@ const styles = StyleSheet.create({
   locationPrimaryButtonText: {
     color: colors.surface,
     fontSize: 13,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
   },
   locationSecondaryButton: {
     alignItems: "center",
@@ -2379,7 +2379,7 @@ const styles = StyleSheet.create({
   locationSecondaryButtonText: {
     color: colors.text,
     fontSize: 12,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
   },
   locationButtonDisabled: {
     opacity: 0.65,
@@ -2399,13 +2399,13 @@ const styles = StyleSheet.create({
   confirmWarningIconText: {
     color: "#7A4300",
     fontSize: 34,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     lineHeight: 38,
   },
   confirmTitle: {
     color: colors.text,
     fontSize: 22,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     textAlign: "center",
   },
   confirmMessage: {
@@ -2439,12 +2439,12 @@ const styles = StyleSheet.create({
   confirmModalButtonSecondaryText: {
     color: colors.primaryDark,
     fontSize: 15,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
   },
   confirmModalButtonDangerText: {
     color: colors.surface,
     fontSize: 15,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
   },
   organizerTopRow: {
     alignItems: "center",
@@ -2473,7 +2473,7 @@ const styles = StyleSheet.create({
   rankingButtonText: {
     color: colors.primaryDark,
     fontSize: 13,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
   },
   filterAndMenuRow: {
     alignItems: "center",
@@ -2531,7 +2531,7 @@ const styles = StyleSheet.create({
   playerViewBadgeText: {
     color: colors.primaryDark,
     fontSize: 13,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     textAlign: "center",
     textTransform: "uppercase",
   },
@@ -2577,7 +2577,7 @@ const styles = StyleSheet.create({
   organizerMenuItemText: {
     color: colors.text,
     fontSize: 13,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
   },
   createButtonRow: {
     flex: 1,
@@ -2615,7 +2615,7 @@ const styles = StyleSheet.create({
   createButtonText: {
     color: colors.surface,
     fontSize: 14,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textAlign: "center",
     textTransform: "uppercase",
   },
@@ -2663,12 +2663,12 @@ const styles = StyleSheet.create({
   cardTitle: {
     color: colors.text,
     fontSize: 19,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
   },
   cardEyebrow: {
     color: colors.primaryDark,
     fontSize: 11,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     letterSpacing: 1.2,
     marginBottom: 6,
     textTransform: "uppercase",
@@ -2682,24 +2682,23 @@ const styles = StyleSheet.create({
   cardEyebrowInline: {
     color: colors.primaryDark,
     fontSize: 11,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     letterSpacing: 1.2,
     textAlign: "center",
     textTransform: "uppercase",
   },
   cardTitlePlayer: {
     color: "#144234",
-    fontFamily: "serif",
     flexShrink: 1,
     fontSize: 20,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
     lineHeight: 24,
     textAlign: "center",
   },
   cardVenue: {
     color: colors.primaryDark,
     fontSize: 13,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     marginTop: 4,
   },
   eventCategoriesWrap: {
@@ -2716,7 +2715,7 @@ const styles = StyleSheet.create({
     color: colors.text,
     flex: 1,
     fontSize: 14,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
   },
   eventCategoryPill: {
     minHeight: 26,
@@ -2740,7 +2739,7 @@ const styles = StyleSheet.create({
   cardFriendlyText: {
     color: colors.text,
     fontSize: 13,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
     lineHeight: 18,
   },
   cardVenueRow: {
@@ -2752,7 +2751,7 @@ const styles = StyleSheet.create({
   cardVenueText: {
     color: colors.primaryDark,
     fontSize: 13,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textAlign: "center",
   },
   cardPosterThumbButton: {
@@ -2798,7 +2797,7 @@ const styles = StyleSheet.create({
   posterStatusPillText: {
     color: colors.primaryDark,
     fontSize: 12,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textTransform: "uppercase",
   },
   statusPill: {
@@ -2810,7 +2809,7 @@ const styles = StyleSheet.create({
   },
   statusPillText: {
     fontSize: 11,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     textTransform: "uppercase",
   },
   playerStatusWrap: {
@@ -2846,7 +2845,7 @@ const styles = StyleSheet.create({
   },
   marqueeText: {
     fontSize: 12,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     letterSpacing: 0.4,
     position: "absolute",
     textAlign: "center",
@@ -2869,7 +2868,7 @@ const styles = StyleSheet.create({
   registeredStampTitle: {
     color: "#FFFFFF",
     fontSize: 10,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     letterSpacing: 0.3,
     lineHeight: 12,
     textAlign: "center",
@@ -2878,7 +2877,7 @@ const styles = StyleSheet.create({
   registeredStampPhrase: {
     color: "#CFF4D8",
     fontSize: 8,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     marginTop: 1,
     textAlign: "center",
   },
@@ -2888,7 +2887,7 @@ const styles = StyleSheet.create({
   },
   playerStatusPillText: {
     fontSize: 11,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     letterSpacing: 0.2,
     textAlign: "center",
   },
@@ -2942,7 +2941,7 @@ const styles = StyleSheet.create({
   sectionHeaderTitle: {
     color: "#5B6770",
     fontSize: 12,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textTransform: "uppercase",
   },
   cardMetaGrid: {
@@ -2961,13 +2960,13 @@ const styles = StyleSheet.create({
   metaLabel: {
     color: colors.muted,
     fontSize: 11,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     textTransform: "uppercase",
   },
   metaValue: {
     color: colors.text,
     fontSize: 13,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
     marginTop: 4,
   },
   emptyCard: {
@@ -2983,14 +2982,14 @@ const styles = StyleSheet.create({
   emptyTitle: {
     color: colors.text,
     fontSize: 20,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     marginTop: spacing.sm,
     textAlign: "center",
   },
   emptyText: {
     color: colors.muted,
     fontSize: 14,
-    fontWeight: "600",
+    fontFamily: "Inter_600SemiBold",
     lineHeight: 21,
     marginTop: spacing.sm,
     textAlign: "center",
@@ -2998,7 +2997,7 @@ const styles = StyleSheet.create({
   modalLabel: {
     color: colors.muted,
     fontSize: 12,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
     marginBottom: spacing.xs,
     marginTop: spacing.xs,
     textTransform: "uppercase",
@@ -3024,7 +3023,7 @@ const styles = StyleSheet.create({
   filterChipText: {
     color: colors.muted,
     fontSize: 13,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
   },
   filterChipTextActive: {
     color: colors.primaryDark,

@@ -425,7 +425,7 @@ const styles = StyleSheet.create({
   loaderText: {
     color: colors.primaryDark,
     fontSize: 13,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
   },
   emptyWrap: {
     alignItems: "center",
@@ -436,13 +436,13 @@ const styles = StyleSheet.create({
   emptyTitle: {
     color: colors.text,
     fontSize: 18,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textAlign: "center",
   },
   emptyText: {
     color: colors.muted,
     fontSize: 14,
-    fontWeight: "600",
+    fontFamily: "Inter_600SemiBold",
     lineHeight: 20,
     marginTop: spacing.xs,
     textAlign: "center",

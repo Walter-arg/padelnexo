@@ -2650,14 +2650,14 @@ const styles = StyleSheet.create({
   blockText: {
     color: colors.text,
     fontSize: 13,
-    fontWeight: "600",
+    fontFamily: "Inter_600SemiBold",
     lineHeight: 19,
     marginTop: spacing.xs,
   },
   blockTextCentered: {
     color: colors.muted,
     fontSize: 13,
-    fontWeight: "600",
+    fontFamily: "Inter_600SemiBold",
     lineHeight: 19,
     marginTop: spacing.xs,
     textAlign: "center",
@@ -2665,7 +2665,7 @@ const styles = StyleSheet.create({
   receiptSectionTitle: {
     color: colors.primaryDark,
     fontSize: 13,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     letterSpacing: 0.3,
     marginTop: spacing.md,
     textAlign: "center",
@@ -2674,7 +2674,7 @@ const styles = StyleSheet.create({
   blockTitleCentered: {
     color: colors.primaryDark,
     fontSize: 14,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     textAlign: "center",
     textTransform: "uppercase",
   },
@@ -2695,12 +2695,12 @@ const styles = StyleSheet.create({
   editingPairBadgeText: {
     color: colors.primaryDark,
     fontSize: 12,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
   },
   paymentStatusText: {
     color: colors.primaryDark,
     fontSize: 12,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     marginTop: spacing.sm,
     textAlign: "center",
   },
@@ -2722,13 +2722,13 @@ const styles = StyleSheet.create({
   addPairButtonText: {
     color: "#1A7F5A",
     fontSize: 13,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     letterSpacing: 0.5,
   },
   pickerPairLabel: {
     color: "#5A9E80",
     fontSize: 12,
-    fontWeight: "600",
+    fontFamily: "Inter_600SemiBold",
   },
   pickerStepHeader: {
     alignItems: "center",
@@ -2753,7 +2753,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
   pickerConfirmedItemLabel: {
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
   },
   confirmedPairCard: {
     backgroundColor: "#EEF7F3",
@@ -2774,7 +2774,7 @@ const styles = StyleSheet.create({
     color: "#1D7A34",
     flex: 1,
     fontSize: 11,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     textTransform: "uppercase",
   },
   confirmedPairDelete: {
@@ -2783,12 +2783,12 @@ const styles = StyleSheet.create({
   confirmedPairNames: {
     color: "#144234",
     fontSize: 13,
-    fontWeight: "600",
+    fontFamily: "Inter_600SemiBold",
     marginLeft: 21,
   },
   confirmedPairSlotLabel: {
     color: "#1D7A34",
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
   },
   pairMetaRow: {
     borderTopColor: "#E5EFE9",
@@ -2815,7 +2815,7 @@ const styles = StyleSheet.create({
   pairMetaButtonText: {
     color: colors.muted,
     fontSize: 11,
-    fontWeight: "600",
+    fontFamily: "Inter_600SemiBold",
   },
   pairMetaButtonTextActive: {
     color: "#1A7F5A",
@@ -2839,7 +2839,7 @@ const styles = StyleSheet.create({
   pairMetaPaymentChipText: {
     color: colors.text,
     fontSize: 12,
-    fontWeight: "600",
+    fontFamily: "Inter_600SemiBold",
   },
   pairMetaPaymentChipTextActive: {
     color: "#FFFFFF",
@@ -2879,12 +2879,12 @@ const styles = StyleSheet.create({
     color: "#144234",
     flex: 1,
     fontSize: 13,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
   },
   pickerPlayer1ConfirmedLabel: {
     color: "#1D7A34",
     fontSize: 11,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
   },
   pairSlotsColumn: {
     gap: spacing.sm,
@@ -2905,7 +2905,7 @@ const styles = StyleSheet.create({
   organizerPlayerLabel: {
     color: colors.primaryDark,
     fontSize: 12,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     textTransform: "uppercase",
   },
   organizerPlayerStatusIconWrap: {
@@ -2916,14 +2916,14 @@ const styles = StyleSheet.create({
   organizerPlayerName: {
     color: colors.text,
     fontSize: 14,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     lineHeight: 18,
     marginTop: spacing.sm,
   },
   organizerPlayerMeta: {
     color: colors.muted,
     fontSize: 11,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
     marginTop: 6,
   },
   organizerPlayerActions: {
@@ -2946,7 +2946,7 @@ const styles = StyleSheet.create({
     color: "#8A5A00",
     flex: 1,
     fontSize: 12,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
     lineHeight: 17,
     marginLeft: spacing.sm,
   },
@@ -2964,7 +2964,7 @@ const styles = StyleSheet.create({
   organizerAddButtonText: {
     color: colors.primaryDark,
     fontSize: 12,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
   },
   deletePlayerIconButton: {
     alignItems: "center",
@@ -2985,7 +2985,7 @@ const styles = StyleSheet.create({
   clearPlayerButtonText: {
     color: "#B24343",
     fontSize: 12,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
   },
   paymentTargetChip: {
     backgroundColor: "#F3F6F8",
@@ -3002,7 +3002,7 @@ const styles = StyleSheet.create({
   paymentTargetChipText: {
     color: colors.primaryDark,
     fontSize: 11,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
   },
   paymentTargetChipTextActive: {
     color: colors.surface,
@@ -3040,7 +3040,7 @@ const styles = StyleSheet.create({
     color: colors.primaryDark,
     flex: 1,
     fontSize: 13,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     paddingRight: spacing.sm,
   },
   organizerPaymentInlineMethods: {
@@ -3065,7 +3065,7 @@ const styles = StyleSheet.create({
   organizerInlineMethodButtonText: {
     color: colors.primaryDark,
     fontSize: 12,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
   },
   organizerInlineMethodButtonTextActive: {
     color: colors.surface,
@@ -3085,7 +3085,7 @@ const styles = StyleSheet.create({
   organizerReceiptButtonText: {
     color: "#214A84",
     fontSize: 11,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
   },
   receiptPreviewCard: {
     alignItems: "center",
@@ -3121,7 +3121,7 @@ const styles = StyleSheet.create({
   receiptPickerButtonText: {
     color: colors.primary,
     fontSize: 13,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
   },
   mercadoPagoInfoButton: {
     alignItems: "center",
@@ -3139,7 +3139,7 @@ const styles = StyleSheet.create({
   mercadoPagoInfoButtonText: {
     color: "#1A7F5A",
     fontSize: 13,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
   },
   modalOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -3171,7 +3171,7 @@ const styles = StyleSheet.create({
   modalTitle: {
     color: colors.text,
     fontSize: 18,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     lineHeight: 24,
     textAlign: "center",
   },
@@ -3206,7 +3206,7 @@ const styles = StyleSheet.create({
   createGuestInlineButtonText: {
     color: "#1D4ED8",
     fontSize: 12,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     textTransform: "uppercase",
   },
   playerPickerList: {
@@ -3247,12 +3247,12 @@ const styles = StyleSheet.create({
   playerPickerName: {
     color: colors.text,
     fontSize: 14,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
   },
   playerPickerMeta: {
     color: colors.muted,
     fontSize: 12,
-    fontWeight: "600",
+    fontFamily: "Inter_600SemiBold",
     marginTop: 2,
   },
   playerPickerEmpty: {
@@ -3266,7 +3266,7 @@ const styles = StyleSheet.create({
   playerPickerEmptyText: {
     color: colors.muted,
     fontSize: 13,
-    fontWeight: "600",
+    fontFamily: "Inter_600SemiBold",
     textAlign: "center",
   },
   modalInput: {
@@ -3330,7 +3330,7 @@ const styles = StyleSheet.create({
   pickerFilterGroupLabel: {
     color: colors.muted,
     fontSize: 11,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
     letterSpacing: 0.5,
     textTransform: "uppercase",
   },
@@ -3354,7 +3354,7 @@ const styles = StyleSheet.create({
   pickerFilterChipText: {
     color: colors.text,
     fontSize: 12,
-    fontWeight: "600",
+    fontFamily: "Inter_600SemiBold",
   },
   pickerFilterChipTextActive: {
     color: "#FFFFFF",
@@ -3390,7 +3390,7 @@ const styles = StyleSheet.create({
   guestSexChipText: {
     color: colors.primaryDark,
     fontSize: 12,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
   },
   guestSexChipTextActive: {
     color: colors.surface,
@@ -3416,7 +3416,7 @@ const styles = StyleSheet.create({
   secondaryButtonText: {
     color: colors.primaryDark,
     fontSize: 14,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
   },
   primaryButton: {
     alignItems: "center",
@@ -3431,7 +3431,7 @@ const styles = StyleSheet.create({
   primaryButtonText: {
     color: colors.surface,
     fontSize: 14,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
   },
   receiptPreviewImage: {
     borderRadius: 8,
@@ -3453,12 +3453,12 @@ const styles = StyleSheet.create({
   receiptPdfPreviewText: {
     color: "#B24343",
     fontSize: 12,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
   },
   receiptPreviewName: {
     color: colors.text,
     fontSize: 12,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
     marginTop: spacing.sm,
   },
   stepProgressWrap: {
@@ -3471,7 +3471,7 @@ const styles = StyleSheet.create({
   stepProgressLabel: {
     color: colors.primaryDark,
     fontSize: 15,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     letterSpacing: 0.4,
     marginBottom: spacing.xs,
     textAlign: "center",
@@ -3496,12 +3496,12 @@ const styles = StyleSheet.create({
   stepSegmentLabel: {
     color: colors.muted,
     fontSize: 11,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
     textAlign: "center",
   },
   stepSegmentLabelActive: {
     color: colors.primaryDark,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
   },
   stepIconBadge: {
     alignItems: "center",
@@ -3537,7 +3537,7 @@ const styles = StyleSheet.create({
     color: colors.text,
     flex: 1,
     fontSize: 13,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
     lineHeight: 18,
   },
   unsavedPaymentBanner: {
@@ -3555,7 +3555,7 @@ const styles = StyleSheet.create({
     color: "#8A5A10",
     flex: 1,
     fontSize: 12,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
     lineHeight: 17,
   },
   sentConfirmationCard: {
@@ -3570,13 +3570,13 @@ const styles = StyleSheet.create({
   sentConfirmationText: {
     color: "#0F5F36",
     fontSize: 14,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     textAlign: "center",
   },
   sentConfirmationLink: {
     color: colors.primaryDark,
     fontSize: 13,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     marginTop: spacing.xs,
     textDecorationLine: "underline",
   },
@@ -3595,7 +3595,7 @@ const styles = StyleSheet.create({
     color: colors.text,
     flex: 1,
     fontSize: 13,
-    fontWeight: "600",
+    fontFamily: "Inter_600SemiBold",
     lineHeight: 19,
     marginLeft: spacing.sm,
   },
@@ -3625,18 +3625,18 @@ const styles = StyleSheet.create({
   closedNoticeText: {
     color: "#9B6A00",
     fontSize: 14,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
   },
   registrationStatusLabel: {
     color: colors.muted,
     fontSize: 11,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     textTransform: "uppercase",
   },
   registrationStatusValue: {
     color: colors.primaryDark,
     fontSize: 16,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     marginTop: 2,
     textTransform: "uppercase",
   },
@@ -3665,7 +3665,7 @@ const styles = StyleSheet.create({
   withdrawalButtonText: {
     color: "#9B6B6B",
     fontSize: 12,
-    fontWeight: "600",
+    fontFamily: "Inter_600SemiBold",
     textDecorationLine: "underline",
   },
   withdrawalChip: {
@@ -3687,7 +3687,7 @@ const styles = StyleSheet.create({
   },
   withdrawalChipText: {
     fontSize: 12,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textTransform: "uppercase",
   },
   withdrawalChipTextConfirmed: {
@@ -3715,13 +3715,13 @@ const styles = StyleSheet.create({
   withdrawalModalTitle: {
     color: colors.primaryDark,
     fontSize: 19,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textAlign: "center",
   },
   withdrawalModalText: {
     color: colors.muted,
     fontSize: 14,
-    fontWeight: "600",
+    fontFamily: "Inter_600SemiBold",
     lineHeight: 20,
     marginTop: spacing.sm,
     textAlign: "center",
@@ -3751,19 +3751,19 @@ const styles = StyleSheet.create({
   withdrawalModalButtonSecondaryText: {
     color: colors.primaryDark,
     fontSize: 13,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textTransform: "uppercase",
   },
   withdrawalModalButtonDangerText: {
     color: colors.surface,
     fontSize: 13,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textTransform: "uppercase",
   },
   registrationStepDescription: {
     color: colors.muted,
     fontSize: 12,
-    fontWeight: "600",
+    fontFamily: "Inter_600SemiBold",
     lineHeight: 17,
     marginTop: 4,
     textAlign: "center",
@@ -3794,7 +3794,7 @@ const styles = StyleSheet.create({
   mpPayButtonText: {
     color: "#1A7F5A",
     fontSize: 14,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
   },
   selectedPartnerCard: {
     alignItems: "center",
@@ -3813,18 +3813,18 @@ const styles = StyleSheet.create({
   selectedPartnerRemove: {
     color: "#B44B4B",
     fontSize: 12,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
   },
   selectedPartnerSubtitle: {
     color: colors.muted,
     fontSize: 12,
-    fontWeight: "600",
+    fontFamily: "Inter_600SemiBold",
     marginTop: 2,
   },
   selectedPartnerTitle: {
     color: colors.text,
     fontSize: 13,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
   },
   maxPairsOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -3859,13 +3859,13 @@ const styles = StyleSheet.create({
   maxPairsIconText: {
     color: "#7A4300",
     fontSize: 34,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     lineHeight: 38,
   },
   maxPairsTitle: {
     color: colors.text,
     fontSize: 20,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     textAlign: "center",
   },
   maxPairsMessage: {
@@ -3877,7 +3877,7 @@ const styles = StyleSheet.create({
   },
   maxPairsBold: {
     color: colors.text,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
   },
   maxPairsActions: {
     flexDirection: "row",
@@ -3896,7 +3896,7 @@ const styles = StyleSheet.create({
   maxPairsBtnSecondaryText: {
     color: colors.muted,
     fontSize: 14,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
   },
   maxPairsBtnPrimary: {
     alignItems: "center",
@@ -3909,7 +3909,7 @@ const styles = StyleSheet.create({
   maxPairsBtnPrimaryText: {
     color: "#FFFFFF",
     fontSize: 14,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
   },
   maxPairsBtnPressed: {
     opacity: 0.85,

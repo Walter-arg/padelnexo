@@ -342,7 +342,7 @@ const styles = StyleSheet.create({
   loaderText: {
     color: colors.muted,
     fontSize: 15,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
     marginTop: spacing.sm,
     textAlign: "center",
   },
@@ -368,7 +368,7 @@ const styles = StyleSheet.create({
   modalTitle: {
     color: colors.text,
     fontSize: 21,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     textAlign: "center",
   },
   modalMessage: {
@@ -394,7 +394,7 @@ const styles = StyleSheet.create({
   modalSecondaryButtonText: {
     color: colors.text,
     fontSize: 15,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
   },
   modalDangerButton: {
     alignItems: "center",
@@ -407,7 +407,7 @@ const styles = StyleSheet.create({
   modalPrimaryButtonText: {
     color: colors.surface,
     fontSize: 15,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
   },
   pressedState: {
     opacity: 0.78,

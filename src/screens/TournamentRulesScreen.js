@@ -373,7 +373,7 @@ const styles = StyleSheet.create({
   loaderText: {
     color: colors.muted,
     fontSize: 13,
-    fontWeight: "600",
+    fontFamily: "Inter_600SemiBold",
     marginTop: spacing.sm,
   },
   scrollContent: {
@@ -383,13 +383,13 @@ const styles = StyleSheet.create({
   sectionTitle: {
     color: colors.text,
     fontSize: 18,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     marginBottom: spacing.xs,
   },
   sectionHint: {
     color: colors.muted,
     fontSize: 13,
-    fontWeight: "500",
+    fontFamily: "Inter_500Medium",
     marginBottom: spacing.md,
   },
   toolbarRow: {
@@ -414,13 +414,13 @@ const styles = StyleSheet.create({
   boldButtonText: {
     color: colors.primaryDark,
     fontSize: 15,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
   },
   toolbarHint: {
     color: colors.muted,
     flex: 1,
     fontSize: 12,
-    fontWeight: "500",
+    fontFamily: "Inter_500Medium",
   },
   textInput: {
     backgroundColor: colors.surface,
@@ -444,7 +444,7 @@ const styles = StyleSheet.create({
   previewLabel: {
     color: colors.muted,
     fontSize: 11,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     letterSpacing: 0.4,
     marginBottom: spacing.xs,
     textTransform: "uppercase",
@@ -455,7 +455,7 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   boldSegment: {
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
   },
   saveButton: {
     alignItems: "center",
@@ -474,7 +474,7 @@ const styles = StyleSheet.create({
   saveButtonText: {
     color: colors.surface,
     fontSize: 15,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
   },
   readOnlyCard: {
     backgroundColor: colors.surface,
@@ -501,7 +501,7 @@ const styles = StyleSheet.create({
   emptyText: {
     color: colors.muted,
     fontSize: 13,
-    fontWeight: "600",
+    fontFamily: "Inter_600SemiBold",
     textAlign: "center",
   },
   modalOverlay: {
@@ -526,7 +526,7 @@ const styles = StyleSheet.create({
   modalTitle: {
     color: colors.text,
     fontSize: 21,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     textAlign: "center",
   },
   modalMessage: {
@@ -552,7 +552,7 @@ const styles = StyleSheet.create({
   modalSecondaryButtonText: {
     color: colors.text,
     fontSize: 15,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
   },
   modalDangerButton: {
     alignItems: "center",
@@ -565,7 +565,7 @@ const styles = StyleSheet.create({
   modalPrimaryButtonText: {
     color: colors.surface,
     fontSize: 15,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
   },
   pressedState: {
     opacity: 0.78,

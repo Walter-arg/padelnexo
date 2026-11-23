@@ -1159,7 +1159,7 @@ const styles = StyleSheet.create({
   loaderText: {
     color: colors.muted,
     fontSize: 15,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
     marginTop: spacing.sm,
     textAlign: "center",
   },
@@ -1180,7 +1180,7 @@ const styles = StyleSheet.create({
   summaryTitle: {
     color: colors.primaryDark,
     fontSize: 15,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textAlign: "center",
   },
   summaryGrid: {
@@ -1202,13 +1202,13 @@ const styles = StyleSheet.create({
   summaryLabel: {
     color: colors.muted,
     fontSize: 11,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     textAlign: "center",
   },
   summaryValue: {
     color: colors.text,
     fontSize: 16,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     marginTop: 4,
     textAlign: "center",
   },
@@ -1224,7 +1224,7 @@ const styles = StyleSheet.create({
   summaryAmount: {
     color: colors.text,
     fontSize: 12,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     marginTop: 4,
     textAlign: "center",
   },
@@ -1241,7 +1241,7 @@ const styles = StyleSheet.create({
   paymentTableTitle: {
     color: colors.text,
     fontSize: 14,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textAlign: "center",
     marginBottom: spacing.xs,
   },
@@ -1255,7 +1255,7 @@ const styles = StyleSheet.create({
   paymentTableHeaderText: {
     color: colors.primaryDark,
     fontSize: 10,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textAlign: "center",
   },
   paymentTableRow: {
@@ -1283,13 +1283,13 @@ const styles = StyleSheet.create({
   paymentTablePairLabel: {
     color: "#5C7468",
     fontSize: 9,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     marginBottom: 1,
   },
   paymentTablePlayerName: {
     color: colors.text,
     fontSize: 12,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
   },
   paymentTableStatusCell: {
     flex: 1.1,
@@ -1307,7 +1307,7 @@ const styles = StyleSheet.create({
   },
   paymentTableStatusText: {
     fontSize: 10,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textAlign: "left",
     lineHeight: 11,
   },
@@ -1326,7 +1326,7 @@ const styles = StyleSheet.create({
   paymentTableMethodText: {
     color: colors.text,
     fontSize: 10,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
     textAlign: "center",
   },
   paymentTableProofCell: {
@@ -1364,7 +1364,7 @@ const styles = StyleSheet.create({
   paymentTableAmountText: {
     color: colors.text,
     fontSize: 9,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textAlign: "center",
   },
   paymentTableActionsCell: {
@@ -1401,7 +1401,7 @@ const styles = StyleSheet.create({
   paymentTableMutedText: {
     color: colors.textMuted,
     fontSize: 10,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
     textAlign: "center",
   },
   tableInlineSavingWrap: {
@@ -1434,7 +1434,7 @@ const styles = StyleSheet.create({
   pairTitle: {
     color: colors.text,
     fontSize: 15,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
   },
   playerCard: {
     backgroundColor: "#F8FBF9",
@@ -1484,13 +1484,13 @@ const styles = StyleSheet.create({
   playerName: {
     color: colors.text,
     fontSize: 14,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     textAlign: "left",
   },
   playerAmount: {
     color: colors.muted,
     fontSize: 12,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
     textAlign: "left",
     marginLeft: 4,
   },
@@ -1508,7 +1508,7 @@ const styles = StyleSheet.create({
   },
   paymentStatusText: {
     fontSize: 11,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
   },
   paymentActionsRow: {
     flexDirection: "row",
@@ -1535,7 +1535,7 @@ const styles = StyleSheet.create({
   methodChipText: {
     color: colors.primaryDark,
     fontSize: 12,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
   },
   methodChipTextActive: {
     color: colors.surface,
@@ -1559,12 +1559,12 @@ const styles = StyleSheet.create({
   receiptButtonText: {
     color: colors.primaryDark,
     fontSize: 12,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
   },
   receiptHintText: {
     color: colors.muted,
     fontSize: 12,
-    fontWeight: "600",
+    fontFamily: "Inter_600SemiBold",
     lineHeight: 18,
   },
   receiptLinkRow: {
@@ -1576,7 +1576,7 @@ const styles = StyleSheet.create({
   receiptLinkText: {
     color: "#1E5C89",
     fontSize: 12,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
   },
   inlineSavingRow: {
     alignItems: "center",
@@ -1586,7 +1586,7 @@ const styles = StyleSheet.create({
   inlineSavingText: {
     color: colors.muted,
     fontSize: 12,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
   },
   emptyCard: {
     backgroundColor: colors.surface,
@@ -1599,13 +1599,13 @@ const styles = StyleSheet.create({
   emptyTitle: {
     color: colors.text,
     fontSize: 16,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textAlign: "center",
   },
   emptyText: {
     color: colors.muted,
     fontSize: 13,
-    fontWeight: "600",
+    fontFamily: "Inter_600SemiBold",
     lineHeight: 20,
     textAlign: "center",
   },
@@ -1637,13 +1637,13 @@ const styles = StyleSheet.create({
   modalTitle: {
     color: colors.text,
     fontSize: 18,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textAlign: "center",
   },
   modalSubtitle: {
     color: colors.muted,
     fontSize: 13,
-    fontWeight: "600",
+    fontFamily: "Inter_600SemiBold",
     lineHeight: 19,
     textAlign: "center",
   },
@@ -1662,7 +1662,7 @@ const styles = StyleSheet.create({
   modalActionText: {
     color: colors.primaryDark,
     fontSize: 14,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
   },
   modalActionDanger: {
     minHeight: 44,
@@ -1677,7 +1677,7 @@ const styles = StyleSheet.create({
   modalActionDangerText: {
     color: "#B24343",
     fontSize: 14,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textAlign: "center",
   },
   modalActionDisabled: {
@@ -1700,7 +1700,7 @@ const styles = StyleSheet.create({
   modalSecondaryButtonText: {
     color: colors.muted,
     fontSize: 14,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
   },
   pressedState: {
     opacity: 0.92,

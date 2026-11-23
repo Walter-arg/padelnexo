@@ -14286,7 +14286,7 @@ const styles = StyleSheet.create({
   timePickerDoneButtonText: {
     color: "#fff",
     fontSize: 15,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
   },
   container: {
     flex: 1,
@@ -14306,7 +14306,7 @@ const styles = StyleSheet.create({
   loaderText: {
     color: colors.muted,
     fontSize: 15,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
     marginTop: spacing.sm,
     textAlign: "center",
   },
@@ -14334,13 +14334,13 @@ const styles = StyleSheet.create({
   bracketOpeningTitle: {
     color: colors.primaryDark,
     fontSize: 15,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     marginTop: spacing.sm,
   },
   bracketOpeningSupport: {
     color: colors.muted,
     fontSize: 11,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
     marginTop: 3,
   },
   confirmOverlay: {
@@ -14376,13 +14376,13 @@ const styles = StyleSheet.create({
   confirmWarningIconText: {
     color: "#7A4300",
     fontSize: 34,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     lineHeight: 38,
   },
   confirmTitle: {
     color: colors.text,
     fontSize: 22,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     textAlign: "center",
   },
   confirmMessage: {
@@ -14416,12 +14416,12 @@ const styles = StyleSheet.create({
   confirmModalButtonSecondaryText: {
     color: colors.primaryDark,
     fontSize: 15,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
   },
   confirmModalButtonDangerText: {
     color: colors.surface,
     fontSize: 15,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
   },
   zoneShareModalCard: {
     backgroundColor: colors.surface,
@@ -14472,12 +14472,12 @@ const styles = StyleSheet.create({
   zoneShareBracketToggleTitle: {
     color: colors.primaryDark,
     fontSize: 13,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
   },
   zoneShareBracketToggleSupport: {
     color: colors.muted,
     fontSize: 11,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
     marginTop: 2,
   },
   zoneShareBracketToggleTextActive: {
@@ -14498,7 +14498,7 @@ const styles = StyleSheet.create({
   zoneShareOptionText: {
     color: colors.primaryDark,
     fontSize: 13,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textAlign: "center",
   },
   zoneShareCancelButton: {
@@ -14510,7 +14510,7 @@ const styles = StyleSheet.create({
   zoneShareCancelButtonText: {
     color: colors.muted,
     fontSize: 13,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
   },
   card: {
     backgroundColor: colors.surface,
@@ -14522,21 +14522,21 @@ const styles = StyleSheet.create({
   summaryLabel: {
     color: colors.muted,
     fontSize: 12,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     textAlign: "center",
     textTransform: "uppercase",
   },
   summaryValue: {
     color: colors.primaryDark,
     fontSize: 26,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     marginTop: 2,
     textAlign: "center",
   },
   summarySupport: {
     color: colors.muted,
     fontSize: 12,
-    fontWeight: "600",
+    fontFamily: "Inter_600SemiBold",
     lineHeight: 18,
     marginTop: spacing.xs,
     textAlign: "center",
@@ -14583,7 +14583,7 @@ const styles = StyleSheet.create({
     color: colors.text,
     flex: 1,
     fontSize: 13,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     textTransform: "uppercase",
   },
   selectionRowTextActive: {
@@ -14602,7 +14602,7 @@ const styles = StyleSheet.create({
   selectionInlineLabel: {
     color: colors.text,
     fontSize: 13,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     textTransform: "uppercase",
   },
   selectionInlineInput: {
@@ -14612,7 +14612,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     color: colors.text,
     fontSize: 13,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     minHeight: 28,
     minWidth: 42,
     paddingHorizontal: 6,
@@ -14631,7 +14631,7 @@ const styles = StyleSheet.create({
   selectionHelpText: {
     color: "#1E88C8",
     fontSize: 13,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
     lineHeight: 19,
     marginTop: spacing.xs,
     textAlign: "center",
@@ -14663,14 +14663,14 @@ const styles = StyleSheet.create({
   venueScheduleTitle: {
     color: colors.primaryDark,
     fontSize: 12,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textAlign: "center",
     textTransform: "uppercase",
   },
   venueScheduleHelpText: {
     color: colors.muted,
     fontSize: 12,
-    fontWeight: "600",
+    fontFamily: "Inter_600SemiBold",
     lineHeight: 18,
     marginTop: spacing.xs,
     textAlign: "center",
@@ -14678,7 +14678,7 @@ const styles = StyleSheet.create({
   venueScheduleMicrocopy: {
     color: colors.text,
     fontSize: 12,
-    fontWeight: "600",
+    fontFamily: "Inter_600SemiBold",
     lineHeight: 18,
     marginTop: spacing.sm,
     textAlign: "center",
@@ -14722,14 +14722,14 @@ const styles = StyleSheet.create({
   venueScheduleVenueTitle: {
     color: colors.muted,
     fontSize: 11,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textAlign: "left",
     textTransform: "uppercase",
   },
   venueScheduleVenueName: {
     color: colors.primaryDark,
     fontSize: 16,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     marginTop: 2,
     textAlign: "left",
     textTransform: "uppercase",
@@ -14737,7 +14737,7 @@ const styles = StyleSheet.create({
   venueScheduleVenueMeta: {
     color: colors.muted,
     fontSize: 11,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
     marginTop: 3,
     textAlign: "left",
   },
@@ -14755,7 +14755,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     color: colors.text,
     fontSize: 12,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     minHeight: 24,
     minWidth: 34,
     paddingHorizontal: 6,
@@ -14765,7 +14765,7 @@ const styles = StyleSheet.create({
   venueScheduleVenueMetaValue: {
     color: colors.muted,
     fontSize: 11,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
   },
   venueUsageRow: {
     flexDirection: "row",
@@ -14793,7 +14793,7 @@ const styles = StyleSheet.create({
   },
   venueStatusBadgeText: {
     fontSize: 10,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textTransform: "uppercase",
   },
   venueStatusBadgeTextEnabled: {
@@ -14816,7 +14816,7 @@ const styles = StyleSheet.create({
   inlineFieldLabel: {
     color: colors.primaryDark,
     fontSize: 11,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     marginTop: spacing.sm,
     marginBottom: 6,
     textAlign: "center",
@@ -14843,7 +14843,7 @@ const styles = StyleSheet.create({
   inlineChipText: {
     color: colors.text,
     fontSize: 11,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     textTransform: "uppercase",
   },
   inlineChipTextActive: {
@@ -14867,7 +14867,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     color: colors.text,
     fontSize: 14,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     minHeight: 42,
     paddingHorizontal: spacing.sm,
     textAlign: "center",
@@ -14881,7 +14881,7 @@ const styles = StyleSheet.create({
   venueScheduleTimeButtonText: {
     color: colors.text,
     fontSize: 14,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     textAlign: "center",
   },
   venueScheduleList: {
@@ -14905,13 +14905,13 @@ const styles = StyleSheet.create({
   venueScheduleListTitle: {
     color: colors.primaryDark,
     fontSize: 12,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textTransform: "uppercase",
   },
   venueScheduleListMeta: {
     color: colors.text,
     fontSize: 12,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
     marginTop: 2,
   },
   scheduleDeleteButton: {
@@ -14946,21 +14946,21 @@ const styles = StyleSheet.create({
   configurationModeTitle: {
     color: colors.primaryDark,
     fontSize: 11,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textAlign: "center",
     textTransform: "uppercase",
   },
   configurationModeTitleNoMargin: {
     color: colors.primaryDark,
     fontSize: 11,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textAlign: "left",
     textTransform: "uppercase",
   },
   rapidModeInfoText: {
     color: "#1E88C8",
     fontSize: 11,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     marginTop: spacing.xs,
     textAlign: "center",
   },
@@ -14991,7 +14991,7 @@ const styles = StyleSheet.create({
   rapidModeSimpleLabel: {
     color: colors.primaryDark,
     fontSize: 13,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textTransform: "uppercase",
   },
   rapidModeSimpleInfoRow: {
@@ -15017,7 +15017,7 @@ const styles = StyleSheet.create({
     color: colors.text,
     flex: 1,
     fontSize: 12,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textAlign: "center",
     textTransform: "uppercase",
   },
@@ -15032,7 +15032,7 @@ const styles = StyleSheet.create({
   rapidModeToggleTitle: {
     color: colors.primaryDark,
     fontSize: 11,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textTransform: "uppercase",
   },
   rapidModeToggleTitleActive: {
@@ -15041,7 +15041,7 @@ const styles = StyleSheet.create({
   rapidModeToggleSubtitle: {
     color: colors.muted,
     fontSize: 11,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     marginTop: 2,
     textTransform: "uppercase",
   },
@@ -15055,7 +15055,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     color: colors.text,
     fontSize: 13,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     minHeight: 30,
     minWidth: 42,
     paddingHorizontal: 6,
@@ -15076,7 +15076,7 @@ const styles = StyleSheet.create({
   inlinePointsLabel: {
     color: colors.primaryDark,
     fontSize: 13,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     textTransform: "uppercase",
   },
   inlinePointsInput: {
@@ -15086,7 +15086,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     color: colors.text,
     fontSize: 13,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     minHeight: 34,
     minWidth: 52,
     paddingHorizontal: spacing.xs,
@@ -15095,7 +15095,7 @@ const styles = StyleSheet.create({
   unsavedChangesText: {
     color: "#D98A00",
     fontSize: 12,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     marginTop: spacing.sm,
     textAlign: "center",
   },
@@ -15128,7 +15128,7 @@ const styles = StyleSheet.create({
   zonePlanningFloatingSaveText: {
     color: colors.surface,
     fontSize: 13,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textAlign: "center",
   },
   formatSectionCard: {
@@ -15154,14 +15154,14 @@ const styles = StyleSheet.create({
   formatSectionTitle: {
     color: colors.primaryDark,
     fontSize: 12,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textAlign: "left",
     textTransform: "uppercase",
   },
   formatSectionSummary: {
     color: colors.muted,
     fontSize: 11,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
     marginTop: 3,
   },
   formatSectionTitleDisabled: {
@@ -15185,7 +15185,7 @@ const styles = StyleSheet.create({
   superTieBreakPointsLabel: {
     color: colors.primaryDark,
     fontSize: 10,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     marginBottom: 4,
     textAlign: "center",
     textTransform: "uppercase",
@@ -15198,7 +15198,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     color: colors.text,
     fontSize: 14,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     minHeight: 36,
     minWidth: 72,
     paddingHorizontal: spacing.sm,
@@ -15210,7 +15210,7 @@ const styles = StyleSheet.create({
   finalStagesTitle: {
     color: colors.primaryDark,
     fontSize: 11,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     marginBottom: spacing.xs,
     textAlign: "center",
     textTransform: "uppercase",
@@ -15233,7 +15233,7 @@ const styles = StyleSheet.create({
   configSaveButtonText: {
     color: colors.primaryDark,
     fontSize: 11,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textTransform: "uppercase",
   },
   secondaryActionButton: {
@@ -15252,7 +15252,7 @@ const styles = StyleSheet.create({
   secondaryActionButtonText: {
     color: colors.primaryDark,
     fontSize: 12,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textTransform: "uppercase",
   },
   newZoneModeButton: {
@@ -15295,7 +15295,7 @@ const styles = StyleSheet.create({
   actionButtonText: {
     color: colors.primaryDark,
     fontSize: 12,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     marginTop: 4,
     textAlign: "center",
     textTransform: "uppercase",
@@ -15317,21 +15317,21 @@ const styles = StyleSheet.create({
   previewTitle: {
     color: colors.primaryDark,
     fontSize: 13,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textAlign: "center",
     textTransform: "uppercase",
   },
   previewText: {
     color: colors.text,
     fontSize: 14,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     marginTop: spacing.sm,
     textAlign: "center",
   },
   previewBlueText: {
     color: "#1E88C8",
     fontSize: 13,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
     lineHeight: 19,
     marginTop: spacing.xs,
     textAlign: "center",
@@ -15343,7 +15343,7 @@ const styles = StyleSheet.create({
   manualHelperText: {
     color: colors.muted,
     fontSize: 12,
-    fontWeight: "600",
+    fontFamily: "Inter_600SemiBold",
     lineHeight: 18,
     marginTop: spacing.sm,
     textAlign: "center",
@@ -15370,13 +15370,13 @@ const styles = StyleSheet.create({
   secondaryMiniButtonText: {
     color: colors.primaryDark,
     fontSize: 12,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textTransform: "uppercase",
   },
   poolTitle: {
     color: colors.text,
     fontSize: 12,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     marginTop: spacing.md,
     textAlign: "center",
     textTransform: "uppercase",
@@ -15404,7 +15404,7 @@ const styles = StyleSheet.create({
   availablePairChipText: {
     color: colors.text,
     fontSize: 12,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
   },
   availablePairChipTextActive: {
     color: colors.surface,
@@ -15454,7 +15454,7 @@ const styles = StyleSheet.create({
   newZoneUnscheduledBannerText: {
     color: colors.danger,
     fontSize: 11,
-    fontWeight: "600",
+    fontFamily: "Inter_600SemiBold",
   },
   newZoneTitleWrap: {
     alignSelf: "center",
@@ -15467,7 +15467,7 @@ const styles = StyleSheet.create({
   newZoneTitle: {
     color: "#FFFFFF",
     fontSize: 14,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textAlign: "center",
     textTransform: "uppercase",
   },
@@ -15503,7 +15503,7 @@ const styles = StyleSheet.create({
   matchProgramTitle: {
     color: colors.primaryDark,
     fontSize: 11,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
     letterSpacing: 0.8,
     paddingHorizontal: 12,
     paddingTop: 10,
@@ -15523,7 +15523,7 @@ const styles = StyleSheet.create({
   matchProgramTimeText: {
     color: colors.text,
     fontSize: 11,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
     width: 62,
   },
   matchProgramPairsText: {
@@ -15533,7 +15533,7 @@ const styles = StyleSheet.create({
   },
   matchProgramVsText: {
     color: "#000",
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
   },
   matchProgramMetaText: {
     color: colors.muted,
@@ -15570,7 +15570,7 @@ const styles = StyleSheet.create({
   newZonePairNumberText: {
     color: "#1F6D69",
     fontSize: 11,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
   },
   newZonePairNumberTextHighlighted: {
     color: colors.surface,
@@ -15579,7 +15579,7 @@ const styles = StyleSheet.create({
     color: colors.text,
     flex: 1,
     fontSize: 11,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
   },
   newZonePairNameHighlighted: {
     color: "#15555E",
@@ -15603,7 +15603,7 @@ const styles = StyleSheet.create({
   newZoneMatchHeaderText: {
     color: "#1F6D69",
     fontSize: 8,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     paddingHorizontal: 5,
     paddingVertical: 7,
     textAlign: "center",
@@ -15618,13 +15618,13 @@ const styles = StyleSheet.create({
   newZoneMatchCellText: {
     color: colors.text,
     fontSize: 9,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     paddingHorizontal: 3,
     textAlign: "center",
   },
   newZoneWinnerPairNumber: {
     color: "#39FF14",
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textShadowColor: "rgba(57, 255, 20, 0.35)",
     textShadowRadius: 2,
   },
@@ -15662,7 +15662,7 @@ const styles = StyleSheet.create({
   newZoneEmptyText: {
     color: colors.muted,
     fontSize: 12,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
     lineHeight: 17,
     padding: spacing.sm,
     textAlign: "center",
@@ -15686,7 +15686,7 @@ const styles = StyleSheet.create({
   zoneQualifierText: {
     color: colors.text,
     fontSize: 10,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
   },
   zoneStandingsButton: {
     alignItems: "center",
@@ -15701,7 +15701,7 @@ const styles = StyleSheet.create({
   zoneStandingsButtonText: {
     color: "#1F6D69",
     fontSize: 10,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
   },
   standingsModalOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -15720,7 +15720,7 @@ const styles = StyleSheet.create({
   standingsModalTitle: {
     color: colors.primaryDark,
     fontSize: 18,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textAlign: "center",
     textTransform: "uppercase",
   },
@@ -15752,7 +15752,7 @@ const styles = StyleSheet.create({
     color: colors.primaryDark,
     flex: 0.48,
     fontSize: 9,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     paddingVertical: 8,
     textAlign: "center",
   },
@@ -15760,7 +15760,7 @@ const styles = StyleSheet.create({
     color: colors.text,
     flex: 0.48,
     fontSize: 10,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textAlign: "center",
   },
   standingsCellTextHighlighted: {
@@ -15783,7 +15783,7 @@ const styles = StyleSheet.create({
   standingsLegendTitle: {
     color: colors.primaryDark,
     fontSize: 11,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     marginBottom: 5,
     textAlign: "center",
     textTransform: "uppercase",
@@ -15796,7 +15796,7 @@ const styles = StyleSheet.create({
   standingsLegendItem: {
     color: colors.muted,
     fontSize: 9,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     lineHeight: 13,
     textAlign: "left",
     width: "50%",
@@ -15812,7 +15812,7 @@ const styles = StyleSheet.create({
   standingsCloseButtonText: {
     color: colors.surface,
     fontSize: 13,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
   },
   resultModalOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -15839,13 +15839,13 @@ const styles = StyleSheet.create({
   resultModalTitle: {
     color: colors.primaryDark,
     fontSize: 20,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textAlign: "center",
   },
   resultModalSubtitle: {
     color: colors.muted,
     fontSize: 12,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
     lineHeight: 17,
     marginTop: spacing.xs,
     textAlign: "center",
@@ -15871,7 +15871,7 @@ const styles = StyleSheet.create({
   winnerOptionText: {
     color: colors.primaryDark,
     fontSize: 12,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textAlign: "center",
   },
   winnerOptionTextSelected: {
@@ -15880,13 +15880,13 @@ const styles = StyleSheet.create({
   winnerBadgeText: {
     color: "#176B5B",
     fontSize: 9,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     marginTop: 2,
     textAlign: "center",
   },
   woBadgeInlineText: {
     color: colors.danger,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
   },
   woToggleRow: {
     alignItems: "center",
@@ -15909,12 +15909,12 @@ const styles = StyleSheet.create({
   woToggleLabel: {
     color: colors.text,
     fontSize: 13,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
   },
   resultNoWinnerText: {
     color: colors.muted,
     fontSize: 12,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     lineHeight: 16,
     marginTop: spacing.md,
     textAlign: "center",
@@ -15932,7 +15932,7 @@ const styles = StyleSheet.create({
   setLabel: {
     color: colors.primaryDark,
     fontSize: 11,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textAlign: "right",
     width: 102,
   },
@@ -15947,7 +15947,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     color: colors.text,
     fontSize: 16,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     height: 42,
     paddingHorizontal: spacing.sm,
     textAlign: "center",
@@ -15984,7 +15984,7 @@ const styles = StyleSheet.create({
   resultUtilityButtonText: {
     color: "#38515D",
     fontSize: 11,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textAlign: "center",
     textTransform: "uppercase",
   },
@@ -15997,7 +15997,7 @@ const styles = StyleSheet.create({
   programSectionTitle: {
     color: colors.primaryDark,
     fontSize: 12,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     marginBottom: spacing.xs,
     textAlign: "center",
     textTransform: "uppercase",
@@ -16029,7 +16029,7 @@ const styles = StyleSheet.create({
   programOptionChipText: {
     color: "#38515D",
     fontSize: 11,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textAlign: "center",
   },
   programOptionChipTextSelected: {
@@ -16052,7 +16052,7 @@ const styles = StyleSheet.create({
   programOptionRowText: {
     color: "#38515D",
     fontSize: 12,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textAlign: "center",
   },
   programOptionRowTextSelected: {
@@ -16075,7 +16075,7 @@ const styles = StyleSheet.create({
   programTimeButtonText: {
     color: "#244A66",
     fontSize: 13,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
   },
   resultCancelButton: {
     alignItems: "center",
@@ -16088,7 +16088,7 @@ const styles = StyleSheet.create({
   resultCancelButtonText: {
     color: colors.text,
     fontSize: 13,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
   },
   resultSaveButton: {
     alignItems: "center",
@@ -16101,7 +16101,7 @@ const styles = StyleSheet.create({
   resultSaveButtonText: {
     color: colors.surface,
     fontSize: 13,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
   },
   dayPickerModalOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -16120,7 +16120,7 @@ const styles = StyleSheet.create({
   dayPickerModalTitle: {
     color: colors.primaryDark,
     fontSize: 16,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textAlign: "center",
     textTransform: "uppercase",
   },
@@ -16145,7 +16145,7 @@ const styles = StyleSheet.create({
   dayPickerOptionText: {
     color: colors.text,
     fontSize: 13,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textAlign: "center",
   },
   dayPickerOptionTextSelected: {
@@ -16162,7 +16162,7 @@ const styles = StyleSheet.create({
   dayPickerCancelButtonText: {
     color: colors.text,
     fontSize: 13,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
   },
   zoneHeaderPressable: {
     backgroundColor: "#4F86A8",
@@ -16207,7 +16207,7 @@ const styles = StyleSheet.create({
   zoneTitle: {
     color: colors.surface,
     fontSize: 16,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textAlign: "center",
     textTransform: "uppercase",
   },
@@ -16217,7 +16217,7 @@ const styles = StyleSheet.create({
   zoneMeta: {
     color: "#D9E6EF",
     fontSize: 12,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
     marginTop: 2,
     textAlign: "center",
   },
@@ -16235,7 +16235,7 @@ const styles = StyleSheet.create({
   zoneAssignButtonText: {
     color: colors.surface,
     fontSize: 11,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textTransform: "uppercase",
   },
   zonePairRow: {
@@ -16255,16 +16255,16 @@ const styles = StyleSheet.create({
   zonePairText: {
     color: colors.text,
     fontSize: 13,
-    fontWeight: "600",
+    fontFamily: "Inter_600SemiBold",
   },
   zonePairTextHighlighted: {
     color: "#1E88C8",
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
   },
   emptyText: {
     color: colors.muted,
     fontSize: 13,
-    fontWeight: "600",
+    fontFamily: "Inter_600SemiBold",
     lineHeight: 19,
     marginTop: spacing.md,
     textAlign: "center",
@@ -16302,7 +16302,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     color: "#1B5D92",
     fontSize: 12,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     alignSelf: "flex-start",
     overflow: "hidden",
     paddingHorizontal: 8,
@@ -16335,12 +16335,12 @@ const styles = StyleSheet.create({
   zoneMatchSchedulePill: {
     color: "#1B5D92",
     fontSize: 12,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
   },
   zoneMatchCourtText: {
     color: colors.primaryDark,
     fontSize: 11,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     textAlign: "center",
     flexShrink: 1,
   },
@@ -16374,7 +16374,7 @@ const styles = StyleSheet.create({
   zoneInlinePickerTitle: {
     color: colors.primaryDark,
     fontSize: 12,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     marginBottom: spacing.xs,
     textAlign: "center",
     textTransform: "uppercase",
@@ -16403,7 +16403,7 @@ const styles = StyleSheet.create({
   zoneInlinePickerOptionText: {
     color: colors.primaryDark,
     fontSize: 11,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
   },
   zoneInlinePickerOptionTextSelected: {
     color: "#0F4C7D",
@@ -16417,19 +16417,19 @@ const styles = StyleSheet.create({
   zoneInlinePickerCloseButtonText: {
     color: colors.muted,
     fontSize: 11,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     textTransform: "uppercase",
   },
   zoneMatchTeams: {
     color: colors.primaryDark,
     fontSize: 12,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     marginTop: 4,
   },
   zoneMatchSeedText: {
     color: colors.text,
     fontSize: 11,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
     marginTop: 3,
   },
   zoneTeamsRow: {
@@ -16466,7 +16466,7 @@ const styles = StyleSheet.create({
   zoneTeamPlayerName: {
     color: colors.text,
     fontSize: 12,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     marginTop: spacing.xs,
     textAlign: "center",
   },
@@ -16489,7 +16489,7 @@ const styles = StyleSheet.create({
   zoneTeamPlayerSubname: {
     color: colors.muted,
     fontSize: 10,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
     marginTop: 1,
     textAlign: "left",
   },
@@ -16514,7 +16514,7 @@ const styles = StyleSheet.create({
   zoneVsLabel: {
     color: colors.muted,
     fontSize: 10,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     marginTop: 0,
   },
   zoneSetsWrap: {
@@ -16543,7 +16543,7 @@ const styles = StyleSheet.create({
   bracketByeResultText: {
     color: colors.muted,
     fontSize: 10,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     marginTop: spacing.xs,
     textAlign: "center",
     textTransform: "uppercase",
@@ -16562,7 +16562,7 @@ const styles = StyleSheet.create({
   zoneSetLabel: {
     color: colors.muted,
     fontSize: 8,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     textAlign: "center",
     transform: [{ translateY: 3 }],
   },
@@ -16580,7 +16580,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     color: colors.text,
     fontSize: 10,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     minHeight: 24,
     minWidth: 22,
     paddingVertical: 0,
@@ -16590,7 +16590,7 @@ const styles = StyleSheet.create({
   zoneSetSeparator: {
     color: colors.muted,
     fontSize: 10,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
   },
   bracketCompactSetInput: {
     backgroundColor: "#FFFFFF",
@@ -16599,7 +16599,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     color: colors.text,
     fontSize: 10,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     minHeight: 24,
     paddingVertical: 0,
     textAlign: "center",
@@ -16612,7 +16612,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     color: colors.text,
     fontSize: 11,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     minHeight: 30,
     minWidth: 38,
     paddingVertical: 0,
@@ -16622,18 +16622,18 @@ const styles = StyleSheet.create({
   zoneSetSlash: {
     color: colors.muted,
     fontSize: 13,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
   },
   zoneMatchMeta: {
     color: colors.muted,
     fontSize: 11,
-    fontWeight: "600",
+    fontFamily: "Inter_600SemiBold",
     marginTop: 3,
   },
   zoneMatchFormatMeta: {
     color: "#1E88C8",
     fontSize: 11,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     marginTop: 4,
     textAlign: "center",
     textTransform: "uppercase",
@@ -16663,14 +16663,14 @@ const styles = StyleSheet.create({
   bracketLauncherTitle: {
     color: colors.text,
     fontSize: 18,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textAlign: "center",
     textTransform: "uppercase",
   },
   bracketLauncherText: {
     color: colors.muted,
     fontSize: 13,
-    fontWeight: "600",
+    fontFamily: "Inter_600SemiBold",
     lineHeight: 18,
     textAlign: "center",
   },
@@ -16688,7 +16688,7 @@ const styles = StyleSheet.create({
   bracketLauncherButtonText: {
     color: colors.primaryDark,
     fontSize: 13,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textAlign: "center",
     textTransform: "uppercase",
   },
@@ -16717,7 +16717,7 @@ const styles = StyleSheet.create({
     color: "#15555E",
     flex: 1,
     fontSize: 12,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     lineHeight: 16,
   },
   bracketFullscreenWarningCard: {
@@ -16738,14 +16738,14 @@ const styles = StyleSheet.create({
   bracketSummaryTitle: {
     color: colors.muted,
     fontSize: 15,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     textAlign: "center",
     textTransform: "uppercase",
   },
   bracketSummaryText: {
     color: colors.muted,
     fontSize: 12,
-    fontWeight: "600",
+    fontFamily: "Inter_600SemiBold",
     lineHeight: 17,
   },
   bracketUpcomingList: {
@@ -16771,46 +16771,46 @@ const styles = StyleSheet.create({
     color: colors.text,
     flexShrink: 1,
     fontSize: 10,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textTransform: "uppercase",
   },
   bracketUpcomingSchedule: {
     color: "#1E88C8",
     flexShrink: 0,
     fontSize: 10,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     textAlign: "right",
   },
   bracketUpcomingTeams: {
     color: colors.text,
     fontSize: 11,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     lineHeight: 15,
   },
   bracketUpcomingVenue: {
     color: colors.muted,
     fontSize: 10,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
     lineHeight: 13,
   },
   bracketSummaryEmptyText: {
     color: colors.muted,
     fontSize: 12,
-    fontWeight: "600",
+    fontFamily: "Inter_600SemiBold",
     marginTop: spacing.md,
     textAlign: "center",
   },
   bracketTitle: {
     color: colors.text,
     fontSize: 13,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textAlign: "center",
     textTransform: "uppercase",
   },
   bracketText: {
     color: colors.text,
     fontSize: 13,
-    fontWeight: "600",
+    fontFamily: "Inter_600SemiBold",
     lineHeight: 19,
     marginTop: spacing.sm,
     textAlign: "center",
@@ -16818,7 +16818,7 @@ const styles = StyleSheet.create({
   bracketBlueText: {
     color: "#1E88C8",
     fontSize: 13,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
     lineHeight: 19,
     marginTop: spacing.xs,
     textAlign: "center",
@@ -16826,7 +16826,7 @@ const styles = StyleSheet.create({
   bracketZonesText: {
     color: colors.muted,
     fontSize: 12,
-    fontWeight: "600",
+    fontFamily: "Inter_600SemiBold",
     lineHeight: 18,
     marginTop: spacing.sm,
     textAlign: "center",
@@ -16908,7 +16908,7 @@ const styles = StyleSheet.create({
     color: colors.text,
     flex: 1,
     fontSize: 13,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
   },
   bracketToolbarButton: {
     alignItems: "center",
@@ -16958,7 +16958,7 @@ const styles = StyleSheet.create({
   bracketToolbarButtonText: {
     color: colors.primaryDark,
     fontSize: 12,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textTransform: "uppercase",
   },
   bracketToolbarButtonTextCompact: {
@@ -16970,7 +16970,7 @@ const styles = StyleSheet.create({
   bracketSwapHelpText: {
     color: "#1E88C8",
     fontSize: 12,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     lineHeight: 17,
     marginTop: spacing.xs,
     textAlign: "center",
@@ -17012,7 +17012,7 @@ const styles = StyleSheet.create({
   bracketFullscreenTitle: {
     color: colors.surface,
     fontSize: 16,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textAlign: "center",
     textTransform: "uppercase",
   },
@@ -17076,13 +17076,13 @@ const styles = StyleSheet.create({
   zoneShareTitle: {
     color: colors.primaryDark,
     fontSize: 26,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textAlign: "left",
   },
   zoneShareSubtitle: {
     color: colors.muted,
     fontSize: 13,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     marginTop: 4,
     textAlign: "left",
   },
@@ -17102,7 +17102,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     color: "#1F6D69",
     fontSize: 18,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     marginBottom: spacing.sm,
     minWidth: 130,
     paddingHorizontal: spacing.md,
@@ -17126,7 +17126,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     color: "#1F6D69",
     fontSize: 12,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     height: 24,
     lineHeight: 22,
     textAlign: "center",
@@ -17136,7 +17136,7 @@ const styles = StyleSheet.create({
     color: colors.text,
     flex: 1,
     fontSize: 13,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
   },
   zoneShareMatchTable: {
     borderColor: colors.border,
@@ -17154,7 +17154,7 @@ const styles = StyleSheet.create({
   zoneShareMatchHeaderText: {
     color: "#1F6D69",
     fontSize: 10,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     paddingVertical: 8,
     textAlign: "center",
   },
@@ -17168,7 +17168,7 @@ const styles = StyleSheet.create({
   zoneShareMatchText: {
     color: colors.text,
     fontSize: 10,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     paddingHorizontal: 5,
     textAlign: "center",
   },
@@ -17202,7 +17202,7 @@ const styles = StyleSheet.create({
   zoneShareQualifierText: {
     color: colors.text,
     fontSize: 12,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
   },
   slotPickerCard: {
     alignSelf: "center",
@@ -17222,7 +17222,7 @@ const styles = StyleSheet.create({
   slotPickerTitle: {
     color: colors.primaryDark,
     fontSize: 13,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     marginBottom: spacing.sm,
     textAlign: "center",
     textTransform: "uppercase",
@@ -17242,7 +17242,7 @@ const styles = StyleSheet.create({
   slotPickerClearText: {
     color: colors.muted,
     fontSize: 13,
-    fontWeight: "600",
+    fontFamily: "Inter_600SemiBold",
   },
   slotPickerEmptyText: {
     color: colors.muted,
@@ -17253,7 +17253,7 @@ const styles = StyleSheet.create({
   slotPickerDayHeader: {
     color: colors.primaryDark,
     fontSize: 10,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     letterSpacing: 0.8,
     marginBottom: 4,
     marginTop: spacing.sm,
@@ -17276,7 +17276,7 @@ const styles = StyleSheet.create({
   slotPickerOptionTime: {
     color: colors.text,
     fontSize: 13,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
     width: 60,
   },
   slotPickerOptionTimeSelected: {
@@ -17309,7 +17309,7 @@ const styles = StyleSheet.create({
   slotPickerCustomText: {
     color: colors.primaryDark,
     fontSize: 13,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
   },
   slotPickerCancelButton: {
     alignItems: "center",
@@ -17318,7 +17318,7 @@ const styles = StyleSheet.create({
   slotPickerCancelText: {
     color: colors.muted,
     fontSize: 13,
-    fontWeight: "600",
+    fontFamily: "Inter_600SemiBold",
   },
   bracketDayPickerModalCard: {
     alignSelf: "center",
@@ -17337,7 +17337,7 @@ const styles = StyleSheet.create({
   bracketDayPickerModalTitle: {
     color: colors.primaryDark,
     fontSize: 13,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     marginBottom: spacing.sm,
     textAlign: "center",
     textTransform: "uppercase",
@@ -17387,7 +17387,7 @@ const styles = StyleSheet.create({
   roundTitle: {
     color: colors.surface,
     fontSize: 15,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     letterSpacing: 0.6,
     textAlign: "center",
     textShadowColor: "rgba(0,0,0,0.82)",
@@ -17398,7 +17398,7 @@ const styles = StyleSheet.create({
   matchFormatMeta: {
     color: "#1E88C8",
     fontSize: 10,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     marginTop: 4,
     textAlign: "center",
     textTransform: "uppercase",
@@ -17425,7 +17425,7 @@ const styles = StyleSheet.create({
   matchTitle: {
     color: colors.text,
     fontSize: 11,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     marginBottom: 6,
     textAlign: "center",
   },
@@ -17467,7 +17467,7 @@ const styles = StyleSheet.create({
   bracketMatchSchedulePill: {
     color: "#263238",
     fontSize: 8,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
   },
   bracketProgramButton: {
     marginTop: 0,
@@ -17539,7 +17539,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     color: colors.text,
     fontSize: 10,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     height: 22,
     paddingHorizontal: 0,
     paddingVertical: 0,
@@ -17615,27 +17615,27 @@ const styles = StyleSheet.create({
   bracketTeamSeedSide: {
     color: colors.muted,
     fontSize: 9,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     marginTop: 4,
     textAlign: "center",
   },
   bracketTeamSeed: {
     color: colors.muted,
     fontSize: 9,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     marginTop: 4,
     textAlign: "center",
   },
   bracketTeamPrimaryName: {
     color: colors.text,
     fontSize: 11,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     marginTop: 0,
     textAlign: "center",
   },
   highlightedPairNameText: {
     color: "#1E88C8",
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
   },
   bracketTeamPlayersBlock: {
     alignItems: "center",
@@ -17651,7 +17651,7 @@ const styles = StyleSheet.create({
   bracketTeamByeText: {
     color: colors.primaryDark,
     fontSize: 14,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textAlign: "center",
     textTransform: "uppercase",
   },
@@ -17680,7 +17680,7 @@ const styles = StyleSheet.create({
   bracketMatchVenueText: {
     color: "#2EA8D9",
     fontSize: 7,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     lineHeight: 9,
     textAlign: "center",
     maxWidth: 98,
@@ -17688,7 +17688,7 @@ const styles = StyleSheet.create({
   bracketMatchCourtText: {
     color: "#1B5D92",
     fontSize: 7,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textAlign: "center",
     maxWidth: 68,
   },
@@ -17727,7 +17727,7 @@ const styles = StyleSheet.create({
   bracketResultModalButtonText: {
     color: "#244A66",
     fontSize: 8,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     textAlign: "center",
     textTransform: "uppercase",
   },
@@ -17761,7 +17761,7 @@ const styles = StyleSheet.create({
   bracketResultScoreValue: {
     color: "#173C38",
     fontSize: 9,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     lineHeight: 13,
     textAlign: "center",
   },
@@ -17771,7 +17771,7 @@ const styles = StyleSheet.create({
   bracketResultSummaryText: {
     color: colors.text,
     fontSize: 8,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     lineHeight: 10,
     textAlign: "center",
     width: 56,
@@ -17799,7 +17799,7 @@ const styles = StyleSheet.create({
   matchSlotSeed: {
     color: colors.text,
     fontSize: 12,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     textAlign: "center",
   },
   matchSlotSeedBye: {
@@ -17808,14 +17808,14 @@ const styles = StyleSheet.create({
   matchSlotZone: {
     color: colors.muted,
     fontSize: 11,
-    fontWeight: "600",
+    fontFamily: "Inter_600SemiBold",
     marginTop: 2,
     textAlign: "center",
   },
   ruleSetDescription: {
     color: "#1E88C8",
     fontSize: 12,
-    fontWeight: "600",
+    fontFamily: "Inter_600SemiBold",
     lineHeight: 18,
     marginTop: spacing.sm,
     textAlign: "center",
@@ -17830,7 +17830,7 @@ const styles = StyleSheet.create({
   deleteFixtureButtonText: {
     color: colors.danger,
     fontSize: 13,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
   },
   deleteFixtureButtonPressed: {
     opacity: 0.5,
@@ -17858,7 +17858,7 @@ const styles = StyleSheet.create({
   deleteModalTitle: {
     color: colors.text,
     fontSize: 18,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     marginBottom: spacing.xs,
     textAlign: "center",
   },
@@ -17891,7 +17891,7 @@ const styles = StyleSheet.create({
   deleteModalOptionText: {
     color: colors.text,
     fontSize: 15,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
   },
   deleteModalOptionTextActive: {
     color: colors.surface,
@@ -17910,7 +17910,7 @@ const styles = StyleSheet.create({
   deleteModalConfirmBtnText: {
     color: "#FFFFFF",
     fontSize: 14,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
   },
   maxPairsOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -17945,13 +17945,13 @@ const styles = StyleSheet.create({
   maxPairsIconText: {
     color: "#7A4300",
     fontSize: 34,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     lineHeight: 38,
   },
   maxPairsTitle: {
     color: colors.text,
     fontSize: 20,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
     textAlign: "center",
   },
   maxPairsMessage: {
@@ -17978,7 +17978,7 @@ const styles = StyleSheet.create({
   maxPairsBtnSecondaryText: {
     color: colors.muted,
     fontSize: 14,
-    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
   },
   maxPairsBtnPrimary: {
     alignItems: "center",
@@ -17991,7 +17991,7 @@ const styles = StyleSheet.create({
   maxPairsBtnPrimaryText: {
     color: "#FFFFFF",
     fontSize: 14,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
   },
   maxPairsBtnPressed: {
     opacity: 0.85,
@@ -18018,7 +18018,7 @@ const styles = StyleSheet.create({
   ruleSetInfoTitle: {
     color: colors.text,
     fontSize: 17,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     marginBottom: spacing.sm,
     textAlign: "center",
   },
@@ -18028,7 +18028,7 @@ const styles = StyleSheet.create({
   ruleSetInfoSectionTitle: {
     color: colors.primaryDark,
     fontSize: 13,
-    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     marginBottom: 4,
   },
   ruleSetInfoSectionText: {
@@ -18047,6 +18047,6 @@ const styles = StyleSheet.create({
   ruleSetInfoCloseButtonText: {
     color: "#FFFFFF",
     fontSize: 14,
-    fontWeight: "800",
+    fontFamily: "Inter_800ExtraBold",
   },
 });
