@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
-  Animated,
   FlatList,
   Image,
   Modal,
@@ -536,76 +535,6 @@ function getRegistrationChipMeta(registration = null, isRegistrationClosed = fal
   };
 }
 
-// Reemplaza el chip estatico de "Inscripciones abiertas" por un cartel que
-// se desliza de derecha a izquierda, para darle mas vida a esa linea.
-function MarqueeChip({ text, tint, border, accent }) {
-  const translateX = useRef(new Animated.Value(0)).current;
-  const [containerWidth, setContainerWidth] = useState(0);
-  const [textWidth, setTextWidth] = useState(0);
-
-  useEffect(() => {
-    if (!containerWidth || !textWidth) {
-      return undefined;
-    }
-
-    translateX.setValue(containerWidth);
-    const animation = Animated.loop(
-      Animated.timing(translateX, {
-        toValue: -textWidth,
-        duration: Math.max(2200, (containerWidth + textWidth) * 9),
-        isInteraction: false,
-        useNativeDriver: true,
-      })
-    );
-    animation.start();
-
-    return () => animation.stop();
-  }, [containerWidth, textWidth, translateX]);
-
-  return (
-    <View
-      onLayout={(event) => setContainerWidth(event.nativeEvent.layout.width)}
-      style={[styles.marqueeWrap, { backgroundColor: tint, borderColor: border }]}
-    >
-      <Animated.Text
-        onLayout={(event) => setTextWidth(event.nativeEvent.layout.width)}
-        style={[styles.marqueeText, { color: accent, transform: [{ translateX }] }]}
-      >
-        {text}
-      </Animated.Text>
-    </View>
-  );
-}
-
-// Frases de animo que acompañan el sello de "ya estas inscripto". Se elige
-// una al azar (pero estable por torneo/inscripcion) para que no se repita
-// siempre la misma.
-const HYPE_PHRASES = [
-  "Dale con todo 💪",
-  "Vos podes 🙌",
-  "Dale campeon 🏆",
-  "A disfrutarlo 🎾",
-  "A romperla 🔥",
-  "Nos vemos en la cancha 🙌",
-];
-
-function pickHypePhrase(seed = "") {
-  let hash = 0;
-  for (let index = 0; index < seed.length; index += 1) {
-    hash = (hash * 31 + seed.charCodeAt(index)) >>> 0;
-  }
-  return HYPE_PHRASES[hash % HYPE_PHRASES.length];
-}
-
-function RegisteredStamp({ phrase, onPress }) {
-  return (
-    <Pressable hitSlop={6} onPress={onPress} style={styles.registeredStampWrap}>
-      <Text style={styles.registeredStampTitle}>¡Ya estas{"\n"}inscripto!</Text>
-      <Text style={styles.registeredStampPhrase}>{phrase}</Text>
-    </Pressable>
-  );
-}
-
 function getPlayerStatusBadgeMeta(isOpen) {
   return isOpen
     ? { label: "Inscripciones Abiertas", tint: "#E3F9E8", accent: "#1B8A47" }
@@ -715,6 +644,161 @@ function PlayerTournamentCard({
   );
 }
 
+// Misma estetica que PlayerTournamentCard (logo+club, titulo, grilla de
+// categorias, fecha) para el organizador, pero sin el boton INSCRIBIRME y
+// mostrando el estado real de cada categoria (Borrador/Armando/etc.) en vez
+// del estado simplificado abierto/cerrado del jugador.
+function OrganizerTournamentCard({
+  categories,
+  representative,
+  isCardPressEnabled,
+  onPress,
+  onViewPoster,
+  onEditDraft,
+  onDeleteDraft,
+  onDeleteCancelled,
+  showDraftDelete,
+  showCancelledDelete,
+}) {
+  const titleColor = getTournamentTitleColor(representative);
+  const title = representative.baseName || representative.name || "Nombre del torneo";
+  const headerStatusMeta = getTournamentStatusMeta(
+    representative.displayStatus || representative.status
+  );
+
+  return (
+    <View style={styles.cardShell}>
+      <Pressable
+        disabled={!isCardPressEnabled}
+        onPress={onPress}
+        style={({ pressed }) => [
+          styles.playerCard,
+          pressed && isCardPressEnabled ? styles.cardPressed : null,
+          !isCardPressEnabled ? styles.cardDisabled : null,
+        ]}
+      >
+        <View style={styles.playerCardTopRow}>
+          <View style={styles.playerCardClubRow}>
+            {representative.organizerLogoUrl ? (
+              <Image source={{ uri: representative.organizerLogoUrl }} style={styles.playerCardClubLogo} />
+            ) : (
+              <View style={styles.playerCardClubLogoPlaceholder}>
+                <Ionicons color={colors.primaryDark} name="shield-outline" size={18} />
+              </View>
+            )}
+            <Text numberOfLines={2} style={styles.playerCardClubName}>
+              {representative.venueLabel || "Club a confirmar"}
+            </Text>
+          </View>
+          <View style={styles.organizerCardStatusCluster}>
+            <View style={[styles.playerCardStatusBadge, { backgroundColor: headerStatusMeta.tint }]}>
+              <View style={[styles.playerCardStatusDot, { backgroundColor: headerStatusMeta.accent }]} />
+              <Text style={[styles.playerCardStatusText, { color: headerStatusMeta.accent }]}>
+                {headerStatusMeta.label}
+              </Text>
+            </View>
+            {showDraftDelete || showCancelledDelete ? (
+              <View style={styles.draftChipActions}>
+                {showDraftDelete ? (
+                  <Pressable
+                    hitSlop={8}
+                    onPress={() => onEditDraft?.(representative)}
+                    style={({ pressed }) => [
+                      styles.draftChipButton,
+                      pressed && styles.draftChipButtonPressed,
+                    ]}
+                  >
+                    <Ionicons color={colors.primaryDark} name="create-outline" size={14} />
+                  </Pressable>
+                ) : null}
+                <Pressable
+                  hitSlop={8}
+                  onPress={() =>
+                    showCancelledDelete
+                      ? onDeleteCancelled?.(representative)
+                      : onDeleteDraft?.(representative)
+                  }
+                  style={({ pressed }) => [
+                    styles.draftChipButton,
+                    styles.draftChipDeleteButton,
+                    pressed && styles.draftChipButtonPressed,
+                  ]}
+                >
+                  <Ionicons color="#B24343" name="trash-outline" size={14} />
+                </Pressable>
+              </View>
+            ) : null}
+          </View>
+        </View>
+
+        {representative.coverImage ? (
+          <Pressable
+            hitSlop={6}
+            onPress={() => onViewPoster?.(representative)}
+            style={({ pressed }) => [
+              styles.playerCardPosterLink,
+              pressed ? styles.playerCardPosterLinkPressed : null,
+            ]}
+          >
+            <Ionicons color={colors.primaryDark} name="image-outline" size={13} />
+            <Text style={styles.playerCardPosterLinkText}>Ver afiche</Text>
+          </Pressable>
+        ) : null}
+
+        <Text style={styles.playerCardEyebrow}>TORNEO</Text>
+        <Text numberOfLines={2} style={[styles.playerCardTitle, { color: titleColor }]}>
+          {title}
+        </Text>
+
+        <View style={styles.playerCardDividerRow}>
+          <View style={styles.playerCardDividerLine} />
+          <View style={styles.playerCardDividerBadge}>
+            <Text style={styles.playerCardDividerText}>CATEGORÍAS</Text>
+          </View>
+          <View style={styles.playerCardDividerLine} />
+        </View>
+
+        <View style={styles.playerCardCategoryGrid}>
+          {categories.map((category) => {
+            const categoryStatusMeta = getTournamentStatusMeta(
+              category.displayStatus || category.status
+            );
+
+            return (
+              <View key={category.id} style={styles.playerCardCategoryChip}>
+                <Text numberOfLines={1} style={styles.playerCardCategoryChipText}>
+                  {category.categoryLabel}
+                </Text>
+                <View style={styles.organizerCategoryStatusRow}>
+                  <View
+                    style={[
+                      styles.organizerCategoryStatusDot,
+                      { backgroundColor: categoryStatusMeta.accent },
+                    ]}
+                  />
+                  <Text
+                    numberOfLines={1}
+                    style={[styles.organizerCategoryStatusText, { color: categoryStatusMeta.accent }]}
+                  >
+                    {categoryStatusMeta.label}
+                  </Text>
+                </View>
+              </View>
+            );
+          })}
+        </View>
+
+        <View style={styles.playerCardDateRow}>
+          <Ionicons color={colors.primaryDark} name="calendar-outline" size={14} />
+          <Text numberOfLines={2} style={styles.playerCardDateText}>
+            {representative.tournamentDaysLabel}
+          </Text>
+        </View>
+      </Pressable>
+    </View>
+  );
+}
+
 function TournamentCard({
   canManageTournament,
   item,
@@ -727,11 +811,9 @@ function TournamentCard({
   showDraftDelete,
   showCancelledDelete,
 }) {
-  const statusMeta = getTournamentStatusMeta(item.displayStatus || item.status);
   const registration = item.userRegistration;
   const hasRegistration = Boolean(registration);
   const isPlayerFacingCard = !canManageTournament;
-  const showFriendlyCard = true;
   const isRegistrationClosed =
     isPlayerFacingCard &&
     !hasRegistration &&
@@ -740,23 +822,6 @@ function TournamentCard({
   const isWithdrawnRegistration = registration?.withdrawalStatus === "confirmed";
   const isCardDisabled = isPlayerFacingCard && (isWithdrawnRegistration || isRegistrationClosed);
   const isCardPressEnabled = !isCardDisabled;
-  const statusLabel =
-    !canManageTournament && (item.displayStatus || item.status) === "published"
-      ? "Proximamente"
-      : statusMeta.label;
-  const isOpenForPlayerMarquee = (item.displayStatus || item.status) === "registration_open";
-  const isConfirmedRegistration =
-    !canManageTournament && registration?.status === "confirmed" && !isWithdrawnRegistration;
-  const hypePhrase = useMemo(
-    () => pickHypePhrase(`${item.id || ""}-${registration?.id || ""}`),
-    [item.id, registration?.id]
-  );
-  const showRegistrationCta =
-    !canManageTournament &&
-    ["published", "registration_open", "registration_closed"].includes(
-      item.displayStatus || item.status
-    );
-  const titleColor = getTournamentTitleColor(item);
 
   if (!canManageTournament) {
     const isOpenForRegistration = (item.displayStatus || item.status) === "registration_open";
@@ -790,249 +855,18 @@ function TournamentCard({
   }
 
   return (
-    <View style={styles.cardShell}>
-      <Pressable
-        disabled={!isCardPressEnabled}
-        onPress={() => onPress(item)}
-        style={({ pressed }) => [
-          styles.card,
-          pressed && isCardPressEnabled ? styles.cardPressed : null,
-          isCardDisabled ? styles.cardDisabled : null,
-        ]}
-      >
-        {showFriendlyCard ? (
-          <View style={styles.playerStatusWrap}>
-            {isOpenForPlayerMarquee ? (
-              <MarqueeChip
-                accent={statusMeta.accent}
-                border={statusMeta.border}
-                text="🎾 Inscripciones abiertas · ¡Anotate ya! 🎾"
-                tint={statusMeta.tint}
-              />
-            ) : (
-              <View style={styles.playerStatusRow}>
-                <View style={styles.playerStatusLeft}>
-                  <View
-                    style={[
-                      styles.statusPill,
-                      styles.playerStatusPill,
-                      canManageTournament ? styles.draftStatusPill : styles.playerStatusPillSplit,
-                      {
-                        backgroundColor: statusMeta.tint,
-                        borderColor: statusMeta.border,
-                      },
-                    ]}
-                  >
-                    <View style={styles.draftStatusContent}>
-                      <Text
-                        style={[
-                          styles.statusPillText,
-                          styles.playerStatusPillText,
-                          { color: statusMeta.accent },
-                        ]}
-                      >
-                        {statusLabel}
-                      </Text>
-                      {showDraftDelete || showCancelledDelete ? (
-                        <View style={styles.draftChipActions}>
-                          {showDraftDelete ? (
-                            <Pressable
-                              hitSlop={8}
-                              onPress={() => onEditDraft?.(item)}
-                              style={({ pressed }) => [
-                                styles.draftChipButton,
-                                pressed && styles.draftChipButtonPressed,
-                              ]}
-                            >
-                              <Ionicons color={colors.primaryDark} name="create-outline" size={14} />
-                            </Pressable>
-                          ) : null}
-                          <Pressable
-                            hitSlop={8}
-                            onPress={() =>
-                              showCancelledDelete ? onDeleteCancelled?.(item) : onDeleteDraft?.(item)
-                            }
-                            style={({ pressed }) => [
-                              styles.draftChipButton,
-                              styles.draftChipDeleteButton,
-                              pressed && styles.draftChipButtonPressed,
-                            ]}
-                          >
-                            <Ionicons color="#B24343" name="trash-outline" size={14} />
-                          </Pressable>
-                        </View>
-                      ) : null}
-                    </View>
-                  </View>
-                  {!canManageTournament && !isConfirmedRegistration ? (
-                    <Pressable
-                      disabled={isCardDisabled}
-                      onPress={() => onOpenRegistration?.(item)}
-                      style={({ pressed }) => [
-                        styles.statusPill,
-                        styles.playerStatusPill,
-                        styles.playerStatusPillSplit,
-                        {
-                          backgroundColor: registrationChipMeta.tint,
-                          borderColor: registrationChipMeta.border,
-                        },
-                        pressed && !isWithdrawnRegistration && !isRegistrationClosed
-                          ? styles.registrationShortcutPressed
-                          : null,
-                        isCardDisabled ? styles.registrationShortcutDisabled : null,
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          styles.statusPillText,
-                          styles.playerStatusPillText,
-                          { color: registrationChipMeta.accent },
-                        ]}
-                      >
-                        {registrationChipMeta.label}
-                      </Text>
-                    </Pressable>
-                  ) : null}
-                </View>
-              </View>
-            )}
-            {isOpenForPlayerMarquee && !canManageTournament && !isConfirmedRegistration ? (
-              <View style={styles.playerStatusRow}>
-                <Pressable
-                  disabled={isCardDisabled}
-                  onPress={() => onOpenRegistration?.(item)}
-                  style={({ pressed }) => [
-                    styles.statusPill,
-                    styles.playerStatusPill,
-                    styles.playerStatusPillSplit,
-                    {
-                      backgroundColor: registrationChipMeta.tint,
-                      borderColor: registrationChipMeta.border,
-                    },
-                    pressed && !isWithdrawnRegistration && !isRegistrationClosed
-                      ? styles.registrationShortcutPressed
-                      : null,
-                    isCardDisabled ? styles.registrationShortcutDisabled : null,
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.statusPillText,
-                      styles.playerStatusPillText,
-                      { color: registrationChipMeta.accent },
-                    ]}
-                  >
-                    {registrationChipMeta.label}
-                  </Text>
-                </Pressable>
-              </View>
-            ) : null}
-          </View>
-        ) : null}
-
-        {isConfirmedRegistration ? (
-          <RegisteredStamp phrase={hypePhrase} onPress={() => onOpenRegistration?.(item)} />
-        ) : null}
-
-        <View style={styles.cardHeader}>
-          <View
-            style={[
-              styles.cardTitleWrap,
-              item.organizerLogoUrl ? { paddingLeft: 50 } : null,
-              item.coverImage ? { paddingRight: 38 } : null,
-            ]}
-          >
-            <View style={styles.cardTitleInline}>
-              <Text style={styles.cardEyebrowInline}>TORNEO</Text>
-              <Text
-                numberOfLines={(item.name || "").length > 15 ? 2 : 1}
-                style={[styles.cardTitle, styles.cardTitlePlayer, { color: titleColor }]}
-              >
-                {item.name || "Nombre del torneo"}
-              </Text>
-              <View style={styles.cardVenueRow}>
-                <Ionicons color={colors.primaryDark} name="business-outline" size={14} />
-                <Text numberOfLines={1} style={styles.cardVenueText}>
-                  {item.venueLabel || "Sede a confirmar"}
-                </Text>
-              </View>
-            </View>
-          </View>
-          {item.organizerLogoUrl ? (
-            <View pointerEvents="none" style={styles.cardHeaderLogoWrap}>
-              <View style={styles.cardPosterThumbButton}>
-                <Image source={{ uri: item.organizerLogoUrl }} style={styles.cardPosterThumb} />
-              </View>
-            </View>
-          ) : null}
-          {item.coverImage ? (
-            <View style={styles.cardHeaderPosterWrap}>
-              <Pressable
-                onPress={() => onViewPoster?.(item)}
-                style={({ pressed }) => [
-                  styles.playerPosterThumbButton,
-                  pressed ? styles.playerPosterThumbButtonPressed : null,
-                ]}
-              >
-                <Image source={{ uri: item.coverImage }} style={styles.playerPosterThumb} />
-              </Pressable>
-            </View>
-          ) : null}
-        </View>
-
-        {showFriendlyCard ? (
-          <View style={styles.cardFriendlyInfo}>
-            {item.occupancyInfo ? (
-              <View style={styles.cardFriendlyItem}>
-                <Ionicons
-                  color={item.occupancyInfo.color || colors.primaryDark}
-                  name={item.occupancyInfo.icon}
-                  size={16}
-                />
-                <Text
-                  numberOfLines={2}
-                  style={[
-                    styles.cardFriendlyText,
-                    item.occupancyInfo.color ? { color: item.occupancyInfo.color, fontFamily: "Inter_700Bold" } : null,
-                  ]}
-                >
-                  {item.occupancyInfo.text}
-                </Text>
-              </View>
-            ) : null}
-            <View style={styles.cardFriendlyItem}>
-              <Ionicons color={colors.primaryDark} name="trophy-outline" size={16} />
-              <Text numberOfLines={2} style={styles.cardFriendlyText}>
-                {item.tournamentFormat === "groups_knockout"
-                  ? "Modalidad: Zonas + llaves"
-                  : "Modalidad: Formato a confirmar"}
-              </Text>
-            </View>
-            <View style={styles.cardFriendlyItem}>
-              <Ionicons color={colors.primaryDark} name="ribbon-outline" size={16} />
-              <Text numberOfLines={2} style={styles.cardFriendlyText}>
-                {item.categoryLabel}
-              </Text>
-            </View>
-            <View style={styles.cardFriendlyItem}>
-              <Ionicons color={colors.primaryDark} name="calendar-outline" size={16} />
-              <Text numberOfLines={2} style={styles.cardFriendlyText}>
-                {item.tournamentDaysLabel}
-              </Text>
-            </View>
-            {Number.isFinite(item.distanceKm) ? (
-              <View style={styles.cardFriendlyItem}>
-                <Ionicons color={colors.primaryDark} name="location-outline" size={16} />
-                <Text numberOfLines={1} style={styles.cardFriendlyText}>
-                  A {item.distanceKm.toFixed(1)} km
-                </Text>
-              </View>
-            ) : null}
-          </View>
-        ) : null}
-
-      </Pressable>
-    </View>
+    <OrganizerTournamentCard
+      categories={[item]}
+      isCardPressEnabled={isCardPressEnabled}
+      onDeleteCancelled={onDeleteCancelled}
+      onDeleteDraft={onDeleteDraft}
+      onEditDraft={onEditDraft}
+      onPress={() => onPress(item)}
+      onViewPoster={onViewPoster}
+      representative={item}
+      showCancelledDelete={showCancelledDelete}
+      showDraftDelete={showDraftDelete}
+    />
   );
 }
 
@@ -1086,10 +920,8 @@ function TournamentEventCard({
   onViewPoster,
 }) {
   const representative = categories[0];
-  const titleColor = getTournamentTitleColor(representative);
   const isCardPressEnabled =
     canManageTournament || !categories.every(isCategoryClosedForPlayer);
-  const eventTitle = representative.baseName || representative.name || "Nombre del torneo";
 
   const handlePress = () => {
     const entryTournament = pickEntryTournament(categories, canManageTournament);
@@ -1141,116 +973,13 @@ function TournamentEventCard({
   }
 
   return (
-    <View style={styles.cardShell}>
-      <Pressable
-        disabled={!isCardPressEnabled}
-        onPress={handlePress}
-        style={({ pressed }) => [
-          styles.card,
-          pressed && isCardPressEnabled ? styles.cardPressed : null,
-          !isCardPressEnabled ? styles.cardDisabled : null,
-        ]}
-      >
-        <View style={styles.cardHeader}>
-          <View
-            style={[
-              styles.cardTitleWrap,
-              representative.organizerLogoUrl ? { paddingLeft: 50 } : null,
-              representative.coverImage ? { paddingRight: 38 } : null,
-            ]}
-          >
-            <View style={styles.cardTitleInline}>
-              <Text style={styles.cardEyebrowInline}>TORNEO</Text>
-              <Text
-                numberOfLines={eventTitle.length > 15 ? 2 : 1}
-                style={[styles.cardTitle, styles.cardTitlePlayer, { color: titleColor }]}
-              >
-                {eventTitle}
-              </Text>
-              <View style={styles.cardVenueRow}>
-                <Ionicons color={colors.primaryDark} name="business-outline" size={14} />
-                <Text numberOfLines={1} style={styles.cardVenueText}>
-                  {representative.venueLabel || "Sede a confirmar"}
-                </Text>
-              </View>
-            </View>
-          </View>
-          {representative.organizerLogoUrl ? (
-            <View pointerEvents="none" style={styles.cardHeaderLogoWrap}>
-              <View style={styles.cardPosterThumbButton}>
-                <Image source={{ uri: representative.organizerLogoUrl }} style={styles.cardPosterThumb} />
-              </View>
-            </View>
-          ) : null}
-          {representative.coverImage ? (
-            <View style={styles.cardHeaderPosterWrap}>
-              <Pressable
-                onPress={() => onViewPoster?.(representative)}
-                style={({ pressed }) => [
-                  styles.playerPosterThumbButton,
-                  pressed ? styles.playerPosterThumbButtonPressed : null,
-                ]}
-              >
-                <Image source={{ uri: representative.coverImage }} style={styles.playerPosterThumb} />
-              </Pressable>
-            </View>
-          ) : null}
-        </View>
-
-        <View style={styles.eventCategoriesWrap}>
-          {categories.map((category) => {
-            const statusMeta = getTournamentStatusMeta(category.displayStatus || category.status);
-            const registration = !canManageTournament ? category.userRegistration : null;
-            const chipMeta = registration ? getRegistrationChipMeta(registration) : null;
-            const pillMeta = chipMeta || statusMeta;
-
-            return (
-              <View key={category.id} style={styles.eventCategoryRow}>
-                <Text numberOfLines={1} style={styles.eventCategoryLabel}>
-                  {category.categoryLabel}
-                </Text>
-                <View
-                  style={[
-                    styles.statusPill,
-                    styles.eventCategoryPill,
-                    { backgroundColor: pillMeta.tint, borderColor: pillMeta.border },
-                  ]}
-                >
-                  <Text style={[styles.statusPillText, { color: pillMeta.accent }]}>
-                    {pillMeta.label}
-                  </Text>
-                </View>
-              </View>
-            );
-          })}
-        </View>
-
-        <View style={styles.cardFriendlyInfo}>
-          <View style={styles.cardFriendlyItem}>
-            <Ionicons color={colors.primaryDark} name="trophy-outline" size={16} />
-            <Text numberOfLines={2} style={styles.cardFriendlyText}>
-              {representative.tournamentFormat === "groups_knockout"
-                ? "Modalidad: Zonas + llaves"
-                : "Modalidad: Formato a confirmar"}
-            </Text>
-          </View>
-          <View style={styles.cardFriendlyItem}>
-            <Ionicons color={colors.primaryDark} name="calendar-outline" size={16} />
-            <Text numberOfLines={2} style={styles.cardFriendlyText}>
-              {representative.tournamentDaysLabel}
-            </Text>
-          </View>
-          {Number.isFinite(representative.distanceKm) ? (
-            <View style={styles.cardFriendlyItem}>
-              <Ionicons color={colors.primaryDark} name="location-outline" size={16} />
-              <Text numberOfLines={1} style={styles.cardFriendlyText}>
-                A {representative.distanceKm.toFixed(1)} km
-              </Text>
-            </View>
-          ) : null}
-        </View>
-      </Pressable>
-    </View>
+    <OrganizerTournamentCard
+      categories={categories}
+      isCardPressEnabled={isCardPressEnabled}
+      onPress={handlePress}
+      onViewPoster={onViewPoster}
+      representative={representative}
+    />
   );
 }
 
@@ -2687,29 +2416,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primaryDark,
     borderColor: colors.primaryDark,
   },
-  playerTopRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: spacing.sm,
-    justifyContent: "space-between",
-  },
-  playerViewBadge: {
-    backgroundColor: "#EFF6F2",
-    borderColor: colors.border,
-    borderRadius: 999,
-    borderWidth: 1,
-    flex: 1,
-    justifyContent: "center",
-    minHeight: 38,
-    paddingHorizontal: spacing.md,
-  },
-  playerViewBadgeText: {
-    color: colors.primaryDark,
-    fontSize: 13,
-    fontFamily: "Inter_800ExtraBold",
-    textAlign: "center",
-    textTransform: "uppercase",
-  },
   organizerMenuButton: {
     alignItems: "center",
     backgroundColor: colors.surface,
@@ -2793,14 +2499,6 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_900Black",
     textAlign: "center",
     textTransform: "uppercase",
-  },
-  card: {
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: 8,
-    borderWidth: 1,
-    marginBottom: 0,
-    padding: spacing.md,
   },
   cardShell: {
     marginBottom: spacing.md,
@@ -2972,275 +2670,25 @@ const styles = StyleSheet.create({
     fontSize: 14,
     letterSpacing: 0.5,
   },
-  cardHeader: {
-    alignItems: "center",
-    justifyContent: "center",
-    minHeight: 56,
-    position: "relative",
-    width: "100%",
-  },
-  cardHeaderLogoWrap: {
-    left: 0,
-    position: "absolute",
-    top: 2,
-    zIndex: 1,
-  },
-  cardHeaderPosterWrap: {
-    position: "absolute",
-    right: 0,
-    top: 4,
-    zIndex: 1,
-  },
-  cardTitleWrap: {
-    alignItems: "center",
-    justifyContent: "center",
-    width: "100%",
-  },
-  cardTitle: {
-    color: colors.text,
-    fontSize: 19,
-    fontFamily: "Inter_900Black",
-  },
-  cardEyebrow: {
-    color: colors.primaryDark,
-    fontSize: 11,
-    fontFamily: "Inter_900Black",
-    letterSpacing: 1.2,
-    marginBottom: 6,
-    textTransform: "uppercase",
-  },
-  cardTitleInline: {
-    alignItems: "center",
+  organizerCardStatusCluster: {
+    alignItems: "flex-end",
     gap: 6,
-    justifyContent: "center",
-    width: "100%",
   },
-  cardEyebrowInline: {
-    color: colors.primaryDark,
-    fontSize: 11,
-    fontFamily: "Inter_900Black",
-    letterSpacing: 1.2,
-    textAlign: "center",
-    textTransform: "uppercase",
-  },
-  cardTitlePlayer: {
-    color: "#144234",
-    flexShrink: 1,
-    fontSize: 20,
-    fontFamily: "Inter_700Bold",
-    lineHeight: 24,
-    textAlign: "center",
-  },
-  cardVenue: {
-    color: colors.primaryDark,
-    fontSize: 13,
-    fontFamily: "Inter_800ExtraBold",
-    marginTop: 4,
-  },
-  eventCategoriesWrap: {
-    gap: spacing.xs,
-    marginTop: spacing.md,
-  },
-  eventCategoryRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: spacing.sm,
-    justifyContent: "space-between",
-  },
-  eventCategoryLabel: {
-    color: colors.text,
-    flex: 1,
-    fontSize: 14,
-    fontFamily: "Inter_800ExtraBold",
-  },
-  eventCategoryPill: {
-    minHeight: 26,
-    paddingVertical: 2,
-  },
-  cardFriendlyInfo: {
-    backgroundColor: "#F3FAF6",
-    borderColor: "#DCEFE4",
-    borderRadius: 14,
-    borderWidth: 1,
-    gap: spacing.sm,
-    marginTop: spacing.md,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.sm,
-  },
-  cardFriendlyItem: {
-    alignItems: "flex-start",
-    flexDirection: "row",
-    gap: spacing.xs,
-  },
-  cardFriendlyText: {
-    color: colors.text,
-    fontSize: 13,
-    fontFamily: "Inter_700Bold",
-    lineHeight: 18,
-  },
-  cardVenueRow: {
+  organizerCategoryStatusRow: {
     alignItems: "center",
     flexDirection: "row",
     gap: 4,
     justifyContent: "center",
+    marginTop: 4,
   },
-  cardVenueText: {
-    color: colors.primaryDark,
-    fontSize: 13,
-    fontFamily: "Inter_900Black",
-    textAlign: "center",
+  organizerCategoryStatusDot: {
+    borderRadius: 3,
+    height: 6,
+    width: 6,
   },
-  cardPosterThumbButton: {
-    borderRadius: 12,
-    height: 52,
-    overflow: "hidden",
-    width: 44,
-  },
-  cardPosterThumb: {
-    height: "100%",
-    resizeMode: "cover",
-    width: "100%",
-  },
-  playerPosterThumbButton: {
-    borderColor: "#CFE3D9",
-    borderRadius: 10,
-    borderWidth: 1,
-    height: 46,
-    overflow: "hidden",
-    width: 32,
-  },
-  playerPosterThumbButtonPressed: {
-    opacity: 0.86,
-  },
-  playerPosterThumb: {
-    height: "100%",
-    resizeMode: "cover",
-    width: "100%",
-  },
-  posterStatusPill: {
-    alignItems: "center",
-    backgroundColor: "#EEF7F3",
-    borderColor: "#CFE3D9",
-    flexDirection: "row",
-    gap: spacing.xs,
-    justifyContent: "center",
-    marginLeft: spacing.sm,
-    paddingHorizontal: spacing.md,
-  },
-  posterStatusPillPressed: {
-    backgroundColor: "#E3F1EA",
-  },
-  posterStatusPillText: {
-    color: colors.primaryDark,
-    fontSize: 12,
-    fontFamily: "Inter_900Black",
-    textTransform: "uppercase",
-  },
-  statusPill: {
-    borderRadius: 999,
-    borderWidth: 1,
-    minHeight: 30,
-    justifyContent: "center",
-    paddingHorizontal: spacing.sm,
-  },
-  statusPillText: {
-    fontSize: 11,
-    fontFamily: "Inter_800ExtraBold",
-    textTransform: "uppercase",
-  },
-  playerStatusWrap: {
-    alignItems: "center",
-    gap: spacing.xs,
-    marginBottom: spacing.sm,
-  },
-  playerStatusRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    justifyContent: "space-between",
-    width: "100%",
-  },
-  playerStatusLeft: {
-    alignItems: "center",
-    flexDirection: "row",
-    flexShrink: 1,
-    flexWrap: "wrap",
-    gap: spacing.xs,
-  },
-  playerStatusPill: {
-    minHeight: 34,
-    paddingHorizontal: spacing.sm,
-  },
-  marqueeWrap: {
-    alignItems: "center",
-    borderRadius: 8,
-    borderWidth: 1,
-    height: 32,
-    justifyContent: "center",
-    overflow: "hidden",
-    width: "100%",
-  },
-  marqueeText: {
-    fontSize: 12,
-    fontFamily: "Inter_900Black",
-    letterSpacing: 0.4,
-    position: "absolute",
-    textAlign: "center",
-    textTransform: "uppercase",
-  },
-  registeredStampWrap: {
-    alignItems: "center",
-    backgroundColor: "rgba(15,95,54,0.72)",
-    borderColor: "rgba(207,244,216,0.85)",
-    borderRadius: 8,
-    borderWidth: 1.5,
-    bottom: 10,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 4,
-    position: "absolute",
-    right: 10,
-    transform: [{ rotate: "-6deg" }],
-    zIndex: 6,
-  },
-  registeredStampTitle: {
-    color: "#FFFFFF",
+  organizerCategoryStatusText: {
+    fontFamily: "Inter_700Bold",
     fontSize: 10,
-    fontFamily: "Inter_900Black",
-    letterSpacing: 0.3,
-    lineHeight: 12,
-    textAlign: "center",
-    textTransform: "uppercase",
-  },
-  registeredStampPhrase: {
-    color: "#CFF4D8",
-    fontSize: 8,
-    fontFamily: "Inter_800ExtraBold",
-    marginTop: 1,
-    textAlign: "center",
-  },
-  playerStatusPillSplit: {
-    alignItems: "center",
-    flex: 1,
-  },
-  playerStatusPillText: {
-    fontSize: 11,
-    fontFamily: "Inter_900Black",
-    letterSpacing: 0.2,
-    textAlign: "center",
-  },
-  registrationShortcutPressed: {
-    opacity: 0.92,
-  },
-  registrationShortcutDisabled: {
-    opacity: 0.78,
-  },
-  draftStatusPill: {
-    flex: 0,
-    paddingHorizontal: 10,
-  },
-  draftStatusContent: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: spacing.xs,
   },
   draftChipActions: {
     alignItems: "center",
@@ -3279,31 +2727,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontFamily: "Inter_900Black",
     textTransform: "uppercase",
-  },
-  cardMetaGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: spacing.sm,
-    marginTop: spacing.md,
-  },
-  metaBox: {
-    backgroundColor: "#F5FAF7",
-    borderRadius: 8,
-    minWidth: "47%",
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.sm,
-  },
-  metaLabel: {
-    color: colors.muted,
-    fontSize: 11,
-    fontFamily: "Inter_800ExtraBold",
-    textTransform: "uppercase",
-  },
-  metaValue: {
-    color: colors.text,
-    fontSize: 13,
-    fontFamily: "Inter_700Bold",
-    marginTop: 4,
   },
   emptyCard: {
     alignItems: "center",
