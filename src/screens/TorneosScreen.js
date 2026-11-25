@@ -606,6 +606,115 @@ function RegisteredStamp({ phrase, onPress }) {
   );
 }
 
+function getPlayerStatusBadgeMeta(isOpen) {
+  return isOpen
+    ? { label: "Inscripciones Abiertas", tint: "#E3F9E8", accent: "#1B8A47" }
+    : { label: "Inscripciones Cerradas", tint: "#EDF2F5", accent: "#5F7D8A" };
+}
+
+// Tarjeta del torneo para el jugador: encabezado con el club, estado de
+// inscripcion, titulo, grilla de categorias (todas las que tenga el lote) y
+// un boton inferior puramente visual (toda la tarjeta sigue siendo un unico
+// Pressable, igual que antes del rediseno).
+function PlayerTournamentCard({
+  categories,
+  representative,
+  isCardPressEnabled,
+  onPress,
+  onViewPoster,
+  isOpenForRegistration,
+  ctaLabel,
+  ctaBackgroundColor,
+  ctaTextColor,
+}) {
+  const titleColor = getTournamentTitleColor(representative);
+  const title = representative.baseName || representative.name || "Nombre del torneo";
+  const statusBadge = getPlayerStatusBadgeMeta(isOpenForRegistration);
+
+  return (
+    <View style={styles.cardShell}>
+      <Pressable
+        disabled={!isCardPressEnabled}
+        onPress={onPress}
+        style={({ pressed }) => [
+          styles.playerCard,
+          pressed && isCardPressEnabled ? styles.cardPressed : null,
+          !isCardPressEnabled ? styles.cardDisabled : null,
+        ]}
+      >
+        <View style={styles.playerCardTopRow}>
+          <View style={styles.playerCardClubRow}>
+            {representative.organizerLogoUrl ? (
+              <Image source={{ uri: representative.organizerLogoUrl }} style={styles.playerCardClubLogo} />
+            ) : (
+              <View style={styles.playerCardClubLogoPlaceholder}>
+                <Ionicons color={colors.primaryDark} name="shield-outline" size={18} />
+              </View>
+            )}
+            <Text numberOfLines={2} style={styles.playerCardClubName}>
+              {representative.venueLabel || "Club a confirmar"}
+            </Text>
+          </View>
+          <View style={[styles.playerCardStatusBadge, { backgroundColor: statusBadge.tint }]}>
+            <View style={[styles.playerCardStatusDot, { backgroundColor: statusBadge.accent }]} />
+            <Text style={[styles.playerCardStatusText, { color: statusBadge.accent }]}>
+              {statusBadge.label}
+            </Text>
+          </View>
+        </View>
+
+        {representative.coverImage ? (
+          <Pressable
+            hitSlop={6}
+            onPress={() => onViewPoster?.(representative)}
+            style={({ pressed }) => [
+              styles.playerCardPosterLink,
+              pressed ? styles.playerCardPosterLinkPressed : null,
+            ]}
+          >
+            <Ionicons color={colors.primaryDark} name="image-outline" size={13} />
+            <Text style={styles.playerCardPosterLinkText}>Ver afiche</Text>
+          </Pressable>
+        ) : null}
+
+        <Text style={styles.playerCardEyebrow}>TORNEO</Text>
+        <Text numberOfLines={2} style={[styles.playerCardTitle, { color: titleColor }]}>
+          {title}
+        </Text>
+
+        <View style={styles.playerCardDividerRow}>
+          <View style={styles.playerCardDividerLine} />
+          <View style={styles.playerCardDividerBadge}>
+            <Text style={styles.playerCardDividerText}>CATEGORÍAS</Text>
+          </View>
+          <View style={styles.playerCardDividerLine} />
+        </View>
+
+        <View style={styles.playerCardCategoryGrid}>
+          {categories.map((category) => (
+            <View key={category.id} style={styles.playerCardCategoryChip}>
+              <Text numberOfLines={1} style={styles.playerCardCategoryChipText}>
+                {category.categoryLabel}
+              </Text>
+            </View>
+          ))}
+        </View>
+
+        <View style={styles.playerCardDateRow}>
+          <Ionicons color={colors.primaryDark} name="calendar-outline" size={14} />
+          <Text numberOfLines={2} style={styles.playerCardDateText}>
+            {representative.tournamentDaysLabel}
+          </Text>
+        </View>
+
+        <View style={[styles.playerCardCtaButton, { backgroundColor: ctaBackgroundColor }]}>
+          <Text style={[styles.playerCardCtaText, { color: ctaTextColor }]}>{ctaLabel}</Text>
+        </View>
+      </Pressable>
+    </View>
+  );
+}
+
 function TournamentCard({
   canManageTournament,
   item,
@@ -648,6 +757,37 @@ function TournamentCard({
       item.displayStatus || item.status
     );
   const titleColor = getTournamentTitleColor(item);
+
+  if (!canManageTournament) {
+    const isOpenForRegistration = (item.displayStatus || item.status) === "registration_open";
+    let ctaLabel = "INSCRIBIRME";
+    let ctaBackgroundColor = colors.primaryDark;
+    let ctaTextColor = "#FFFFFF";
+
+    if (isCardDisabled) {
+      ctaLabel = isWithdrawnRegistration ? "BAJA CONFIRMADA" : "INSCRIPCIONES CERRADAS";
+      ctaBackgroundColor = "#E6EAED";
+      ctaTextColor = "#8A99A3";
+    } else if (hasRegistration) {
+      ctaLabel = String(registrationChipMeta.label || "").toUpperCase();
+      ctaBackgroundColor = registrationChipMeta.tint;
+      ctaTextColor = registrationChipMeta.accent;
+    }
+
+    return (
+      <PlayerTournamentCard
+        categories={[item]}
+        ctaBackgroundColor={ctaBackgroundColor}
+        ctaLabel={ctaLabel}
+        ctaTextColor={ctaTextColor}
+        isCardPressEnabled={isCardPressEnabled}
+        isOpenForRegistration={isOpenForRegistration}
+        onPress={() => onPress(item)}
+        onViewPoster={onViewPoster}
+        representative={item}
+      />
+    );
+  }
 
   return (
     <View style={styles.cardShell}>
@@ -964,6 +1104,41 @@ function TournamentEventCard({
       onOpenRegistration(entryTournament);
     }
   };
+
+  if (!canManageTournament) {
+    const isOpenForRegistration = categories.some(
+      (category) => (category.displayStatus || category.status) === "registration_open"
+    );
+    const registeredCategory = categories.find((category) => category.userRegistration);
+    let ctaLabel = "INSCRIBIRME";
+    let ctaBackgroundColor = colors.primaryDark;
+    let ctaTextColor = "#FFFFFF";
+
+    if (!isCardPressEnabled) {
+      ctaLabel = "INSCRIPCIONES CERRADAS";
+      ctaBackgroundColor = "#E6EAED";
+      ctaTextColor = "#8A99A3";
+    } else if (registeredCategory) {
+      const chipMeta = getRegistrationChipMeta(registeredCategory.userRegistration);
+      ctaLabel = String(chipMeta.label || "").toUpperCase();
+      ctaBackgroundColor = chipMeta.tint;
+      ctaTextColor = chipMeta.accent;
+    }
+
+    return (
+      <PlayerTournamentCard
+        categories={categories}
+        ctaBackgroundColor={ctaBackgroundColor}
+        ctaLabel={ctaLabel}
+        ctaTextColor={ctaTextColor}
+        isCardPressEnabled={isCardPressEnabled}
+        isOpenForRegistration={isOpenForRegistration}
+        onPress={handlePress}
+        onViewPoster={onViewPoster}
+        representative={representative}
+      />
+    );
+  }
 
   return (
     <View style={styles.cardShell}>
@@ -2635,6 +2810,167 @@ const styles = StyleSheet.create({
   },
   cardDisabled: {
     opacity: 0.92,
+  },
+  playerCard: {
+    backgroundColor: colors.surface,
+    borderRadius: 24,
+    marginBottom: 0,
+    padding: spacing.md,
+    shadowColor: "#0B2719",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.08,
+    shadowRadius: 14,
+    elevation: 3,
+  },
+  playerCardTopRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.sm,
+    justifyContent: "space-between",
+  },
+  playerCardClubRow: {
+    alignItems: "center",
+    flex: 1,
+    flexDirection: "row",
+    gap: spacing.sm,
+    minWidth: 0,
+  },
+  playerCardClubLogo: {
+    borderColor: colors.border,
+    borderRadius: 12,
+    borderWidth: 1,
+    height: 40,
+    width: 40,
+  },
+  playerCardClubLogoPlaceholder: {
+    alignItems: "center",
+    backgroundColor: colors.surfaceAlt,
+    borderColor: colors.border,
+    borderRadius: 12,
+    borderWidth: 1,
+    height: 40,
+    justifyContent: "center",
+    width: 40,
+  },
+  playerCardClubName: {
+    color: colors.text,
+    flexShrink: 1,
+    fontFamily: "Inter_800ExtraBold",
+    fontSize: 15,
+    lineHeight: 19,
+  },
+  playerCardStatusBadge: {
+    alignItems: "center",
+    borderRadius: 999,
+    flexDirection: "row",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  playerCardStatusDot: {
+    borderRadius: 4,
+    height: 8,
+    width: 8,
+  },
+  playerCardStatusText: {
+    fontFamily: "Inter_800ExtraBold",
+    fontSize: 11,
+  },
+  playerCardPosterLink: {
+    alignItems: "center",
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    gap: 4,
+    marginTop: spacing.sm,
+  },
+  playerCardPosterLinkPressed: {
+    opacity: 0.7,
+  },
+  playerCardPosterLinkText: {
+    color: colors.primaryDark,
+    fontFamily: "Inter_700Bold",
+    fontSize: 12,
+    textDecorationLine: "underline",
+  },
+  playerCardEyebrow: {
+    color: colors.primaryDark,
+    fontFamily: "Inter_900Black",
+    fontSize: 11,
+    letterSpacing: 1,
+    marginTop: spacing.md,
+  },
+  playerCardTitle: {
+    fontFamily: "Inter_900Black",
+    fontSize: 28,
+    lineHeight: 32,
+    marginTop: 2,
+  },
+  playerCardDividerRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.sm,
+    marginTop: spacing.md,
+  },
+  playerCardDividerLine: {
+    backgroundColor: colors.border,
+    flex: 1,
+    height: 1,
+  },
+  playerCardDividerBadge: {
+    backgroundColor: colors.primaryDark,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+  },
+  playerCardDividerText: {
+    color: colors.surface,
+    fontFamily: "Inter_800ExtraBold",
+    fontSize: 11,
+    letterSpacing: 1,
+  },
+  playerCardCategoryGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-between",
+    marginTop: spacing.sm,
+  },
+  playerCardCategoryChip: {
+    backgroundColor: colors.secondary,
+    borderRadius: 14,
+    marginBottom: spacing.sm,
+    paddingHorizontal: 10,
+    paddingVertical: 13,
+    width: "48%",
+  },
+  playerCardCategoryChipText: {
+    color: colors.text,
+    fontFamily: "Inter_800ExtraBold",
+    fontSize: 14,
+    textAlign: "center",
+  },
+  playerCardDateRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 6,
+    marginTop: spacing.xs,
+  },
+  playerCardDateText: {
+    color: colors.muted,
+    flexShrink: 1,
+    fontFamily: "Inter_700Bold",
+    fontSize: 13,
+  },
+  playerCardCtaButton: {
+    alignItems: "center",
+    borderRadius: 14,
+    justifyContent: "center",
+    marginTop: spacing.md,
+    paddingVertical: 14,
+  },
+  playerCardCtaText: {
+    fontFamily: "Inter_900Black",
+    fontSize: 14,
+    letterSpacing: 0.5,
   },
   cardHeader: {
     alignItems: "center",
