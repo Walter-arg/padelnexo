@@ -7,6 +7,7 @@ import {
   getDocs,
   query,
   serverTimestamp,
+  setDoc,
   updateDoc,
   where,
   writeBatch,
@@ -1837,6 +1838,40 @@ export async function listTournamentsByBatchId(batchId) {
   }
 
   return listTournaments(where("creationBatchId", "==", batchId));
+}
+
+// Disponibilidad de canchas/horarios compartida por todas las categorias de un
+// mismo evento (creationBatchId), para que el armado automatico de zonas pueda
+// repartir los partidos de todas las categorias sin pisarse en la misma cancha.
+export async function getTournamentEventVenueSchedules(batchId) {
+  if (!batchId) {
+    return [];
+  }
+
+  const snapshot = await getDoc(doc(db, "tournamentEvents", batchId));
+
+  if (!snapshot.exists()) {
+    return [];
+  }
+
+  const data = snapshot.data() || {};
+  return Array.isArray(data.zoneVenueSchedules) ? data.zoneVenueSchedules : [];
+}
+
+export async function saveTournamentEventVenueSchedules(batchId, organizerId, zoneVenueSchedules = []) {
+  if (!batchId) {
+    return;
+  }
+
+  await setDoc(
+    doc(db, "tournamentEvents", batchId),
+    {
+      organizerId,
+      zoneVenueSchedules,
+      updatedAt: serverTimestamp(),
+    },
+    { merge: true }
+  );
 }
 
 export async function listOrganizerDraftTournaments(organizerId) {

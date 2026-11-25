@@ -38,7 +38,10 @@ import { useAuth } from "../context/AuthContext";
 import { getQuickSlotDefinitions } from "../services/availabilityService";
 import {
   getTournamentById,
+  getTournamentEventVenueSchedules,
   listTournamentRegistrations,
+  listTournamentsByBatchId,
+  saveTournamentEventVenueSchedules,
   updateTournament,
 } from "../services/tournamentsService";
 import { upsertTournamentRankingEntry } from "../services/tournamentRankingService";
@@ -1417,6 +1420,116 @@ function buildAutoMatchSchedules(zones = [], registrationsById, venueSchedules =
     });
 
     return { ...zone, matchSchedules };
+  });
+
+  return { zones: scheduledZones, unassignedCount };
+}
+
+// Version de buildAutoMatchSchedules para eventos multi-categoria: en vez de
+// asignar los partidos zona por zona en el orden en que vienen, junta TODOS
+// los partidos de TODAS las categorias del evento en una sola bolsa y los
+// ordena por disponibilidad mas restringida primero (misma pareja con menos
+// minutos cargados elige horario antes), para que ninguna categoria se quede
+// sin cancha por haber sido procesada despues. Cada zona debe venir con un
+// campo __tournamentId que identifique a que torneo/categoria pertenece,
+// para poder separar el resultado por categoria al guardar.
+function buildAutoMatchSchedulesAcrossZones(zones = [], registrationsById, venueSchedules = [], matchDurationMinutes = 75) {
+  const slots = buildZoneMatchSchedulingSlots(venueSchedules, matchDurationMinutes);
+  if (!slots.length) return { zones, unassignedCount: 0 };
+
+  const usedSlotIds = new Set();
+  const pairOccupancy = new Map();
+  let unassignedCount = 0;
+
+  const overlaps = (a, b) =>
+    a.dayKey === b.dayKey && a.startMinutes < b.endMinutes && a.endMinutes > b.startMinutes;
+
+  const pendingMatches = [];
+  zones.forEach((zone) => {
+    const pairCount = zone.registrationIds.length;
+    const matchLabels = buildPlanningMatchLabels(pairCount);
+
+    matchLabels.forEach((matchLabel) => {
+      const parts = matchLabel.match(/^(\d+)\s+vs\s+(\d+)$/i);
+      if (!parts) return;
+
+      const idA = zone.registrationIds[Number(parts[1]) - 1];
+      const idB = zone.registrationIds[Number(parts[2]) - 1];
+      if (!idA || !idB) return;
+
+      pendingMatches.push({ zone, matchLabel, idA, idB });
+    });
+  });
+
+  const restrictionScore = ({ idA, idB }) => {
+    const minsA = getTotalAvailabilityMinutes(registrationsById.get(idA)?.availability || {});
+    const minsB = getTotalAvailabilityMinutes(registrationsById.get(idB)?.availability || {});
+    // Sin disponibilidad cargada = flexible (puede jugar cuando sea), se procesa al final
+    return Math.min(minsA || Infinity, minsB || Infinity);
+  };
+
+  pendingMatches.sort((a, b) => restrictionScore(a) - restrictionScore(b));
+
+  const matchSchedulesByZoneKey = new Map();
+
+  pendingMatches.forEach(({ zone, matchLabel, idA, idB }) => {
+    const availA = registrationsById.get(idA)?.availability || {};
+    const availB = registrationsById.get(idB)?.availability || {};
+    const occA = pairOccupancy.get(idA) || [];
+    const occB = pairOccupancy.get(idB) || [];
+
+    const findCandidates = (extensionMinutes) =>
+      slots.filter(
+        (slot) =>
+          !usedSlotIds.has(slot.id) &&
+          !occA.some((u) => overlaps(slot, u)) &&
+          !occB.some((u) => overlaps(slot, u)) &&
+          isPairAvailableForSlot(availA, slot.dayKey, slot.startMinutes, slot.endMinutes, extensionMinutes) &&
+          isPairAvailableForSlot(availB, slot.dayKey, slot.startMinutes, slot.endMinutes, extensionMinutes)
+      );
+
+    const strictCandidates = findCandidates(0);
+    const extendedCandidates = strictCandidates.length ? strictCandidates : findCandidates(AVAILABILITY_EXTENSION_MINUTES);
+    const candidates = extendedCandidates.length ? extendedCandidates : findCandidates(AVAILABILITY_EXTENSION_MINUTES * 2);
+
+    if (!candidates.length) {
+      unassignedCount++;
+      return;
+    }
+
+    const allOcc = [...occA, ...occB];
+    candidates.sort((a, b) => {
+      const aVenue = allOcc.filter((u) => u.venueId === a.venueId).length;
+      const bVenue = allOcc.filter((u) => u.venueId === b.venueId).length;
+      if (bVenue !== aVenue) return bVenue - aVenue;
+      if (a.dayKey !== b.dayKey) return a.dayKey.localeCompare(b.dayKey);
+      if (a.startMinutes !== b.startMinutes) return a.startMinutes - b.startMinutes;
+      return a.courtIndex - b.courtIndex;
+    });
+
+    const chosen = candidates[0];
+    usedSlotIds.add(chosen.id);
+    pairOccupancy.set(idA, [...occA, chosen]);
+    pairOccupancy.set(idB, [...occB, chosen]);
+
+    const zoneKey = `${zone.__tournamentId}:${zone.id}`;
+    if (!matchSchedulesByZoneKey.has(zoneKey)) {
+      matchSchedulesByZoneKey.set(zoneKey, { ...(zone.matchSchedules || {}) });
+    }
+    matchSchedulesByZoneKey.get(zoneKey)[matchLabel] = {
+      dayKey: chosen.dayKey,
+      startTime: formatMinutesToTime(chosen.startMinutes),
+      venueId: chosen.venueId,
+      courtIndex: chosen.courtIndex || 0,
+    };
+  });
+
+  const scheduledZones = zones.map((zone) => {
+    const zoneKey = `${zone.__tournamentId}:${zone.id}`;
+    return {
+      ...zone,
+      matchSchedules: matchSchedulesByZoneKey.get(zoneKey) || zone.matchSchedules || {},
+    };
   });
 
   return { zones: scheduledZones, unassignedCount };
@@ -5575,6 +5688,34 @@ export default function TournamentFixtureScreen({ navigation, route }) {
   }, [fixtureSetup.bracketPreview, fixtureSetup.matchFormat, initialBracketPreview]);
 
   useEffect(() => {
+    const eventBatchId = tournament?.creationBatchId || "";
+
+    if (eventBatchId) {
+      let isMounted = true;
+
+      getTournamentEventVenueSchedules(eventBatchId)
+        .then((rawSchedules) => {
+          if (!isMounted) {
+            return;
+          }
+
+          const nextZoneVenueSchedules = normalizeZoneVenueSchedules(
+            rawSchedules,
+            tournamentDayOptions,
+            tournamentVenueOptions
+          );
+
+          setZoneVenueSchedules((current) =>
+            areJsonEqual(current, nextZoneVenueSchedules) ? current : nextZoneVenueSchedules
+          );
+        })
+        .catch(() => {});
+
+      return () => {
+        isMounted = false;
+      };
+    }
+
     const nextZoneVenueSchedules = normalizeZoneVenueSchedules(
       fixtureSetup.zoneVenueSchedules,
       tournamentDayOptions,
@@ -5584,7 +5725,12 @@ export default function TournamentFixtureScreen({ navigation, route }) {
     setZoneVenueSchedules((current) =>
       areJsonEqual(current, nextZoneVenueSchedules) ? current : nextZoneVenueSchedules
     );
-  }, [fixtureSetup.zoneVenueSchedules, tournamentDayOptions, tournamentVenueOptions]);
+  }, [
+    tournament?.creationBatchId,
+    fixtureSetup.zoneVenueSchedules,
+    tournamentDayOptions,
+    tournamentVenueOptions,
+  ]);
 
   useEffect(() => {
     const defaultDayKey = tournamentDayOptions[0]?.key || "";
@@ -6751,6 +6897,48 @@ export default function TournamentFixtureScreen({ navigation, route }) {
     }
   };
 
+  // Cuando el torneo es parte de un evento multi-categoria, la disponibilidad
+  // de canchas/horarios es compartida entre todas las categorias (se guarda en
+  // tournamentEvents/{creationBatchId}) en vez de en el fixtureSetup de este
+  // torneo individual, para que el armado automatico pueda repartir partidos
+  // de todas las categorias sin pisarse en la misma cancha.
+  const persistZoneVenueSchedules = async (nextSchedules, successMessage = "") => {
+    setZoneVenueSchedules(nextSchedules);
+
+    const eventBatchId = tournament?.creationBatchId || "";
+
+    if (!eventBatchId) {
+      saveFixtureSetup(
+        { savingKey: "venue-schedules", skipReload: true, zoneVenueSchedules: nextSchedules },
+        successMessage
+      );
+      return;
+    }
+
+    try {
+      setSavingKey("venue-schedules");
+      await saveTournamentEventVenueSchedules(eventBatchId, currentOrganizer.uid, nextSchedules);
+
+      if (successMessage) {
+        setFeedback({
+          visible: true,
+          title: "Preferencias guardadas",
+          message: successMessage,
+          tone: "success",
+        });
+      }
+    } catch (error) {
+      setFeedback({
+        visible: true,
+        title: "No pudimos guardar el fixture",
+        message: error?.message || "Intenta nuevamente en unos instantes.",
+        tone: "danger",
+      });
+    } finally {
+      setSavingKey("");
+    }
+  };
+
   const handleChangeActiveSection = useCallback(
     async (nextSection) => {
       const normalizedSection = normalizeFixtureActiveSection(nextSection);
@@ -7037,25 +7225,12 @@ export default function TournamentFixtureScreen({ navigation, route }) {
       tournamentVenueOptions
     );
 
-    setZoneVenueSchedules(nextSchedules);
-    saveFixtureSetup(
-      {
-        savingKey: "venue-schedules",
-        skipReload: true,
-        zoneVenueSchedules: nextSchedules,
-      },
-      "La disponibilidad de sedes quedo guardada."
-    );
+    persistZoneVenueSchedules(nextSchedules, "La disponibilidad de sedes quedo guardada.");
   };
 
   const handleRemoveZoneVenueSchedule = (scheduleId) => {
     const nextSchedules = zoneVenueSchedules.filter((entry) => entry.id !== scheduleId);
-    setZoneVenueSchedules(nextSchedules);
-    saveFixtureSetup({
-      savingKey: "venue-schedules",
-      skipReload: true,
-      zoneVenueSchedules: nextSchedules,
-    });
+    persistZoneVenueSchedules(nextSchedules);
   };
 
   const assignSchedulesToZoneMatches = useCallback(
@@ -7484,23 +7659,180 @@ export default function TournamentFixtureScreen({ navigation, route }) {
     }
   };
 
+  // Armado automatico unificado para torneos que son parte de un evento
+  // multi-categoria (tournament.creationBatchId): junta las parejas
+  // confirmadas de TODAS las categorias hermanas, arma las zonas de cada una
+  // por separado (igual que siempre) pero reparte horarios/canchas en un solo
+  // pase contra el pool compartido del evento, asi ninguna categoria le pisa
+  // la cancha a otra y los huecos de una se pueden llenar con partidos de otra.
+  const handleCreateNewAutoZonesForEvent = async () => {
+    const eventBatchId = tournament?.creationBatchId || "";
+
+    if (!tournament?.id || !eventBatchId) {
+      return;
+    }
+
+    try {
+      setSavingKey("zones");
+
+      const siblings = await listTournamentsByBatchId(eventBatchId);
+      const activeVenueSchedules = zoneVenueSchedules.filter((s) => s.useForZones);
+
+      const skippedLabels = [];
+      const combinedRegistrationsById = new Map();
+      const combinedZones = [];
+      const siblingPlans = [];
+
+      for (const sibling of siblings) {
+        const siblingRegistrations = await listTournamentRegistrations(sibling.id);
+        const siblingConfirmedRegistrations = siblingRegistrations.filter((registration) =>
+          isRegistrationConfirmed(registration, sibling)
+        );
+
+        if (siblingConfirmedRegistrations.length < 6) {
+          skippedLabels.push(
+            sibling?.compositionConfig?.label || sibling?.compositionLabel || sibling?.name || "una categoria"
+          );
+          continue;
+        }
+
+        siblingConfirmedRegistrations.forEach((registration) =>
+          combinedRegistrationsById.set(registration.id, registration)
+        );
+
+        const siblingRuleSet = String(sibling?.tournamentRuleSet || sibling?.ruleSet || "fap")
+          .trim()
+          .toLowerCase();
+        const siblingPathType = sibling?.fixtureSetup?.pathType || "strict";
+        const siblingRecommendation = resolveFixtureRecommendation(
+          siblingConfirmedRegistrations.length,
+          siblingPathType,
+          siblingRuleSet
+        );
+        const siblingBasePlanning = buildAutomaticZonePlanning(
+          siblingConfirmedRegistrations,
+          siblingRecommendation
+        );
+
+        siblingBasePlanning.zones.forEach((zone) => {
+          combinedZones.push({ ...zone, __tournamentId: sibling.id });
+        });
+
+        siblingPlans.push({ tournament: sibling, basePlanning: siblingBasePlanning });
+      }
+
+      if (!siblingPlans.length) {
+        setFeedback({
+          visible: true,
+          title: "Faltan parejas confirmadas",
+          message: "Ninguna categoria del evento llega todavia a las 6 parejas confirmadas necesarias.",
+          tone: "warning",
+        });
+        return;
+      }
+
+      let finalCombinedZones = combinedZones;
+      let unassignedCount = 0;
+
+      if (activeVenueSchedules.length) {
+        const result = buildAutoMatchSchedulesAcrossZones(
+          combinedZones,
+          combinedRegistrationsById,
+          activeVenueSchedules,
+          currentZoneMatchDurationMinutes
+        );
+        finalCombinedZones = result.zones;
+        unassignedCount = result.unassignedCount;
+      }
+
+      for (const { tournament: siblingTournament, basePlanning } of siblingPlans) {
+        const siblingZones = finalCombinedZones
+          .filter((zone) => zone.__tournamentId === siblingTournament.id)
+          .map(({ __tournamentId, ...zone }) => zone);
+        const finalZonePlanning = { ...basePlanning, zones: siblingZones };
+        const latestSiblingFixtureSetup =
+          siblingTournament.id === tournament.id
+            ? pendingFixtureSetupRef.current || fixtureSetup || {}
+            : siblingTournament.fixtureSetup || {};
+        const nextSiblingFixtureSetup = {
+          ...latestSiblingFixtureSetup,
+          lastViewedSection: "newzones",
+          zonePlanning: finalZonePlanning,
+        };
+
+        const updatedSibling = await updateTournament(
+          siblingTournament.id,
+          currentOrganizer,
+          { fixtureSetup: nextSiblingFixtureSetup, zonePlanning: finalZonePlanning },
+          siblingTournament
+        );
+
+        if (siblingTournament.id === tournament.id) {
+          setTournament((current) =>
+            current
+              ? {
+                  ...current,
+                  ...updatedSibling,
+                  fixtureSetup: nextSiblingFixtureSetup,
+                  zonePlanning: finalZonePlanning,
+                }
+              : updatedSibling
+          );
+          pendingFixtureSetupRef.current = nextSiblingFixtureSetup;
+        }
+      }
+
+      setZonePlanningDraft(null);
+      setActiveSection("newzones");
+
+      const scheduleMsg = !activeVenueSchedules.length
+        ? "Las zonas del evento quedaron creadas. Configura la disponibilidad de sede en Preferencias para asignar horarios automaticamente."
+        : unassignedCount > 0
+        ? `Las zonas del evento quedaron creadas con horarios asignados sin pisarse entre categorias. ${unassignedCount} partido(s) quedaron sin horario disponible.`
+        : "Las zonas del evento quedaron creadas y los horarios asignados entre todas las categorias sin pisarse.";
+
+      setFeedback({
+        visible: true,
+        title: skippedLabels.length ? "Zonas del evento creadas (con categorias pendientes)" : "Zonas del evento creadas",
+        message: skippedLabels.length
+          ? `${scheduleMsg} No se armaron zonas para: ${skippedLabels.join(", ")} (todavia no llegan a 6 parejas confirmadas).`
+          : scheduleMsg,
+        tone: unassignedCount > 0 || skippedLabels.length ? "warning" : "success",
+      });
+    } catch (error) {
+      setFeedback({
+        visible: true,
+        title: "No pudimos crear las zonas del evento",
+        message: error?.message || "Intenta nuevamente en unos instantes.",
+        tone: "danger",
+      });
+    } finally {
+      setSavingKey("");
+    }
+  };
+
   const handleCreateNewAutoZonesPress = (bypassNoSchedule = false) => {
     if (!bypassNoSchedule && zoneVenueSchedules.length === 0) {
       setNoScheduleConfirm(true);
       return;
     }
 
+    const runAutoZones = tournament?.creationBatchId
+      ? handleCreateNewAutoZonesForEvent
+      : handleCreateNewAutoZones;
+
     if (!newZonePlanningZones.length) {
-      handleCreateNewAutoZones();
+      runAutoZones();
       return;
     }
 
     setConfirmFixtureAction({
       title: "Volver a crear zonas automaticas",
-      message:
-        "Ya hay zonas en Nuevas zonas. Si continuas, se reemplazara ese armado automatico/manual guardado.",
+      message: tournament?.creationBatchId
+        ? "Ya hay zonas en Nuevas zonas. Si continuas, se reemplazara el armado automatico/manual guardado de las categorias del evento que tengan 6 o mas parejas confirmadas."
+        : "Ya hay zonas en Nuevas zonas. Si continuas, se reemplazara ese armado automatico/manual guardado.",
       confirmLabel: "Continuar",
-      onConfirm: handleCreateNewAutoZones,
+      onConfirm: runAutoZones,
     });
   };
 
@@ -11974,6 +12306,11 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                   <Text style={styles.venueScheduleHelpText}>
                     Agrega las franjas horarias de canchas disponibles.
                   </Text>
+                  {tournament?.creationBatchId ? (
+                    <Text style={styles.venueScheduleMicrocopy}>
+                      Esta configuracion es compartida por todas las categorias de este evento.
+                    </Text>
+                  ) : null}
                   <Text style={styles.venueScheduleMicrocopy}>
                     Franjas para llaves detectadas: {bracketVenueSchedulesForDisplay.length}
                   </Text>

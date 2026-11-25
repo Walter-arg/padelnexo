@@ -137,6 +137,17 @@ service cloud.firestore {
       }
     }
 
+    // Disponibilidad de canchas/horarios compartida por todas las categorias
+    // de un evento multi-categoria (id = creationBatchId). El id es un valor
+    // generado del lado del cliente al crear el evento, nunca expuesto a
+    // otros usuarios, asi que el mismo nivel de confianza que ya se usa para
+    // crear torneos alcanza aca.
+    match /tournamentEvents/{batchId} {
+      allow read: if isAuth();
+      allow create: if isAuth() && request.resource.data.organizerId == request.auth.uid;
+      allow update: if isOrganizer(resource);
+    }
+
     // Reservas y configuraciones de turnos
     function esDuenioDeReserva(data) {
       return data.playerId == request.auth.uid || data.organizerId == request.auth.uid;
