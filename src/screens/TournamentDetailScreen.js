@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Image,
   Linking,
   Platform,
@@ -1592,6 +1593,7 @@ function FixtureTab({
 
 function ManagementTab({
   currentUser,
+  onDirtyChange,
   onEditDetails,
   onActionCompleted,
   showFeedback,
@@ -1613,6 +1615,21 @@ function ManagementTab({
   const [availabilityRequired, setAvailabilityRequired] = useState(
     Boolean(tournament?.availabilityRequired)
   );
+
+  const isDirty =
+    minPairsInput !== (tournament?.minPairs > 0 ? String(tournament.minPairs) : "") ||
+    maxPairsInput !== (tournament?.maxPairs > 0 ? String(tournament.maxPairs) : "") ||
+    showOccupancyCard !== Boolean(tournament?.showOccupancyCard) ||
+    pairLimitsEnabled !== (tournament?.pairLimitsEnabled !== false) ||
+    availabilityRequired !== Boolean(tournament?.availabilityRequired);
+
+  useEffect(() => {
+    onDirtyChange?.(isDirty);
+  }, [isDirty, onDirtyChange]);
+
+  useEffect(() => {
+    return () => onDirtyChange?.(false);
+  }, [onDirtyChange]);
 
   const runAction = async (key, action, successMessage) => {
     try {
@@ -1661,28 +1678,6 @@ function ManagementTab({
           title: "Publicar torneo",
           onPress: () =>
             runAction("publish", () => publishTournament(tournament.id), "El torneo ya quedo publicado."),
-        }
-      : tournament.status === "published" || tournament.status === "registration_closed"
-      ? {
-          key: "open-registration",
-          title: "Abrir inscripcion",
-          onPress: () =>
-            runAction(
-              "open-registration",
-              () => openTournamentRegistration(tournament.id),
-              "La inscripcion ya quedo abierta."
-            ),
-        }
-      : tournament.status === "registration_open"
-      ? {
-          key: "close-registration",
-          title: "Cerrar inscripcion",
-          onPress: () =>
-            runAction(
-              "close-registration",
-              () => closeTournamentRegistration(tournament.id),
-              "La inscripcion ya quedo cerrada."
-            ),
         }
       : null;
 
@@ -1830,6 +1825,8 @@ export default function TournamentDetailScreen({ navigation, route }) {
   const [matches, setMatches] = useState([]);
   const [activeTab, setActiveTab] = useState("");
   const [pendingOrganizerArea, setPendingOrganizerArea] = useState("");
+  const [managementDirty, setManagementDirty] = useState(false);
+  const [registrationToggleLoading, setRegistrationToggleLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [organizerWhatsAppNumber, setOrganizerWhatsAppNumber] = useState("");
   const [feedback, setFeedback] = useState({
@@ -1840,7 +1837,33 @@ export default function TournamentDetailScreen({ navigation, route }) {
   });
   const initialTabAppliedRef = useRef(false);
   const lastOrganizerAreaPersistedRef = useRef("");
-  const { categoryOptions, onSelectCategory } = useTournamentCategorySwitcher(tournament, navigation);
+  const { categoryOptions, onSelectCategory: switchCategory } = useTournamentCategorySwitcher(
+    tournament,
+    navigation
+  );
+
+  const onSelectCategory = useCallback(
+    (nextTournamentId) => {
+      if (activeTab === "management" && managementDirty) {
+        Alert.alert(
+          "Hay cambios sin guardar",
+          "Si cambias de categoria vas a perder los cambios que no guardaste. ¿Deseas cambiar de todos modos?",
+          [
+            { text: "Cancelar", style: "cancel" },
+            {
+              text: "Cambiar de todos modos",
+              style: "destructive",
+              onPress: () => switchCategory(nextTournamentId),
+            },
+          ]
+        );
+        return;
+      }
+
+      switchCategory(nextTournamentId);
+    },
+    [activeTab, managementDirty, switchCategory]
+  );
   const currentUser = useMemo(
     () => ({
       ...(userData || {}),
@@ -1932,6 +1955,39 @@ export default function TournamentDetailScreen({ navigation, route }) {
       setLoading(false);
     }
   }, [currentUser.name, currentUser.uid, loadTournamentDetail, tournament]);
+
+  const handleToggleRegistration = useCallback(async () => {
+    if (!tournament?.id || registrationToggleLoading) {
+      return;
+    }
+
+    const isOpen = tournament.status === "registration_open";
+
+    try {
+      setRegistrationToggleLoading(true);
+      if (isOpen) {
+        await closeTournamentRegistration(tournament.id);
+      } else {
+        await openTournamentRegistration(tournament.id);
+      }
+      await loadTournamentDetail();
+      setFeedback({
+        visible: true,
+        title: "Cambios guardados",
+        message: isOpen ? "La inscripcion ya quedo cerrada." : "La inscripcion ya quedo abierta.",
+        tone: "success",
+      });
+    } catch (error) {
+      setFeedback({
+        visible: true,
+        title: "No pudimos guardar el cambio",
+        message: error?.message || "Intenta nuevamente en unos instantes.",
+        tone: "danger",
+      });
+    } finally {
+      setRegistrationToggleLoading(false);
+    }
+  }, [loadTournamentDetail, registrationToggleLoading, tournament]);
 
   useFocusEffect(
     useCallback(() => {
@@ -2071,6 +2127,7 @@ export default function TournamentDetailScreen({ navigation, route }) {
           currentUser={currentUser}
           groups={groups}
           matches={matches}
+          onDirtyChange={setManagementDirty}
           onEditDetails={() =>
             navigation.navigate("CreateTournament", {
               returnToTournamentDetail: true,
@@ -2117,7 +2174,7 @@ export default function TournamentDetailScreen({ navigation, route }) {
             <TournamentHeaderCard
               activeTournamentId={tournament?.id || ""}
               category={tournament?.compositionConfig?.label || tournament?.compositionLabel || ""}
-              categoryOptions={activeTab === "management" ? [] : categoryOptions}
+              categoryOptions={categoryOptions}
               compactFriendly
               endDateMillis={tournament?.endDateMillis || 0}
               onSelectCategory={onSelectCategory}
@@ -2475,6 +2532,52 @@ export default function TournamentDetailScreen({ navigation, route }) {
               </View>
             ) : null}
 
+            {accessMeta.role === "organizer" &&
+            activeTab === "management" &&
+            ["published", "registration_closed", "registration_open"].includes(
+              tournament?.status
+            ) ? (
+              <Pressable
+                disabled={registrationToggleLoading}
+                onPress={handleToggleRegistration}
+                style={styles.registrationToggleCard}
+              >
+                <View style={styles.registrationToggleCopy}>
+                  <Text style={styles.registrationToggleTitle}>INSCRIPCIONES</Text>
+                  <Text
+                    style={[
+                      styles.registrationToggleStatus,
+                      {
+                        color:
+                          tournament?.status === "registration_open" ? "#1B8A47" : "#B24343",
+                      },
+                    ]}
+                  >
+                    {registrationToggleLoading
+                      ? "Guardando..."
+                      : tournament?.status === "registration_open"
+                      ? "Abiertas"
+                      : "Cerradas"}
+                  </Text>
+                </View>
+                <View
+                  style={[
+                    styles.registrationTogglePill,
+                    tournament?.status === "registration_open" &&
+                      styles.registrationTogglePillActive,
+                  ]}
+                >
+                  <View
+                    style={[
+                      styles.registrationToggleDot,
+                      tournament?.status === "registration_open" &&
+                        styles.registrationToggleDotActive,
+                    ]}
+                  />
+                </View>
+              </Pressable>
+            ) : null}
+
             {renderTabContent()}
           </ScrollView>
         ) : (
@@ -2525,6 +2628,51 @@ const styles = StyleSheet.create({
   },
   posterShortcutWrap: {
     marginTop: spacing.md,
+  },
+  registrationToggleCard: {
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 16,
+    borderWidth: 1,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: spacing.md,
+    padding: spacing.md,
+  },
+  registrationToggleCopy: {
+    gap: 2,
+  },
+  registrationToggleTitle: {
+    color: colors.muted,
+    fontFamily: "Inter_800ExtraBold",
+    fontSize: 11,
+    letterSpacing: 1,
+  },
+  registrationToggleStatus: {
+    fontFamily: "Inter_900Black",
+    fontSize: 16,
+  },
+  registrationTogglePill: {
+    backgroundColor: "#F3C9C9",
+    borderRadius: 999,
+    height: 30,
+    justifyContent: "center",
+    paddingHorizontal: 3,
+    width: 52,
+  },
+  registrationTogglePillActive: {
+    backgroundColor: "#BFEFCF",
+  },
+  registrationToggleDot: {
+    backgroundColor: "#B24343",
+    borderRadius: 999,
+    height: 24,
+    width: 24,
+  },
+  registrationToggleDotActive: {
+    alignSelf: "flex-end",
+    backgroundColor: "#1B8A47",
   },
   posterShortcutCard: {
     alignItems: "center",
@@ -2666,14 +2814,16 @@ const styles = StyleSheet.create({
   },
   rulesButton: {
     alignItems: "center",
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: 16,
+    backgroundColor: colors.secondary,
+    borderColor: colors.secondary,
+    borderRadius: 20,
     borderWidth: 1,
+    flex: 1,
     flexDirection: "row",
     gap: 6,
+    justifyContent: "center",
     paddingHorizontal: spacing.md,
-    paddingVertical: 8,
+    paddingVertical: 10,
   },
   rulesButtonPressed: {
     opacity: 0.85,

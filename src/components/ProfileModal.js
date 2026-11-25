@@ -221,6 +221,7 @@ export default function ProfileModal({
   navigation,
   onClose,
   onLogout,
+  onRequestPlans,
   onSave,
   user,
   visible,
@@ -732,6 +733,19 @@ export default function ProfileModal({
                   <Text style={styles.accountHint}>{getOrganizerAccessMessage()}</Text>
                 ) : null}
               </View>
+
+              {isApprovedAccount ? (
+                <AppButton
+                  title="Planes de suscripción"
+                  onPress={() => {
+                    onClose?.();
+                    onRequestPlans?.();
+                  }}
+                  style={styles.organizerButton}
+                  textStyle={styles.organizerButtonText}
+                  variant="secondary"
+                />
+              ) : null}
 
               {canAccessAdminPanel(profile) ? (
                 <AppButton

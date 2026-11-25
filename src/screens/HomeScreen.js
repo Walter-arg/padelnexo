@@ -17,6 +17,7 @@ import BottomQuickActionsBar, {
 } from "../components/BottomQuickActionsBar";
 import CircularMenu from "../components/CircularMenu";
 import LoginModal from "../components/LoginModal";
+import OrganizerRequestModal from "../components/OrganizerRequestModal";
 import PlansPaywallModal from "../components/PlansPaywallModal";
 import ProfileModal from "../components/ProfileModal";
 import { heroPhrases } from "../data/profileOptions";
@@ -524,6 +525,7 @@ export default function HomeScreen({ navigation, route }) {
   const { user, userData, refreshUserData } = useAuth();
   const [isLoginVisible, setIsLoginVisible] = useState(false);
   const [isProfileVisible, setIsProfileVisible] = useState(false);
+  const [isOrganizerRequestVisible, setIsOrganizerRequestVisible] = useState(false);
   const [isPlansVisible, setIsPlansVisible] = useState(false);
   const [selectedMenuItem, setSelectedMenuItem] = useState(MENU_ITEMS[0]);
   const [phraseIndex, setPhraseIndex] = useState(0);
@@ -535,7 +537,7 @@ export default function HomeScreen({ navigation, route }) {
   const currentUser = userData ? { ...DEFAULT_USER, ...userData } : null;
   const canManageFinances = isApprovedOrganizer(currentUser) && hasActivePlan(currentUser);
   const planStatusSummary = useMemo(() => getPlanStatusSummary(currentUser || {}), [currentUser]);
-  const showOrganizerBanner = currentUser?.planStatus !== "active";
+  const showOrganizerBanner = !currentUser || currentUser.role !== "organizer";
   const canOpenAdminPanel = canAccessAdminPanel(currentUser || {});
   const [playersPreview, setPlayersPreview] = useState([]);
   const [leaguesPreview, setLeaguesPreview] = useState([]);
@@ -749,7 +751,7 @@ export default function HomeScreen({ navigation, route }) {
       setIsLoginVisible(true);
       return;
     }
-    setIsPlansVisible(true);
+    setIsOrganizerRequestVisible(true);
   };
 
   const handleItemPress = (item) => {
@@ -1024,10 +1026,13 @@ export default function HomeScreen({ navigation, route }) {
           >
             <View style={styles.organizerBannerContent}>
               <View style={styles.organizerBannerBadge}>
-                <Text style={styles.organizerBannerBadgeText}>PLANES DE SUSCRIPCIÓN</Text>
+                <Text style={styles.organizerBannerBadgeText}>PRUEBA GRATUITA</Text>
               </View>
               <Text style={styles.organizerBannerTitle}>
                 ¿Organizás torneos, ligas o gestionás turnos?
+              </Text>
+              <Text style={styles.organizerBannerSubtitle}>
+                Acceder a una prueba gratuita por 30 días como Organizador
               </Text>
             </View>
             <Text style={styles.organizerBannerArrow}>→</Text>
@@ -1578,9 +1583,20 @@ export default function HomeScreen({ navigation, route }) {
         navigation={navigation}
         onClose={() => setIsProfileVisible(false)}
         onLogout={handleLogout}
+        onRequestPlans={() => setIsPlansVisible(true)}
         onSave={handleProfileSave}
         user={currentUser}
         visible={isProfileVisible}
+      />
+      <OrganizerRequestModal
+        mode="request"
+        onClose={() => setIsOrganizerRequestVisible(false)}
+        onSaved={() => {
+          setIsOrganizerRequestVisible(false);
+          refreshUserData();
+        }}
+        user={currentUser}
+        visible={isOrganizerRequestVisible}
       />
       <PlansPaywallModal
         onClose={() => setIsPlansVisible(false)}
@@ -1676,6 +1692,12 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 15,
     fontWeight: "800",
+  },
+  organizerBannerSubtitle: {
+    color: "rgba(255,255,255,0.85)",
+    fontSize: 12,
+    fontWeight: "600",
+    marginTop: 2,
   },
   organizerBannerArrow: {
     color: "rgba(255,255,255,0.7)",

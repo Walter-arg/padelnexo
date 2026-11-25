@@ -1637,9 +1637,14 @@ export default function TournamentRegistrationPanel({
               <Ionicons color={colors.primaryDark} name="people" size={22} />
             </View>
           ) : null}
-          <Text style={styles.blockTitleCentered}>
-            {isOrganizerCreating ? "CONFORMAR PAREJA" : "MI COMPAÑERO"}
-          </Text>
+          {isOrganizerCreating ? (
+            <Text style={styles.blockTitleCentered}>CONFORMAR PAREJA</Text>
+          ) : (
+            <View style={styles.partnerSearchTitleRow}>
+              <Text style={styles.blockTitleCentered}>BUSCA Y SELECCIONA TU COMPAÑERO</Text>
+              <Ionicons color={colors.primaryDark} name="arrow-down-outline" size={16} />
+            </View>
+          )}
           {isOrganizerCreating ? (
             <View style={styles.organizerPairSection}>
               {pendingPairs.map((pair, index) => {
@@ -1820,11 +1825,16 @@ export default function TournamentRegistrationPanel({
             ) : null
           )}
 
-          {!isOrganizerCreating && !selectedPartner && !partnerQuery && !playersLoading ? (
-            <Text style={styles.blockText}>
-              Escribi el nombre, categoria o ciudad de tu compañero para buscarlo entre los jugadores
-              registrados.
-            </Text>
+          {!isOrganizerCreating && !selectedPartner && !playersLoading ? (
+            <Pressable
+              onPress={() => {
+                setGuestTarget("player2");
+                setGuestModalVisible(true);
+              }}
+              style={styles.partnerNotInAppButton}
+            >
+              <Text style={styles.partnerNotInAppButtonText}>¿Tu compañero no está en la app?</Text>
+            </Pressable>
           ) : null}
 
           {playersLoading ? (
@@ -2678,6 +2688,12 @@ const styles = StyleSheet.create({
     textAlign: "center",
     textTransform: "uppercase",
   },
+  partnerSearchTitleRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 6,
+    justifyContent: "center",
+  },
   editingPairBadge: {
     alignItems: "center",
     alignSelf: "center",
@@ -2724,6 +2740,21 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontFamily: "Inter_800ExtraBold",
     letterSpacing: 0.5,
+  },
+  partnerNotInAppButton: {
+    alignItems: "center",
+    backgroundColor: "#F3FAF6",
+    borderColor: "#D5EADF",
+    borderRadius: 14,
+    borderStyle: "dashed",
+    borderWidth: 1.5,
+    marginTop: spacing.sm,
+    paddingVertical: 12,
+  },
+  partnerNotInAppButtonText: {
+    color: colors.primaryDark,
+    fontSize: 13,
+    fontFamily: "Inter_700Bold",
   },
   pickerPairLabel: {
     color: "#5A9E80",

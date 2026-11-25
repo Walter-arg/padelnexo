@@ -637,6 +637,9 @@ function PlayerTournamentCard({
         </View>
 
         <View style={[styles.playerCardCtaButton, { backgroundColor: ctaBackgroundColor }]}>
+          {ctaLabel === "INSCRIBIRME" ? (
+            <Ionicons color={ctaTextColor} name="happy-outline" size={16} />
+          ) : null}
           <Text style={[styles.playerCardCtaText, { color: ctaTextColor }]}>{ctaLabel}</Text>
         </View>
       </Pressable>
@@ -662,9 +665,17 @@ function OrganizerTournamentCard({
 }) {
   const titleColor = getTournamentTitleColor(representative);
   const title = representative.baseName || representative.name || "Nombre del torneo";
-  const headerStatusMeta = getTournamentStatusMeta(
-    representative.displayStatus || representative.status
+  const hasOpenCategory = categories.some(
+    (category) => (category.displayStatus || category.status) === "registration_open"
   );
+  const areAllCategoriesClosed = categories.every((category) =>
+    ["published", "registration_closed"].includes(category.displayStatus || category.status)
+  );
+  const headerStatusMeta = hasOpenCategory
+    ? getTournamentStatusMeta("registration_open")
+    : areAllCategoriesClosed
+    ? getTournamentStatusMeta("registration_closed")
+    : getTournamentStatusMeta(representative.displayStatus || representative.status);
 
   return (
     <View style={styles.cardShell}>
@@ -2554,8 +2565,8 @@ const styles = StyleSheet.create({
     color: colors.text,
     flexShrink: 1,
     fontFamily: "Inter_800ExtraBold",
-    fontSize: 15,
-    lineHeight: 19,
+    fontSize: 14,
+    lineHeight: 18,
   },
   playerCardStatusBadge: {
     alignItems: "center",
@@ -2572,7 +2583,7 @@ const styles = StyleSheet.create({
   },
   playerCardStatusText: {
     fontFamily: "Inter_800ExtraBold",
-    fontSize: 11,
+    fontSize: 10,
   },
   playerCardPosterLink: {
     alignItems: "center",
@@ -2587,20 +2598,20 @@ const styles = StyleSheet.create({
   playerCardPosterLinkText: {
     color: colors.primaryDark,
     fontFamily: "Inter_700Bold",
-    fontSize: 12,
+    fontSize: 11,
     textDecorationLine: "underline",
   },
   playerCardEyebrow: {
     color: colors.primaryDark,
     fontFamily: "Inter_900Black",
-    fontSize: 11,
+    fontSize: 10,
     letterSpacing: 1,
     marginTop: spacing.md,
   },
   playerCardTitle: {
     fontFamily: "Inter_900Black",
-    fontSize: 28,
-    lineHeight: 32,
+    fontSize: 24,
+    lineHeight: 28,
     marginTop: 2,
   },
   playerCardDividerRow: {
@@ -2623,7 +2634,7 @@ const styles = StyleSheet.create({
   playerCardDividerText: {
     color: colors.surface,
     fontFamily: "Inter_800ExtraBold",
-    fontSize: 11,
+    fontSize: 10,
     letterSpacing: 1,
   },
   playerCardCategoryGrid: {
@@ -2643,7 +2654,7 @@ const styles = StyleSheet.create({
   playerCardCategoryChipText: {
     color: colors.text,
     fontFamily: "Inter_800ExtraBold",
-    fontSize: 14,
+    fontSize: 13,
     textAlign: "center",
   },
   playerCardDateRow: {
@@ -2656,18 +2667,20 @@ const styles = StyleSheet.create({
     color: colors.muted,
     flexShrink: 1,
     fontFamily: "Inter_700Bold",
-    fontSize: 13,
+    fontSize: 12,
   },
   playerCardCtaButton: {
     alignItems: "center",
-    borderRadius: 14,
+    borderRadius: 18,
+    flexDirection: "row",
+    gap: 6,
     justifyContent: "center",
     marginTop: spacing.md,
     paddingVertical: 14,
   },
   playerCardCtaText: {
     fontFamily: "Inter_900Black",
-    fontSize: 14,
+    fontSize: 13,
     letterSpacing: 0.5,
   },
   organizerCardStatusCluster: {
