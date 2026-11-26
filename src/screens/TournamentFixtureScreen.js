@@ -1599,6 +1599,21 @@ function getPlanningMatchPairNumbers(zone = {}, registrations = [], matchLabel =
     : openingMatches.map((entry) => entry.loser);
 }
 
+// Ids de registracion de las dos parejas de un partido de zona (identificado
+// por zona + matchLabel, ej "1 vs 2" o "G vs G"). Devuelve [] si todavia no
+// se puede resolver (ej "G vs G" antes de que existan los resultados de
+// "1 vs 2" y "3 vs 4"), para que el llamador sepa que no hay nada que validar.
+function getZoneMatchParticipantIds(zone = {}, matchLabel = "", registrationsByIdMap) {
+  const zoneRegistrations = (Array.isArray(zone?.registrationIds) ? zone.registrationIds : [])
+    .map((registrationId) => registrationsByIdMap?.get?.(registrationId))
+    .filter(Boolean);
+  const pairNumbers = getPlanningMatchPairNumbers(zone, zoneRegistrations, matchLabel);
+
+  return pairNumbers
+    .map((pairNumber) => zoneRegistrations[Number.parseInt(pairNumber, 10) - 1]?.id)
+    .filter(Boolean);
+}
+
 function buildZoneStandings(zone = {}, zoneRegistrations = [], matchFormat = "third_set") {
   const rowsById = zoneRegistrations.reduce((accumulator, registration) => {
     const pairName = registration.pairLabel || registration.displayLabel || "Pareja";
@@ -6387,21 +6402,55 @@ export default function TournamentFixtureScreen({ navigation, route }) {
   const zonePlanningSlotsByDay = useMemo(() => {
     if (!zonePlanningSlotPickerTarget) return [];
     const { zoneId, matchKey } = zonePlanningSlotPickerTarget;
+    const zones = activeZonePlanning?.zones || [];
     const occupiedKeys = new Set();
-    (activeZonePlanning?.zones || []).forEach((zone) => {
+    // Ocupacion por pareja (en minutos, con la duracion configurada) para no
+    // ofrecer un horario donde cualquiera de las dos parejas de este partido
+    // ya este jugando otro partido de zona que se superponga.
+    const pairOccupancy = new Map();
+    zones.forEach((zone) => {
       Object.entries(zone.matchSchedules || {}).forEach(([mk, schedule]) => {
         if (zone.id === zoneId && mk === matchKey) return;
         if (!schedule.startTime || !schedule.dayKey) return;
         occupiedKeys.add(`${schedule.dayKey}|${schedule.startTime}|${schedule.venueId || ""}|${schedule.courtIndex || 0}`);
+
+        const participantIds = getZoneMatchParticipantIds(zone, mk, registrationsById);
+        if (!participantIds.length) return;
+        const startMinutes = parseTimeToMinutes(schedule.startTime);
+        const entry = {
+          dayKey: schedule.dayKey,
+          startMinutes,
+          endMinutes: startMinutes + currentZoneMatchDurationMinutes,
+        };
+        participantIds.forEach((pairId) => {
+          const list = pairOccupancy.get(pairId) || [];
+          list.push(entry);
+          pairOccupancy.set(pairId, list);
+        });
       });
     });
+
+    const targetZone = zones.find((zone) => zone.id === zoneId);
+    const targetParticipantIds = targetZone
+      ? getZoneMatchParticipantIds(targetZone, matchKey, registrationsById)
+      : [];
+
     const allSlots = buildZoneMatchSchedulingSlots(
       zoneVenueSchedules.filter((s) => s.useForZones),
       currentZoneMatchDurationMinutes
     );
     const available = allSlots.filter((slot) => {
       const key = `${slot.dayKey}|${formatMinutesToTime(slot.startMinutes)}|${slot.venueId}|${slot.courtIndex}`;
-      return !occupiedKeys.has(key);
+      if (occupiedKeys.has(key)) return false;
+
+      return !targetParticipantIds.some((pairId) =>
+        (pairOccupancy.get(pairId) || []).some(
+          (entry) =>
+            entry.dayKey === slot.dayKey &&
+            slot.startMinutes < entry.endMinutes &&
+            slot.startMinutes + currentZoneMatchDurationMinutes > entry.startMinutes
+        )
+      );
     });
     const grouped = {};
     available.forEach((slot) => {
@@ -6413,7 +6462,14 @@ export default function TournamentFixtureScreen({ navigation, route }) {
       dayLabel: day.label,
       slots: grouped[day.key],
     }));
-  }, [zonePlanningSlotPickerTarget, activeZonePlanning, zoneVenueSchedules, currentZoneMatchDurationMinutes, tournamentDayOptions]);
+  }, [
+    zonePlanningSlotPickerTarget,
+    activeZonePlanning,
+    zoneVenueSchedules,
+    currentZoneMatchDurationMinutes,
+    tournamentDayOptions,
+    registrationsById,
+  ]);
 
   const buildZonesPreviewForPlanning = useCallback(
     (zonePlanning) =>
@@ -9231,6 +9287,47 @@ export default function TournamentFixtureScreen({ navigation, route }) {
       Array.isArray(workingZonesPreviewRef.current) && workingZonesPreviewRef.current.length
         ? workingZonesPreviewRef.current
         : zonesPreview || [];
+
+    const currentZone = baseZonesPreview.find((zone) => zone.id === zoneId);
+    const currentMatch = currentZone?.matches?.find((match) => match.id === matchId);
+    const nextScheduledDayKey =
+      field === "scheduledDayKey" ? String(value || "") : String(currentMatch?.scheduledDayKey || "");
+    const nextScheduledTime =
+      field === "scheduledTime" ? String(value || "") : String(currentMatch?.scheduledTime || "");
+
+    // Ninguna de las dos parejas de este partido puede tener otro partido de
+    // zona ya programado que se superponga con este horario, respetando la
+    // duracion de partido configurada por el organizador.
+    if (currentMatch && nextScheduledDayKey && nextScheduledTime) {
+      const teamIds = [currentMatch.teamAId, currentMatch.teamBId].filter(Boolean);
+      const nextStartMinutes = parseTimeToMinutes(nextScheduledTime);
+      const nextEndMinutes = nextStartMinutes + currentZoneMatchDurationMinutes;
+      const hasOverlap =
+        teamIds.length > 0 &&
+        baseZonesPreview.some((zone) =>
+          (zone.matches || []).some((match) => {
+            if (zone.id === zoneId && match.id === matchId) return false;
+            if (match.scheduledDayKey !== nextScheduledDayKey || !match.scheduledTime) return false;
+            const matchStart = parseTimeToMinutes(match.scheduledTime);
+            const matchEnd = matchStart + currentZoneMatchDurationMinutes;
+            if (!(nextStartMinutes < matchEnd && nextEndMinutes > matchStart)) return false;
+            return teamIds.some((id) => id === match.teamAId || id === match.teamBId);
+          })
+        );
+
+      if (hasOverlap) {
+        setFeedback({
+          visible: true,
+          title: "Horario invalido",
+          message:
+            "Una de las parejas de este partido ya tiene otro partido de zona programado que se superpone con ese horario.",
+          tone: "danger",
+        });
+        setZoneMatchPickerState({ zoneId: "", matchId: "", field: "" });
+        return;
+      }
+    }
+
     const nextZonesPreview = baseZonesPreview.map((zone) => {
       if (zone.id !== zoneId) {
         return zone;
