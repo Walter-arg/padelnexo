@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Animated,
   Image,
   KeyboardAvoidingView,
@@ -50,6 +51,11 @@ import {
   getTournamentDayLabel,
 } from "../services/tournamentAvailabilityService";
 import devLog from "../utils/devLog";
+import {
+  DEFAULT_REST_MINUTES,
+  buildScheduleOccupancy,
+  validateMatchSlot,
+} from "../utils/scheduleValidation";
 
 const NUMERIC_KEYBOARD_ACCESSORY_ID = "tournamentFixtureNumericDone";
 
@@ -5747,6 +5753,47 @@ export default function TournamentFixtureScreen({ navigation, route }) {
     tournamentVenueOptions,
   ]);
 
+  // Zonas (con sus matchSchedules) de todas las categorias hermanas del
+  // evento, solo para saber que canchas ya estan ocupadas por otras
+  // categorias al validar un horario en "Armado Manual - Editar". Una pareja
+  // nunca puede estar en 2 categorias del mismo evento, asi que las hermanas
+  // nunca aportan ocupacion por pareja, solo por cancha.
+  const [siblingZonesForOccupancy, setSiblingZonesForOccupancy] = useState([]);
+
+  useEffect(() => {
+    const eventBatchId = tournament?.creationBatchId || "";
+
+    if (!eventBatchId) {
+      setSiblingZonesForOccupancy([]);
+      return undefined;
+    }
+
+    let isMounted = true;
+
+    listTournamentsByBatchId(eventBatchId)
+      .then((siblings) => {
+        if (!isMounted) return;
+        setSiblingZonesForOccupancy(
+          siblings
+            .filter((sibling) => sibling.id !== tournament?.id)
+            .map((sibling) => ({
+              tournamentId: sibling.id,
+              categoryLabel: sibling.compositionConfig?.label || sibling.compositionLabel || sibling.name || "",
+              zones: Array.isArray(sibling.fixtureSetup?.zonePlanning?.zones)
+                ? sibling.fixtureSetup.zonePlanning.zones
+                : [],
+            }))
+        );
+      })
+      .catch(() => {
+        if (isMounted) setSiblingZonesForOccupancy([]);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [tournament?.creationBatchId, tournament?.id]);
+
   useEffect(() => {
     const defaultDayKey = tournamentDayOptions[0]?.key || "";
     const isSingleVenue = tournamentVenueOptions.length === 1;
@@ -6403,55 +6450,49 @@ export default function TournamentFixtureScreen({ navigation, route }) {
     if (!zonePlanningSlotPickerTarget) return [];
     const { zoneId, matchKey } = zonePlanningSlotPickerTarget;
     const zones = activeZonePlanning?.zones || [];
-    const occupiedKeys = new Set();
-    // Ocupacion por pareja (en minutos, con la duracion configurada) para no
-    // ofrecer un horario donde cualquiera de las dos parejas de este partido
-    // ya este jugando otro partido de zona que se superponga.
-    const pairOccupancy = new Map();
-    zones.forEach((zone) => {
-      Object.entries(zone.matchSchedules || {}).forEach(([mk, schedule]) => {
-        if (zone.id === zoneId && mk === matchKey) return;
-        if (!schedule.startTime || !schedule.dayKey) return;
-        occupiedKeys.add(`${schedule.dayKey}|${schedule.startTime}|${schedule.venueId || ""}|${schedule.courtIndex || 0}`);
-
-        const participantIds = getZoneMatchParticipantIds(zone, mk, registrationsById);
-        if (!participantIds.length) return;
-        const startMinutes = parseTimeToMinutes(schedule.startTime);
-        const entry = {
-          dayKey: schedule.dayKey,
-          startMinutes,
-          endMinutes: startMinutes + currentZoneMatchDurationMinutes,
-        };
-        participantIds.forEach((pairId) => {
-          const list = pairOccupancy.get(pairId) || [];
-          list.push(entry);
-          pairOccupancy.set(pairId, list);
-        });
-      });
-    });
-
     const targetZone = zones.find((zone) => zone.id === zoneId);
-    const targetParticipantIds = targetZone
-      ? getZoneMatchParticipantIds(targetZone, matchKey, registrationsById)
+    if (!targetZone) return [];
+
+    const targetParticipantIds = getZoneMatchParticipantIds(targetZone, matchKey, registrationsById);
+    const dependsOn = ["G vs G", "P vs P"].includes(matchKey)
+      ? getZoneOpeningMatchesEndTimes(targetZone)
       : [];
 
     const allSlots = buildZoneMatchSchedulingSlots(
       zoneVenueSchedules.filter((s) => s.useForZones),
       currentZoneMatchDurationMinutes
     );
-    const available = allSlots.filter((slot) => {
-      const key = `${slot.dayKey}|${formatMinutesToTime(slot.startMinutes)}|${slot.venueId}|${slot.courtIndex}`;
-      if (occupiedKeys.has(key)) return false;
+    const available = allSlots
+      .map((slot) => {
+        const result = validateMatchSlot({
+          dayKey: slot.dayKey,
+          startMinutes: slot.startMinutes,
+          venueId: slot.venueId,
+          courtIndex: slot.courtIndex,
+          participantIds: targetParticipantIds,
+          excludeKey: { tournamentId: tournament?.id || "", zoneId, matchKey },
+          occupancy: scheduleOccupancy,
+          matchDurationMinutes: currentZoneMatchDurationMinutes,
+          restMinutes: DEFAULT_REST_MINUTES,
+          dependsOn,
+          pairLabelsById,
+          availabilityWarning: targetParticipantIds.some(
+            (pairId) =>
+              !isPairAvailableForSlot(
+                registrationsById.get(pairId)?.availability || {},
+                slot.dayKey,
+                slot.startMinutes,
+                slot.startMinutes + currentZoneMatchDurationMinutes
+              )
+          )
+            ? "Este horario esta fuera de la disponibilidad cargada por alguna de las parejas."
+            : "",
+        });
 
-      return !targetParticipantIds.some((pairId) =>
-        (pairOccupancy.get(pairId) || []).some(
-          (entry) =>
-            entry.dayKey === slot.dayKey &&
-            slot.startMinutes < entry.endMinutes &&
-            slot.startMinutes + currentZoneMatchDurationMinutes > entry.startMinutes
-        )
-      );
-    });
+        return { ...slot, blocked: result.blocked, blockReason: result.blockReason || "", warning: result.warning || "" };
+      })
+      .filter((slot) => !slot.blocked);
+
     const grouped = {};
     available.forEach((slot) => {
       if (!grouped[slot.dayKey]) grouped[slot.dayKey] = [];
@@ -6469,6 +6510,10 @@ export default function TournamentFixtureScreen({ navigation, route }) {
     currentZoneMatchDurationMinutes,
     tournamentDayOptions,
     registrationsById,
+    scheduleOccupancy,
+    pairLabelsById,
+    getZoneOpeningMatchesEndTimes,
+    tournament?.id,
   ]);
 
   const buildZonesPreviewForPlanning = useCallback(
@@ -6505,6 +6550,91 @@ export default function TournamentFixtureScreen({ navigation, route }) {
   const zoneShareCategoryLabel = useMemo(
     () => tournament?.compositionConfig?.label || tournament?.compositionLabel || "",
     [tournament?.compositionConfig?.label, tournament?.compositionLabel]
+  );
+
+  const pairLabelsById = useMemo(() => {
+    const map = {};
+    confirmedRegistrations.forEach((registration) => {
+      map[registration.id] = formatShortPairLabel(
+        registration.pairLabel || [registration.player1Name, registration.player2Name].filter(Boolean).join(" / ")
+      );
+    });
+    return map;
+  }, [confirmedRegistrations]);
+
+  // Partidos ya agendados (propia categoria + hermanas del evento) para la
+  // ocupacion de cancha/pareja que usa el modulo de validacion compartido.
+  // Las hermanas solo pueden pisar cancha, nunca pareja (una pareja no puede
+  // estar inscripta en 2 categorias del mismo evento).
+  const scheduledMatchesForOccupancy = useMemo(() => {
+    const ownZones = activeZonePlanning?.zones || [];
+    const ownMatches = [];
+
+    ownZones.forEach((zone) => {
+      Object.entries(zone.matchSchedules || {}).forEach(([matchKey, schedule]) => {
+        if (!schedule?.startTime || !schedule?.dayKey) return;
+        ownMatches.push({
+          tournamentId: tournament?.id || "",
+          zoneId: zone.id,
+          matchKey,
+          categoryLabel: zoneShareCategoryLabel,
+          zoneLabel: zone.label,
+          dayKey: schedule.dayKey,
+          startMinutes: parseTimeToMinutes(schedule.startTime),
+          venueId: schedule.venueId || "",
+          courtIndex: Number(schedule.courtIndex || 0),
+          participantIds: getZoneMatchParticipantIds(zone, matchKey, registrationsById),
+        });
+      });
+    });
+
+    const siblingMatches = [];
+    siblingZonesForOccupancy.forEach((sibling) => {
+      (sibling.zones || []).forEach((zone) => {
+        Object.entries(zone.matchSchedules || {}).forEach(([matchKey, schedule]) => {
+          if (!schedule?.startTime || !schedule?.dayKey) return;
+          siblingMatches.push({
+            tournamentId: sibling.tournamentId,
+            zoneId: zone.id,
+            matchKey,
+            categoryLabel: sibling.categoryLabel,
+            zoneLabel: zone.label,
+            dayKey: schedule.dayKey,
+            startMinutes: parseTimeToMinutes(schedule.startTime),
+            venueId: schedule.venueId || "",
+            courtIndex: Number(schedule.courtIndex || 0),
+            participantIds: [],
+          });
+        });
+      });
+    });
+
+    return [...ownMatches, ...siblingMatches];
+  }, [activeZonePlanning, registrationsById, tournament?.id, zoneShareCategoryLabel, siblingZonesForOccupancy]);
+
+  const scheduleOccupancy = useMemo(
+    () => buildScheduleOccupancy(scheduledMatchesForOccupancy, currentZoneMatchDurationMinutes),
+    [scheduledMatchesForOccupancy, currentZoneMatchDurationMinutes]
+  );
+
+  // Para zonas de 4: en que horario terminan (si ya lo tienen) los partidos
+  // de ida de esa zona, para que G vs G / P vs P no puedan empezar antes.
+  const getZoneOpeningMatchesEndTimes = useCallback(
+    (zone) => {
+      if ((zone?.registrationIds || []).length !== 4) return [];
+
+      return ["1 vs 2", "3 vs 4"]
+        .map((openingMatchKey) => {
+          const schedule = zone.matchSchedules?.[openingMatchKey];
+          if (!schedule?.startTime || !schedule?.dayKey) return null;
+          return {
+            dayKey: schedule.dayKey,
+            endMinutes: parseTimeToMinutes(schedule.startTime) + currentZoneMatchDurationMinutes,
+          };
+        })
+        .filter(Boolean);
+    },
+    [currentZoneMatchDurationMinutes]
   );
   const zoneShareOrganizerLogoUrl = useMemo(
     () =>
@@ -8037,7 +8167,7 @@ export default function TournamentFixtureScreen({ navigation, route }) {
     }
   };
 
-  const handleSelectZonePlanningSlot = (slot) => {
+  const applySelectedZonePlanningSlot = (slot) => {
     if (!zonePlanningSlotPickerTarget) return;
     updateZonePlanningMatchSchedule(
       zonePlanningSlotPickerTarget.zoneId,
@@ -8050,6 +8180,20 @@ export default function TournamentFixtureScreen({ navigation, route }) {
       }
     );
     setZonePlanningSlotPickerTarget(null);
+  };
+
+  const handleSelectZonePlanningSlot = (slot) => {
+    if (!zonePlanningSlotPickerTarget) return;
+
+    if (slot.warning) {
+      Alert.alert("Fuera de disponibilidad", `${slot.warning} ¿Confirmas este horario igual?`, [
+        { style: "cancel", text: "Cancelar" },
+        { onPress: () => applySelectedZonePlanningSlot(slot), text: "Confirmar igual" },
+      ]);
+      return;
+    }
+
+    applySelectedZonePlanningSlot(slot);
   };
 
   const handleClearZonePlanningSlot = () => {

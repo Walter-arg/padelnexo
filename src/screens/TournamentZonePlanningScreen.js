@@ -1,6 +1,7 @@
 import { Fragment, useCallback, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -32,9 +33,17 @@ import {
 } from "../services/tournamentAvailabilityService";
 import {
   getTournamentById,
+  getTournamentEventVenueSchedules,
   listTournamentRegistrations,
+  listTournamentsByBatchId,
   updateTournament,
 } from "../services/tournamentsService";
+import {
+  DEFAULT_MATCH_DURATION_MINUTES,
+  DEFAULT_REST_MINUTES,
+  buildScheduleOccupancy,
+  validateMatchSlot,
+} from "../utils/scheduleValidation";
 
 const NUMERIC_KEYBOARD_ACCESSORY_ID = "tournamentZonePlanningNumericDone";
 
@@ -55,8 +64,6 @@ const TIME_SLOTS = Array.from({ length: 18 }, (_, index) => {
     minutes: hour * 60,
   };
 });
-
-const ZONE_MATCH_DURATION_MINUTES = 75;
 
 function parseMinutes(value = "") {
   const [hour = "0", minute = "0"] = String(value || "").split(":");
@@ -94,7 +101,7 @@ function getMaxCourtsForVenue(venueSchedules = [], venueId = "") {
   return Math.max(...schedules.map((s) => Number(s.courts || 1)));
 }
 
-function buildZoneMatchSchedulingSlots(schedules = [], durationMinutes = ZONE_MATCH_DURATION_MINUTES) {
+function buildZoneMatchSchedulingSlots(schedules = [], durationMinutes = DEFAULT_MATCH_DURATION_MINUTES) {
   const slots = [];
   (Array.isArray(schedules) ? schedules : []).forEach((schedule) => {
     const startMinutes = parseMinutes(schedule.from);
@@ -747,37 +754,78 @@ export default function TournamentZonePlanningScreen({ navigation, route }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [extraCategoryIds]);
 
+  // Zonas (con sus matchSchedules) de TODAS las categorias hermanas del
+  // evento, solo para saber que canchas ya estan ocupadas por otras
+  // categorias (una pareja nunca puede estar en 2 categorias del mismo
+  // evento, asi que las hermanas nunca aportan ocupacion por pareja, solo por
+  // cancha). Se trae siempre que haya creationBatchId, independientemente de
+  // que el organizador este "viendo" esas categorias con el selector de
+  // arriba (extraCategoryIds es para mirar, esto es para no pisar canchas).
+  const [siblingZonesForOccupancy, setSiblingZonesForOccupancy] = useState([]);
+  const [eventVenueSchedules, setEventVenueSchedules] = useState([]);
+
+  useFocusEffect(
+    useCallback(() => {
+      let isMounted = true;
+      const batchId = tournament?.creationBatchId || "";
+
+      if (!batchId) {
+        setSiblingZonesForOccupancy([]);
+        setEventVenueSchedules([]);
+        return () => {
+          isMounted = false;
+        };
+      }
+
+      (async () => {
+        try {
+          const [siblings, venueSchedules] = await Promise.all([
+            listTournamentsByBatchId(batchId),
+            getTournamentEventVenueSchedules(batchId),
+          ]);
+
+          if (!isMounted) return;
+
+          setSiblingZonesForOccupancy(
+            siblings
+              .filter((sibling) => sibling.id !== tournament?.id)
+              .map((sibling) => ({
+                tournamentId: sibling.id,
+                categoryLabel:
+                  sibling.compositionConfig?.label || sibling.compositionLabel || sibling.name || "",
+                zones: Array.isArray(sibling.fixtureSetup?.zonePlanning?.zones)
+                  ? sibling.fixtureSetup.zonePlanning.zones
+                  : [],
+              }))
+          );
+          setEventVenueSchedules(Array.isArray(venueSchedules) ? venueSchedules : []);
+        } catch {
+          // Si falla, se sigue validando solo contra la propia categoria.
+          if (isMounted) {
+            setSiblingZonesForOccupancy([]);
+            setEventVenueSchedules([]);
+          }
+        }
+      })();
+
+      return () => {
+        isMounted = false;
+      };
+    }, [tournament?.creationBatchId, tournament?.id])
+  );
+
   const tournamentDayOptions = useMemo(() => buildTournamentDayOptions(tournament || {}), [tournament]);
   const tournamentVenueOptions = useMemo(() => buildTournamentVenueOptions(tournament || {}), [tournament]);
-
-  const slotsByDay = useMemo(() => {
-    if (!slotPickerTarget) return [];
-    const { zoneId, matchKey } = slotPickerTarget;
-    const venueSchedules = (tournament?.fixtureSetup?.zoneVenueSchedules || []).filter((s) => s.useForZones);
-    const occupiedKeys = new Set();
-    (zonePlanning.zones || []).forEach((zone) => {
-      Object.entries(zone.matchSchedules || {}).forEach(([mk, schedule]) => {
-        if (zone.id === zoneId && mk === matchKey) return;
-        if (!schedule.startTime || !schedule.dayKey) return;
-        occupiedKeys.add(`${schedule.dayKey}|${schedule.startTime}|${schedule.venueId || ""}|${schedule.courtIndex || 0}`);
-      });
-    });
-    const allSlots = buildZoneMatchSchedulingSlots(venueSchedules);
-    const available = allSlots.filter((slot) => {
-      const key = `${slot.dayKey}|${formatMinutesToTime(slot.startMinutes)}|${slot.venueId}|${slot.courtIndex}`;
-      return !occupiedKeys.has(key);
-    });
-    const grouped = {};
-    available.forEach((slot) => {
-      if (!grouped[slot.dayKey]) grouped[slot.dayKey] = [];
-      grouped[slot.dayKey].push(slot);
-    });
-    return tournamentDayOptions.filter((day) => grouped[day.key]).map((day) => ({
-      dayKey: day.key,
-      dayLabel: day.label,
-      slots: grouped[day.key],
-    }));
-  }, [slotPickerTarget, zonePlanning, tournament, tournamentDayOptions]);
+  const effectiveMatchDurationMinutes = useMemo(
+    () => Number(tournament?.fixtureSetup?.matchDurationMinutes) || DEFAULT_MATCH_DURATION_MINUTES,
+    [tournament?.fixtureSetup?.matchDurationMinutes]
+  );
+  const effectiveVenueSchedules = useMemo(() => {
+    const schedules = tournament?.creationBatchId
+      ? eventVenueSchedules
+      : tournament?.fixtureSetup?.zoneVenueSchedules || [];
+    return (Array.isArray(schedules) ? schedules : []).filter((schedule) => schedule.useForZones);
+  }, [tournament?.creationBatchId, tournament?.fixtureSetup?.zoneVenueSchedules, eventVenueSchedules]);
   const tournamentRuleSet = useMemo(() => getTournamentRuleSet(tournament || {}), [tournament]);
   const zoneMatchFormat = useMemo(() => getTournamentZoneMatchFormat(tournament || {}), [tournament]);
   const usesSuperTieBreak = zoneMatchFormat === "super_tiebreak";
@@ -813,6 +861,166 @@ export default function TournamentZonePlanningScreen({ navigation, route }) {
     : [];
   const tournamentCategoryLabel =
     tournament?.compositionConfig?.label || tournament?.compositionLabel || tournament?.categoryLabel || "";
+
+  const pairLabelsById = useMemo(() => {
+    const map = {};
+    confirmedRegistrations.forEach((registration) => {
+      map[registration.id] = registration.shortDisplayLabel || registration.displayLabel;
+    });
+    return map;
+  }, [confirmedRegistrations]);
+
+  // Partidos ya agendados (propia categoria + hermanas del evento) para la
+  // ocupacion de cancha/pareja que usa el modulo de validacion. Las hermanas
+  // solo pueden pisar cancha, nunca pareja: un jugador no puede estar
+  // inscripto en 2 categorias del mismo evento, asi que sus partidos van con
+  // participantIds vacio (no aportan a la ocupacion por pareja).
+  const scheduledMatchesForOccupancy = useMemo(() => {
+    const ownMatches = [];
+
+    (zonePlanning.zones || []).forEach((zone) => {
+      const zoneRegistrations = (zone.registrationIds || [])
+        .map((id) => registrationById[id])
+        .filter(Boolean);
+
+      Object.entries(zone.matchSchedules || {}).forEach(([matchKey, schedule]) => {
+        if (!schedule?.startTime || !schedule?.dayKey) return;
+
+        const participantIds = getZoneMatchParticipantsForZone(zone, zoneRegistrations, matchKey).map(
+          (registration) => registration.id
+        );
+
+        ownMatches.push({
+          tournamentId: tournament?.id || "",
+          zoneId: zone.id,
+          matchKey,
+          categoryLabel: tournamentCategoryLabel,
+          zoneLabel: zone.label,
+          dayKey: schedule.dayKey,
+          startMinutes: parseMinutes(schedule.startTime),
+          venueId: schedule.venueId || "",
+          courtIndex: Number(schedule.courtIndex || 0),
+          participantIds,
+        });
+      });
+    });
+
+    const siblingMatches = [];
+
+    siblingZonesForOccupancy.forEach((sibling) => {
+      (sibling.zones || []).forEach((zone) => {
+        Object.entries(zone.matchSchedules || {}).forEach(([matchKey, schedule]) => {
+          if (!schedule?.startTime || !schedule?.dayKey) return;
+
+          siblingMatches.push({
+            tournamentId: sibling.tournamentId,
+            zoneId: zone.id,
+            matchKey,
+            categoryLabel: sibling.categoryLabel,
+            zoneLabel: zone.label,
+            dayKey: schedule.dayKey,
+            startMinutes: parseMinutes(schedule.startTime),
+            venueId: schedule.venueId || "",
+            courtIndex: Number(schedule.courtIndex || 0),
+            participantIds: [],
+          });
+        });
+      });
+    });
+
+    return [...ownMatches, ...siblingMatches];
+  }, [zonePlanning.zones, registrationById, tournament?.id, tournamentCategoryLabel, siblingZonesForOccupancy]);
+
+  const scheduleOccupancy = useMemo(
+    () => buildScheduleOccupancy(scheduledMatchesForOccupancy, effectiveMatchDurationMinutes),
+    [scheduledMatchesForOccupancy, effectiveMatchDurationMinutes]
+  );
+
+  // Para zonas de 4: en que horario terminan (si ya lo tienen) los partidos
+  // de ida de esa zona, para que G vs G / P vs P no puedan empezar antes.
+  const getZoneOpeningMatchesEndTimes = useCallback(
+    (zone) => {
+      if ((zone?.registrationIds || []).length !== 4) return [];
+
+      return ["1 vs 2", "3 vs 4"]
+        .map((openingMatchKey) => {
+          const schedule = zone.matchSchedules?.[openingMatchKey];
+          if (!schedule?.startTime || !schedule?.dayKey) return null;
+          return {
+            dayKey: schedule.dayKey,
+            endMinutes: parseMinutes(schedule.startTime) + effectiveMatchDurationMinutes,
+          };
+        })
+        .filter(Boolean);
+    },
+    [effectiveMatchDurationMinutes]
+  );
+
+  const slotsByDay = useMemo(() => {
+    if (!slotPickerTarget) return [];
+    const { zoneId, matchKey } = slotPickerTarget;
+    const targetZone = (zonePlanning.zones || []).find((zone) => zone.id === zoneId);
+    if (!targetZone) return [];
+
+    const zoneRegistrations = (targetZone.registrationIds || [])
+      .map((id) => registrationById[id])
+      .filter(Boolean);
+    const participantIds = getZoneMatchParticipantsForZone(targetZone, zoneRegistrations, matchKey).map(
+      (registration) => registration.id
+    );
+    const dependsOn = ["G vs G", "P vs P"].includes(matchKey)
+      ? getZoneOpeningMatchesEndTimes(targetZone)
+      : [];
+
+    const allSlots = buildZoneMatchSchedulingSlots(effectiveVenueSchedules, effectiveMatchDurationMinutes);
+    const available = allSlots
+      .map((slot) => {
+        const result = validateMatchSlot({
+          dayKey: slot.dayKey,
+          startMinutes: slot.startMinutes,
+          venueId: slot.venueId,
+          courtIndex: slot.courtIndex,
+          participantIds,
+          excludeKey: { tournamentId: tournament?.id || "", zoneId, matchKey },
+          occupancy: scheduleOccupancy,
+          matchDurationMinutes: effectiveMatchDurationMinutes,
+          restMinutes: DEFAULT_REST_MINUTES,
+          dependsOn,
+          pairLabelsById,
+          availabilityWarning: participantIds.some(
+            (pairId) => !isSlotAvailable(registrationById[pairId], slot.dayKey, slot.startMinutes)
+          )
+            ? "Este horario esta fuera de la disponibilidad cargada por alguna de las parejas."
+            : "",
+        });
+
+        return { ...slot, blocked: result.blocked, blockReason: result.blockReason || "", warning: result.warning || "" };
+      })
+      .filter((slot) => !slot.blocked);
+
+    const grouped = {};
+    available.forEach((slot) => {
+      if (!grouped[slot.dayKey]) grouped[slot.dayKey] = [];
+      grouped[slot.dayKey].push(slot);
+    });
+    return tournamentDayOptions.filter((day) => grouped[day.key]).map((day) => ({
+      dayKey: day.key,
+      dayLabel: day.label,
+      slots: grouped[day.key],
+    }));
+  }, [
+    slotPickerTarget,
+    zonePlanning.zones,
+    registrationById,
+    effectiveVenueSchedules,
+    effectiveMatchDurationMinutes,
+    scheduleOccupancy,
+    pairLabelsById,
+    getZoneOpeningMatchesEndTimes,
+    tournament?.id,
+    tournamentDayOptions,
+  ]);
+
   const assignedIds = useMemo(
     () => new Set((zonePlanning.zones || []).flatMap((zone) => zone.registrationIds || [])),
     [zonePlanning.zones]
@@ -1325,24 +1533,41 @@ export default function TournamentZonePlanningScreen({ navigation, route }) {
     }
   };
 
-  const findScheduleConflict = (zoneId, matchKey, dayKey, startTime, venueId, courtIndex) => {
-    const proposedStart = parseMinutes(startTime);
-    const proposedEnd = proposedStart + ZONE_MATCH_DURATION_MINUTES;
-    for (const zone of (zonePlanning.zones || [])) {
-      for (const [mk, schedule] of Object.entries(zone.matchSchedules || {})) {
-        if (zone.id === zoneId && mk === matchKey) continue;
-        if (schedule.dayKey !== dayKey) continue;
-        if (!schedule.startTime) continue;
-        if (String(schedule.venueId || "") !== String(venueId || "")) continue;
-        if ((Number(schedule.courtIndex) || 0) !== (Number(courtIndex) || 0)) continue;
-        const existingStart = parseMinutes(schedule.startTime);
-        const existingEnd = existingStart + ZONE_MATCH_DURATION_MINUTES;
-        if (proposedStart < existingEnd && proposedEnd > existingStart) {
-          return { conflictTime: schedule.startTime };
-        }
-      }
-    }
-    return null;
+  const validateCustomSchedule = (zoneId, matchKey, dayKey, startTime, venueId, courtIndex) => {
+    const targetZone = (zonePlanning.zones || []).find((zone) => zone.id === zoneId);
+    if (!targetZone) return { blocked: false, blockReason: "", warning: "" };
+
+    const zoneRegistrations = (targetZone.registrationIds || [])
+      .map((id) => registrationById[id])
+      .filter(Boolean);
+    const participantIds = getZoneMatchParticipantsForZone(targetZone, zoneRegistrations, matchKey).map(
+      (registration) => registration.id
+    );
+    const dependsOn = ["G vs G", "P vs P"].includes(matchKey)
+      ? getZoneOpeningMatchesEndTimes(targetZone)
+      : [];
+    const startMinutes = parseMinutes(startTime);
+
+    const result = validateMatchSlot({
+      dayKey,
+      startMinutes,
+      venueId,
+      courtIndex,
+      participantIds,
+      excludeKey: { tournamentId: tournament?.id || "", zoneId, matchKey },
+      occupancy: scheduleOccupancy,
+      matchDurationMinutes: effectiveMatchDurationMinutes,
+      restMinutes: DEFAULT_REST_MINUTES,
+      dependsOn,
+      pairLabelsById,
+      availabilityWarning: participantIds.some(
+        (pairId) => !isSlotAvailable(registrationById[pairId], dayKey, startMinutes)
+      )
+        ? "Este horario esta fuera de la disponibilidad cargada por alguna de las parejas."
+        : "",
+    });
+
+    return { blocked: result.blocked, blockReason: result.blockReason || "", warning: result.warning || "" };
   };
 
   const handleConfirmCustomSchedule = () => {
@@ -1368,7 +1593,7 @@ export default function TournamentZonePlanningScreen({ navigation, route }) {
     setSlotPickerActiveVenueId(target.currentVenueId || "");
   };
 
-  const handleSelectSlot = (slot) => {
+  const applySelectedSlot = (slot) => {
     if (!slotPickerTarget) return;
     updateZoneMatchSchedule(slotPickerTarget.zoneId, slotPickerTarget.matchKey, {
       startTime: formatMinutesToTime(slot.startMinutes),
@@ -1377,6 +1602,20 @@ export default function TournamentZonePlanningScreen({ navigation, route }) {
       courtIndex: slot.courtIndex,
     });
     closeSlotPicker();
+  };
+
+  const handleSelectSlot = (slot) => {
+    if (!slotPickerTarget) return;
+
+    if (slot.warning) {
+      Alert.alert("Fuera de disponibilidad", `${slot.warning} ¿Confirmas este horario igual?`, [
+        { style: "cancel", text: "Cancelar" },
+        { onPress: () => applySelectedSlot(slot), text: "Confirmar igual" },
+      ]);
+      return;
+    }
+
+    applySelectedSlot(slot);
   };
 
   const handleClearSlot = () => {
@@ -2594,11 +2833,10 @@ export default function TournamentZonePlanningScreen({ navigation, route }) {
         </View>
       </Modal>
       {customScheduleModal ? (() => {
-        const venueSchedules = tournament?.fixtureSetup?.zoneVenueSchedules || [];
         const effectiveVenueId = customScheduleModal.venueId || tournamentVenueOptions[0]?.id || "";
-        const maxCourts = getMaxCourtsForVenue(venueSchedules, effectiveVenueId);
+        const maxCourts = getMaxCourtsForVenue(effectiveVenueSchedules, effectiveVenueId);
         const dayOption = tournamentDayOptions.find((d) => d.key === customScheduleModal.dayKey);
-        const conflict = findScheduleConflict(
+        const validation = validateCustomSchedule(
           customScheduleModal.zoneId,
           customScheduleModal.matchKey,
           customScheduleModal.dayKey,
@@ -2606,7 +2844,8 @@ export default function TournamentZonePlanningScreen({ navigation, route }) {
           effectiveVenueId,
           customScheduleModal.courtIndex
         );
-        const hasConflict = Boolean(conflict);
+        const isBlocked = validation.blocked;
+        const hasConflict = isBlocked || Boolean(validation.warning);
         return (
           <Modal animationType="fade" onRequestClose={() => setCustomScheduleModal(null)} transparent visible>
             <View style={styles.customScheduleOverlay}>
@@ -2661,7 +2900,9 @@ export default function TournamentZonePlanningScreen({ navigation, route }) {
                 {hasConflict ? (
                   <View style={styles.customScheduleConflictRow}>
                     <Ionicons color={colors.danger} name="warning-outline" size={15} />
-                    <Text style={styles.customScheduleConflictText}>{conflict?.conflictTime ? `Se pisa con el partido que comienza a las ${conflict.conflictTime} hs` : "Ya hay un partido en esta cancha y horario"}</Text>
+                    <Text style={styles.customScheduleConflictText}>
+                      {validation.blockReason || validation.warning}
+                    </Text>
                   </View>
                 ) : null}
                 <View style={styles.customScheduleActions}>
@@ -2669,10 +2910,20 @@ export default function TournamentZonePlanningScreen({ navigation, route }) {
                     <Text style={styles.customScheduleCancelText}>Cancelar</Text>
                   </Pressable>
                   <Pressable
+                    disabled={isBlocked}
                     onPress={handleConfirmCustomSchedule}
-                    style={[styles.customScheduleConfirmButton, hasConflict ? styles.customScheduleConfirmWarning : null]}
+                    style={[
+                      styles.customScheduleConfirmButton,
+                      isBlocked
+                        ? styles.customScheduleConfirmBlocked
+                        : validation.warning
+                        ? styles.customScheduleConfirmWarning
+                        : null,
+                    ]}
                   >
-                    <Text style={styles.customScheduleConfirmText}>{hasConflict ? "Establecer de todos modos" : "Confirmar"}</Text>
+                    <Text style={styles.customScheduleConfirmText}>
+                      {isBlocked ? "No se puede establecer" : validation.warning ? "Establecer de todos modos" : "Confirmar"}
+                    </Text>
                   </Pressable>
                 </View>
               </View>
@@ -4389,6 +4640,10 @@ const styles = StyleSheet.create({
   },
   customScheduleConfirmWarning: {
     backgroundColor: "#B95555",
+  },
+  customScheduleConfirmBlocked: {
+    backgroundColor: colors.muted,
+    opacity: 0.6,
   },
   customScheduleConfirmText: {
     color: colors.surface,
