@@ -1839,6 +1839,11 @@ export default function TournamentZonePlanningScreen({ navigation, route }) {
                       ) : null}
                       <View style={styles.zoneHeader}>
                         <View style={styles.zoneHeaderMain}>
+                          {tournamentCategoryLabel ? (
+                            <View style={styles.zoneCategoryBadge}>
+                              <Text style={styles.zoneCategoryBadgeText}>{tournamentCategoryLabel}</Text>
+                            </View>
+                          ) : null}
                           <Text style={styles.zoneTitle}>
                             {zone.label || `Zona ${ZONE_LETTERS[zoneIndex] || zoneIndex + 1}`}
                           </Text>
@@ -3012,6 +3017,21 @@ const styles = StyleSheet.create({
     color: colors.primaryDark,
     fontSize: 15,
     fontFamily: "Inter_900Black",
+    textTransform: "uppercase",
+  },
+  zoneCategoryBadge: {
+    alignSelf: "flex-start",
+    backgroundColor: colors.secondary,
+    borderRadius: 999,
+    marginBottom: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  zoneCategoryBadgeText: {
+    color: colors.primaryDark,
+    fontSize: 10,
+    fontFamily: "Inter_800ExtraBold",
+    letterSpacing: 0.3,
     textTransform: "uppercase",
   },
   zoneCompactPairs: {

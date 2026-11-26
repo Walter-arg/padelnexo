@@ -12709,6 +12709,11 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                       const hasUnscheduledMatches = zone.matchRows.some((m) => !m.startTime);
                       return (
                       <View key={zone.id} style={[styles.newZoneCard, isMyZone ? styles.newZoneCardHighlighted : null, hasUnscheduledMatches ? styles.newZoneCardUnscheduled : null]}>
+                        {zoneShareCategoryLabel ? (
+                          <View style={styles.zoneCategoryBadgeCentered}>
+                            <Text style={styles.zoneCategoryBadgeText}>{zoneShareCategoryLabel}</Text>
+                          </View>
+                        ) : null}
                         <View style={styles.newZoneTitleWrap}>
                           <Text style={styles.newZoneTitle}>{zone.label}</Text>
                         </View>
@@ -15889,6 +15894,21 @@ const styles = StyleSheet.create({
     color: colors.danger,
     fontSize: 11,
     fontFamily: "Inter_600SemiBold",
+  },
+  zoneCategoryBadgeCentered: {
+    alignSelf: "center",
+    backgroundColor: colors.secondary,
+    borderRadius: 999,
+    marginBottom: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+  },
+  zoneCategoryBadgeText: {
+    color: colors.primaryDark,
+    fontSize: 10,
+    fontFamily: "Inter_800ExtraBold",
+    letterSpacing: 0.3,
+    textTransform: "uppercase",
   },
   newZoneTitleWrap: {
     alignSelf: "center",
