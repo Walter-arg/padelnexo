@@ -6462,39 +6462,42 @@ export default function TournamentFixtureScreen({ navigation, route }) {
       zoneVenueSchedules.filter((s) => s.useForZones),
       currentZoneMatchDurationMinutes
     );
-    const available = allSlots
-      .map((slot) => {
-        const result = validateMatchSlot({
-          dayKey: slot.dayKey,
-          startMinutes: slot.startMinutes,
-          venueId: slot.venueId,
-          courtIndex: slot.courtIndex,
-          participantIds: targetParticipantIds,
-          excludeKey: { tournamentId: tournament?.id || "", zoneId, matchKey },
-          occupancy: scheduleOccupancy,
-          matchDurationMinutes: currentZoneMatchDurationMinutes,
-          restMinutes: DEFAULT_REST_MINUTES,
-          dependsOn,
-          pairLabelsById,
-          availabilityWarning: targetParticipantIds.some(
-            (pairId) =>
-              !isPairAvailableForSlot(
-                registrationsById.get(pairId)?.availability || {},
-                slot.dayKey,
-                slot.startMinutes,
-                slot.startMinutes + currentZoneMatchDurationMinutes
-              )
-          )
-            ? "Este horario esta fuera de la disponibilidad cargada por alguna de las parejas."
-            : "",
-        });
+    const annotated = allSlots.map((slot) => {
+      const result = validateMatchSlot({
+        dayKey: slot.dayKey,
+        startMinutes: slot.startMinutes,
+        venueId: slot.venueId,
+        courtIndex: slot.courtIndex,
+        participantIds: targetParticipantIds,
+        excludeKey: { tournamentId: tournament?.id || "", zoneId, matchKey },
+        occupancy: scheduleOccupancy,
+        matchDurationMinutes: currentZoneMatchDurationMinutes,
+        restMinutes: DEFAULT_REST_MINUTES,
+        dependsOn,
+        pairLabelsById,
+        availabilityWarning: targetParticipantIds.some(
+          (pairId) =>
+            !isPairAvailableForSlot(
+              registrationsById.get(pairId)?.availability || {},
+              slot.dayKey,
+              slot.startMinutes,
+              slot.startMinutes + currentZoneMatchDurationMinutes
+            )
+        )
+          ? "Este horario esta fuera de la disponibilidad cargada por alguna de las parejas."
+          : "",
+      });
 
-        return { ...slot, blocked: result.blocked, blockReason: result.blockReason || "", warning: result.warning || "" };
-      })
-      .filter((slot) => !slot.blocked);
+      return {
+        ...slot,
+        hasConflict: result.hasConflict,
+        conflictReason: result.conflictReason || "",
+        availabilityWarning: result.availabilityWarning || "",
+      };
+    });
 
     const grouped = {};
-    available.forEach((slot) => {
+    annotated.forEach((slot) => {
       if (!grouped[slot.dayKey]) grouped[slot.dayKey] = [];
       grouped[slot.dayKey].push(slot);
     });
@@ -6515,6 +6518,41 @@ export default function TournamentFixtureScreen({ navigation, route }) {
     getZoneOpeningMatchesEndTimes,
     tournament?.id,
   ]);
+
+  // Conflicto EN VIVO de un partido YA guardado en "Nuevas Zonas" (para
+  // marcarlo en rojo), recalculado contra el resto de la ocupacion (propia +
+  // hermanas) en cada render. No bloquea nada; solo informa. Recibe el id de
+  // zona (no el objeto de la vista previa) porque la fila de la tabla trabaja
+  // con "zonesPreview", que no es la misma forma que activeZonePlanning.zones.
+  const getZonePlanningMatchConflict = useCallback(
+    (zoneId, matchKey) => {
+      const zone = (activeZonePlanning?.zones || []).find((z) => z.id === zoneId);
+      const schedule = zone?.matchSchedules?.[matchKey] || {};
+      if (!zone || !schedule.startTime || !schedule.dayKey) {
+        return { hasConflict: false, conflictReason: "" };
+      }
+
+      const participantIds = getZoneMatchParticipantIds(zone, matchKey, registrationsById);
+      const dependsOn = ["G vs G", "P vs P"].includes(matchKey) ? getZoneOpeningMatchesEndTimes(zone) : [];
+
+      const result = validateMatchSlot({
+        dayKey: schedule.dayKey,
+        startMinutes: parseTimeToMinutes(schedule.startTime),
+        venueId: schedule.venueId || "",
+        courtIndex: Number(schedule.courtIndex || 0),
+        participantIds,
+        excludeKey: { tournamentId: tournament?.id || "", zoneId: zone.id, matchKey },
+        occupancy: scheduleOccupancy,
+        matchDurationMinutes: currentZoneMatchDurationMinutes,
+        restMinutes: DEFAULT_REST_MINUTES,
+        dependsOn,
+        pairLabelsById,
+      });
+
+      return { hasConflict: result.hasConflict, conflictReason: result.conflictReason || "" };
+    },
+    [activeZonePlanning, registrationsById, getZoneOpeningMatchesEndTimes, tournament?.id, scheduleOccupancy, currentZoneMatchDurationMinutes, pairLabelsById]
+  );
 
   const buildZonesPreviewForPlanning = useCallback(
     (zonePlanning) =>
@@ -8087,8 +8125,42 @@ export default function TournamentFixtureScreen({ navigation, route }) {
     setZonePlanningDraft(nextPlanning);
   };
 
+  const countZonePlanningConflicts = () => {
+    let count = 0;
+    (zonePlanningDraft?.zones || []).forEach((zone) => {
+      Object.keys(zone.matchSchedules || {}).forEach((matchKey) => {
+        if (getZonePlanningMatchConflict(zone.id, matchKey).hasConflict) {
+          count += 1;
+        }
+      });
+    });
+    return count;
+  };
+
   const handleSaveZonePlanningChanges = async () => {
     if (!zonePlanningDraft || !hasZonePlanningUnsavedChanges) {
+      return;
+    }
+
+    const conflictCount = countZonePlanningConflicts();
+
+    if (conflictCount > 0) {
+      Alert.alert(
+        "Hay conflictos de horario",
+        `Hay ${conflictCount} partido${conflictCount === 1 ? "" : "s"} con conflicto de horario. ¿Guardar igual?`,
+        [
+          { style: "cancel", text: "Cancelar" },
+          { onPress: () => performSaveZonePlanningChanges(), text: "Guardar igual" },
+        ]
+      );
+      return;
+    }
+
+    await performSaveZonePlanningChanges();
+  };
+
+  const performSaveZonePlanningChanges = async () => {
+    if (!zonePlanningDraft) {
       return;
     }
 
@@ -8143,12 +8215,63 @@ export default function TournamentFixtureScreen({ navigation, route }) {
       return;
     }
 
-    updateZonePlanningMatchSchedule(
-      zonePlanningDayPickerTarget.zoneId,
-      zonePlanningDayPickerTarget.matchKey,
-      { dayKey }
-    );
-    closeZonePlanningDayPicker();
+    const { zoneId, matchKey } = zonePlanningDayPickerTarget;
+    const applyDay = () => {
+      updateZonePlanningMatchSchedule(zoneId, matchKey, { dayKey });
+      closeZonePlanningDayPicker();
+    };
+
+    // Cambiar el dia mantiene el horario ya cargado (a diferencia de Armado
+    // Manual - Editar, que lo borra), asi que puede generar un conflicto
+    // nuevo sin que el organizador lo note: se valida igual que el resto.
+    const targetZone = (activeZonePlanning?.zones || []).find((zone) => zone.id === zoneId);
+    const existingSchedule = targetZone?.matchSchedules?.[matchKey] || {};
+
+    if (!existingSchedule.startTime || !targetZone) {
+      applyDay();
+      return;
+    }
+
+    const participantIds = getZoneMatchParticipantIds(targetZone, matchKey, registrationsById);
+    const dependsOn = ["G vs G", "P vs P"].includes(matchKey) ? getZoneOpeningMatchesEndTimes(targetZone) : [];
+    const startMinutes = parseTimeToMinutes(existingSchedule.startTime);
+
+    const result = validateMatchSlot({
+      dayKey,
+      startMinutes,
+      venueId: existingSchedule.venueId || "",
+      courtIndex: Number(existingSchedule.courtIndex || 0),
+      participantIds,
+      excludeKey: { tournamentId: tournament?.id || "", zoneId, matchKey },
+      occupancy: scheduleOccupancy,
+      matchDurationMinutes: currentZoneMatchDurationMinutes,
+      restMinutes: DEFAULT_REST_MINUTES,
+      dependsOn,
+      pairLabelsById,
+      availabilityWarning: participantIds.some(
+        (pairId) =>
+          !isPairAvailableForSlot(
+            registrationsById.get(pairId)?.availability || {},
+            dayKey,
+            startMinutes,
+            startMinutes + currentZoneMatchDurationMinutes
+          )
+      )
+        ? "Este horario esta fuera de la disponibilidad cargada por alguna de las parejas."
+        : "",
+    });
+
+    const reason = result.conflictReason || result.availabilityWarning;
+
+    if (reason) {
+      Alert.alert("Horario con conflicto", `${reason}. ¿Asignar igual?`, [
+        { style: "cancel", text: "Cancelar" },
+        { onPress: applyDay, text: "Asignar igual" },
+      ]);
+      return;
+    }
+
+    applyDay();
   };
 
   const cycleZonePlanningMatchVenue = (zoneId, matchKey, currentVenueId = "") => {
@@ -8185,10 +8308,12 @@ export default function TournamentFixtureScreen({ navigation, route }) {
   const handleSelectZonePlanningSlot = (slot) => {
     if (!zonePlanningSlotPickerTarget) return;
 
-    if (slot.warning) {
-      Alert.alert("Fuera de disponibilidad", `${slot.warning} ¿Confirmas este horario igual?`, [
+    const reason = slot.conflictReason || slot.availabilityWarning;
+
+    if (reason) {
+      Alert.alert("Horario con conflicto", `${reason}. ¿Asignar igual?`, [
         { style: "cancel", text: "Cancelar" },
-        { onPress: () => applySelectedZonePlanningSlot(slot), text: "Confirmar igual" },
+        { onPress: () => applySelectedZonePlanningSlot(slot), text: "Asignar igual" },
       ]);
       return;
     }
@@ -8206,15 +8331,70 @@ export default function TournamentFixtureScreen({ navigation, route }) {
     setZonePlanningSlotPickerTarget(null);
   };
 
+  // El reloj libre (seleccionar hora a mano, sin pasar por la lista de
+  // horarios) tambien tiene que pasar por validateMatchSlot. En Android el
+  // cambio es un solo evento discreto (como elegir de una lista), asi que se
+  // valida y se confirma ahi mismo si hace falta. En iOS el picker dispara
+  // onChange en cada tick mientras se desliza la rueda: mostrar un Alert por
+  // cada tick lo haria inusable, asi que ahi se escribe directo y el
+  // conflicto (si lo hay) queda visible de inmediato en rojo en la tabla de
+  // cruces, recalculado en vivo igual que para cualquier otro horario.
   const handleZonePlanningTimePickerChange = (_, selectedDate) => {
     if (zonePlanningTimePickerTarget?.zoneId && zonePlanningTimePickerTarget?.matchKey && selectedDate) {
+      const { zoneId, matchKey } = zonePlanningTimePickerTarget;
       const nextHours = formatTwoDigits(selectedDate.getHours());
       const nextMinutes = formatTwoDigits(selectedDate.getMinutes());
-      updateZonePlanningMatchSchedule(
-        zonePlanningTimePickerTarget.zoneId,
-        zonePlanningTimePickerTarget.matchKey,
-        { startTime: `${nextHours}:${nextMinutes}` }
-      );
+      const nextStartTime = `${nextHours}:${nextMinutes}`;
+      const applyTime = () => updateZonePlanningMatchSchedule(zoneId, matchKey, { startTime: nextStartTime });
+
+      if (Platform.OS === "ios") {
+        applyTime();
+      } else {
+        const targetZone = (activeZonePlanning?.zones || []).find((zone) => zone.id === zoneId);
+        const existingSchedule = targetZone?.matchSchedules?.[matchKey] || {};
+        const participantIds = targetZone
+          ? getZoneMatchParticipantIds(targetZone, matchKey, registrationsById)
+          : [];
+        const dependsOn =
+          targetZone && ["G vs G", "P vs P"].includes(matchKey) ? getZoneOpeningMatchesEndTimes(targetZone) : [];
+        const startMinutes = parseTimeToMinutes(nextStartTime);
+
+        const result = validateMatchSlot({
+          dayKey: existingSchedule.dayKey || "",
+          startMinutes,
+          venueId: existingSchedule.venueId || "",
+          courtIndex: Number(existingSchedule.courtIndex || 0),
+          participantIds,
+          excludeKey: { tournamentId: tournament?.id || "", zoneId, matchKey },
+          occupancy: scheduleOccupancy,
+          matchDurationMinutes: currentZoneMatchDurationMinutes,
+          restMinutes: DEFAULT_REST_MINUTES,
+          dependsOn,
+          pairLabelsById,
+          availabilityWarning: participantIds.some(
+            (pairId) =>
+              !isPairAvailableForSlot(
+                registrationsById.get(pairId)?.availability || {},
+                existingSchedule.dayKey || "",
+                startMinutes,
+                startMinutes + currentZoneMatchDurationMinutes
+              )
+          )
+            ? "Este horario esta fuera de la disponibilidad cargada por alguna de las parejas."
+            : "",
+        });
+
+        const reason = result.conflictReason || result.availabilityWarning;
+
+        if (reason) {
+          Alert.alert("Horario con conflicto", `${reason}. ¿Asignar igual?`, [
+            { style: "cancel", text: "Cancelar" },
+            { onPress: applyTime, text: "Asignar igual" },
+          ]);
+        } else {
+          applyTime();
+        }
+      }
     }
 
     if (Platform.OS !== "ios") {
@@ -12938,9 +13118,16 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                             zone.matchRows.map((match) => {
                               const isSavingMatch = zonePlanningSavingKey === `${zone.id}-${match.key}`;
                               const isSavingResult = isSavingMatch && Boolean(zonePlanningResultEditor);
+                              const matchConflict = getZonePlanningMatchConflict(zone.id, match.key);
 
                               return (
-                              <View key={`${zone.id}-${match.key}`} style={styles.newZoneMatchRow}>
+                              <View key={`${zone.id}-${match.key}`}>
+                              <View
+                                style={[
+                                  styles.newZoneMatchRow,
+                                  matchConflict.hasConflict ? styles.newZoneMatchRowConflict : null,
+                                ]}
+                              >
                                 <Pressable
                                   disabled={!canEditFixture}
                                   onPress={() => openZonePlanningResultEditor(zone.id, match.key)}
@@ -13040,6 +13227,15 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                                     {match.venueLabel}
                                   </Text>
                                 </Pressable>
+                              </View>
+                              {matchConflict.hasConflict ? (
+                                <View style={styles.newZoneMatchConflictRow}>
+                                  <Ionicons color={colors.danger} name="warning-outline" size={12} />
+                                  <Text numberOfLines={2} style={styles.newZoneMatchConflictText}>
+                                    {matchConflict.conflictReason}
+                                  </Text>
+                                </View>
+                              ) : null}
                               </View>
                               );
                             })
@@ -14387,19 +14583,34 @@ export default function TournamentFixtureScreen({ navigation, route }) {
                         formatMinutesToTime(slot.startMinutes) === zonePlanningSlotPickerTarget.currentStartTime &&
                         slot.venueId === zonePlanningSlotPickerTarget.currentVenueId &&
                         slot.courtIndex === zonePlanningSlotPickerTarget.currentCourtIndex;
+                      const slotReason = slot.conflictReason || slot.availabilityWarning;
 
                       return (
                         <Pressable
                           key={slot.id}
                           onPress={() => handleSelectZonePlanningSlot(slot)}
-                          style={[styles.slotPickerOption, isCurrentSlot ? styles.slotPickerOptionSelected : null]}
+                          style={[
+                            styles.slotPickerOption,
+                            slotReason ? styles.slotPickerOptionWithConflict : null,
+                            isCurrentSlot ? styles.slotPickerOptionSelected : null,
+                          ]}
                         >
-                          <Text style={[styles.slotPickerOptionTime, isCurrentSlot ? styles.slotPickerOptionTimeSelected : null]}>
-                            {formatMinutesToTime(slot.startMinutes)} hs
-                          </Text>
-                          <Text style={[styles.slotPickerOptionVenue, isCurrentSlot ? styles.slotPickerOptionVenueSelected : null]} numberOfLines={1}>
-                            {slot.venueName} · Cancha {slot.courtIndex}
-                          </Text>
+                          <View style={styles.slotPickerOptionMainRow}>
+                            {slotReason ? (
+                              <Ionicons color={colors.danger} name="warning-outline" size={12} />
+                            ) : null}
+                            <Text style={[styles.slotPickerOptionTime, isCurrentSlot ? styles.slotPickerOptionTimeSelected : null]}>
+                              {formatMinutesToTime(slot.startMinutes)} hs
+                            </Text>
+                            <Text style={[styles.slotPickerOptionVenue, isCurrentSlot ? styles.slotPickerOptionVenueSelected : null]} numberOfLines={1}>
+                              {slot.venueName} · Cancha {slot.courtIndex}
+                            </Text>
+                          </View>
+                          {slotReason ? (
+                            <Text numberOfLines={2} style={styles.slotPickerOptionReasonText}>
+                              {slotReason}
+                            </Text>
+                          ) : null}
                         </Pressable>
                       );
                     })}
@@ -16213,6 +16424,22 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     minHeight: 30,
   },
+  newZoneMatchRowConflict: {
+    backgroundColor: "rgba(176,64,64,0.08)",
+  },
+  newZoneMatchConflictRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 5,
+    paddingBottom: 6,
+    paddingHorizontal: 4,
+  },
+  newZoneMatchConflictText: {
+    color: colors.danger,
+    flex: 1,
+    fontSize: 10,
+    fontFamily: "Inter_700Bold",
+  },
   newZoneMatchCellText: {
     color: colors.text,
     fontSize: 9,
@@ -17857,15 +18084,27 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
   },
   slotPickerOption: {
-    alignItems: "center",
     borderColor: colors.border,
     borderRadius: 10,
     borderWidth: 1,
-    flexDirection: "row",
-    gap: 10,
+    gap: 4,
     marginBottom: 6,
     paddingHorizontal: 12,
     paddingVertical: 10,
+  },
+  slotPickerOptionMainRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 10,
+  },
+  slotPickerOptionWithConflict: {
+    backgroundColor: "rgba(176,64,64,0.06)",
+    borderColor: "rgba(176,64,64,0.4)",
+  },
+  slotPickerOptionReasonText: {
+    color: colors.danger,
+    fontSize: 10,
+    fontFamily: "Inter_700Bold",
   },
   slotPickerOptionSelected: {
     backgroundColor: "#DDF6EF",

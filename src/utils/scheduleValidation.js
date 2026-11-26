@@ -3,7 +3,13 @@
 // sobre como se arman las zonas ni sobre los cruces (eso sigue en cada
 // pantalla, en buildZoneMatchRows / getPlanningMatchPairNumbers, etc). Este
 // modulo solo sabe de tiempo: dado un horario candidato y lo que ya esta
-// ocupado, dice si se puede usar o no, y por que.
+// ocupado, dice si hay conflicto y por que.
+//
+// Nada de esto bloquea: el organizador puede pisar un partido a proposito
+// para reprogramar el otro despues. Este modulo solo informa para que cada
+// pantalla pida confirmacion y, una vez guardado, siga mostrando el partido
+// en conflicto hasta que se resuelva (recalculando esto mismo contra el
+// estado actual).
 //
 // Es deliberadamente "puro": no importa React Native ni Firestore. Cada
 // pantalla resuelve sus propios ids de participantes, sus propias labels y su
@@ -100,15 +106,21 @@ export function buildScheduleOccupancy(scheduledMatches = [], matchDurationMinut
   return { byCourt, byPair };
 }
 
-// Valida un horario candidato para UN partido puntual.
+// Valida un horario candidato (o ya guardado) para UN partido puntual. Nunca
+// bloquea: devuelve { hasConflict, conflictReason, availabilityWarning } para
+// que el llamador decida como confirmarlo y como mostrarlo.
 //
 // occupancy: lo que devuelve buildScheduleOccupancy.
 // excludeKey: { tournamentId, zoneId, matchKey } del propio partido que se
-//   esta agendando, para no chocar contra su propio horario ya guardado.
+//   esta agendando/revisando, para no chocar contra su propio horario ya
+//   guardado. Tambien sirve para revisar un partido YA guardado (pasandole su
+//   propio dayKey/startMinutes/venueId/courtIndex): el conflicto se recalcula
+//   contra el resto de la ocupacion, como si fuera un candidato.
 // dependsOn: para zonas de 4 (G vs G / P vs P), los partidos de ida de esa
 //   misma zona que ya tienen horario: [{ dayKey, endMinutes }]. Si un partido
 //   de ida todavia no tiene horario asignado, el llamador simplemente no lo
-//   incluye aca (no se bloquea por un dato que no existe).
+//   incluye aca (no hay nada que marcar como conflicto por un dato que no
+//   existe).
 // pairLabelsById: { [pairId]: "Nombre / Nombre" } solo para armar el mensaje.
 // availabilityWarning: string ya resuelta por el llamador ("" si no hay
 //   advertencia). Este modulo no sabe leer disponibilidad cargada: cada
@@ -148,8 +160,9 @@ export function validateMatchSlot({
         : courtConflict.zoneLabel || "otro partido";
 
       return {
-        blocked: true,
-        blockReason: `Cancha ${courtConflict.courtIndex} ocupada por ${who} hasta las ${formatMinutesToTime(courtConflict.endMinutes)}`,
+        hasConflict: true,
+        conflictReason: `Cancha ${courtConflict.courtIndex} ocupada por ${who} hasta las ${formatMinutesToTime(courtConflict.endMinutes)}`,
+        availabilityWarning: "",
       };
     }
   }
@@ -169,8 +182,9 @@ export function validateMatchSlot({
     if (conflict) {
       const label = pairLabelsById[pairId] || "Una de las parejas";
       return {
-        blocked: true,
-        blockReason: `${label} esta jugando hasta las ${formatMinutesToTime(conflict.endMinutes)}`,
+        hasConflict: true,
+        conflictReason: `${label} esta jugando hasta las ${formatMinutesToTime(conflict.endMinutes)}`,
+        availabilityWarning: "",
       };
     }
   }
@@ -183,24 +197,21 @@ export function validateMatchSlot({
 
     if (startMin < earliestAllowed) {
       return {
-        blocked: true,
-        blockReason: `Este cruce depende de los partidos de ida de la zona: no puede empezar antes de las ${formatMinutesToTime(earliestAllowed)}`,
+        hasConflict: true,
+        conflictReason: `Este cruce depende de los partidos de ida de la zona: no puede empezar antes de las ${formatMinutesToTime(earliestAllowed)}`,
+        availabilityWarning: "",
       };
     }
   }
 
-  // d) Disponibilidad cargada: advertencia confirmable, nunca bloqueo.
-  if (availabilityWarning) {
-    return { blocked: false, warning: availabilityWarning };
-  }
-
-  return { blocked: false, warning: "" };
+  // d) Disponibilidad cargada: advertencia confirmable, nunca conflicto.
+  return { hasConflict: false, conflictReason: "", availabilityWarning: availabilityWarning || "" };
 }
 
 // Anota una lista de slots candidatos (cada uno con dayKey/startMinutes/
 // venueId/courtIndex) con el resultado de validateMatchSlot, sin sacar nada
-// de la lista. El llamador decide si filtra los bloqueados o los muestra
-// deshabilitados con el motivo.
+// de la lista: el llamador siempre muestra todas las opciones, marcando las
+// que tienen conflicto o advertencia con su motivo.
 export function annotateSlotCandidates(slots = [], context = {}) {
   return slots.map((slot) => ({
     ...slot,
