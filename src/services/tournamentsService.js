@@ -2103,6 +2103,34 @@ export async function registerPairToTournament(tournamentId, payload = {}) {
     throw new Error("Uno de los jugadores ya esta inscripto en este torneo.");
   }
 
+  // Si el torneo es parte de un evento multi-categoria (creationBatchId), un
+  // jugador con cuenta registrada solo puede participar en UNA categoria de
+  // ese evento: la primera en la que quedo inscripto. No se puede validar
+  // esto para jugadores invitados/no registrados porque no tienen un id
+  // estable entre inscripciones.
+  if (tournament.creationBatchId && playerIdsToCheck.size) {
+    const siblingTournaments = (await listTournamentsByBatchId(tournament.creationBatchId)).filter(
+      (sibling) => sibling.id !== tournamentId
+    );
+
+    for (const sibling of siblingTournaments) {
+      const siblingRegistrations = await listRegistrationDocs(sibling.id);
+      const alreadyInSibling = siblingRegistrations.find(
+        (registration) =>
+          !isRegistrationWithdrawnConfirmed(registration) &&
+          [registration.player1Id, registration.player2Id].some((playerId) => playerIdsToCheck.has(playerId))
+      );
+
+      if (alreadyInSibling) {
+        const siblingCategoryLabel =
+          sibling.compositionConfig?.label || sibling.compositionLabel || sibling.name || "otra categoria";
+        throw new Error(
+          `Uno de los jugadores ya esta inscripto en ${siblingCategoryLabel} de este evento. Un jugador solo puede participar en una categoria.`
+        );
+      }
+    }
+  }
+
   const activeRegistrationsCount = registrations.filter(
     (registration) =>
       registration.status !== "rejected" && !isRegistrationWithdrawnConfirmed(registration)
