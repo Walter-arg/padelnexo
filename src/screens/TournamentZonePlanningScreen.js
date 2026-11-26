@@ -202,6 +202,13 @@ function getPairLabel(registration = {}, index = 0) {
   );
 }
 
+// Para ordenar categorias de menor a mayor numero (5ta antes que 7ma antes
+// que 8va) en la vista combinada multi-categoria.
+function extractCategoryOrderNumber(label = "") {
+  const match = String(label || "").match(/(\d+)/);
+  return match ? Number(match[1]) : 999;
+}
+
 function getShortPersonName(rawName = "") {
   const parts = String(rawName || "")
     .trim()
@@ -607,6 +614,12 @@ export default function TournamentZonePlanningScreen({ navigation, route }) {
   const [resultEditor, setResultEditor] = useState(null);
   const [zoneDeleteTarget, setZoneDeleteTarget] = useState(null);
   const [confirmArmadoPrompt, setConfirmArmadoPrompt] = useState(null);
+  // Categorias hermanas que el organizador tilda para VER junto a esta (solo
+  // lectura: no se puede armar zonas ahi, solo mirar su disponibilidad). Para
+  // armar zonas de otra categoria hay que cambiarla como categoria activa con
+  // el selector de categoria que ya existe (onSelectCategory).
+  const [extraCategoryIds, setExtraCategoryIds] = useState([]);
+  const [extraCategoriesData, setExtraCategoriesData] = useState({});
   const { categoryOptions, onSelectCategory } = useTournamentCategorySwitcher(tournament, navigation);
   const [standingsModalZoneId, setStandingsModalZoneId] = useState("");
   const [loading, setLoading] = useState(true);
@@ -672,6 +685,67 @@ export default function TournamentZonePlanningScreen({ navigation, route }) {
       };
     }, [loadScreen])
   );
+
+  useEffect(() => {
+    const idsToFetch = extraCategoryIds.filter((id) => !extraCategoriesData[id]);
+
+    if (!idsToFetch.length) {
+      return undefined;
+    }
+
+    let isMounted = true;
+
+    (async () => {
+      try {
+        const entries = await Promise.all(
+          idsToFetch.map(async (id) => {
+            const [tournamentResponse, registrationsResponse] = await Promise.all([
+              getTournamentById(id),
+              listTournamentRegistrations(id),
+            ]);
+            const confirmedRegs = registrationsResponse
+              .filter(isActiveRegistration)
+              .map((registration, index) => ({
+                ...registration,
+                color: PAIR_COLORS[index % PAIR_COLORS.length],
+                displayLabel: getPairLabel(registration, index),
+                shortDisplayLabel: getShortPairLabel(registration, index),
+              }));
+            const planning = normalizeZonePlanning(
+              tournamentResponse?.zonePlanning || tournamentResponse?.fixtureSetup?.zonePlanning || {},
+              confirmedRegs
+            );
+
+            return [
+              id,
+              {
+                tournament: tournamentResponse,
+                confirmedRegistrations: confirmedRegs,
+                zonePlanning: planning,
+              },
+            ];
+          })
+        );
+
+        if (isMounted) {
+          setExtraCategoriesData((current) => {
+            const next = { ...current };
+            entries.forEach(([id, data]) => {
+              next[id] = data;
+            });
+            return next;
+          });
+        }
+      } catch {
+        // Si falla una categoria extra, simplemente no se muestra; no bloquea la pantalla principal.
+      }
+    })();
+
+    return () => {
+      isMounted = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [extraCategoryIds]);
 
   const tournamentDayOptions = useMemo(() => buildTournamentDayOptions(tournament || {}), [tournament]);
   const tournamentVenueOptions = useMemo(() => buildTournamentVenueOptions(tournament || {}), [tournament]);
@@ -785,6 +859,128 @@ export default function TournamentZonePlanningScreen({ navigation, route }) {
       }),
     [assignedIds, assignedZoneLetterByRegistrationId, confirmedRegistrations]
   );
+
+  // Bloques por categoria para la vista combinada (activa + las que se
+  // tildaron para ver solo lectura), ordenados por el numero de la categoria
+  // (5ta antes que 7ma antes que 8va).
+  const allCategoryBlocks = useMemo(() => {
+    const activeBlock = {
+      tournamentId,
+      categoryLabel: tournamentCategoryLabel,
+      isActive: true,
+      confirmedRegistrations,
+      zones: zonePlanning.zones || [],
+      assignedIds,
+    };
+
+    const extraBlocks = extraCategoryIds
+      .map((id) => {
+        const data = extraCategoriesData[id];
+
+        if (!data) {
+          return null;
+        }
+
+        const label =
+          data.tournament?.compositionConfig?.label ||
+          data.tournament?.compositionLabel ||
+          data.tournament?.categoryLabel ||
+          "";
+        const extraAssignedIds = new Set(
+          (data.zonePlanning.zones || []).flatMap((zone) => zone.registrationIds || [])
+        );
+
+        return {
+          tournamentId: id,
+          categoryLabel: label,
+          isActive: false,
+          confirmedRegistrations: data.confirmedRegistrations,
+          zones: data.zonePlanning.zones || [],
+          assignedIds: extraAssignedIds,
+        };
+      })
+      .filter(Boolean);
+
+    return [activeBlock, ...extraBlocks].sort(
+      (first, second) =>
+        extractCategoryOrderNumber(first.categoryLabel) - extractCategoryOrderNumber(second.categoryLabel)
+    );
+  }, [
+    tournamentId,
+    tournamentCategoryLabel,
+    confirmedRegistrations,
+    zonePlanning.zones,
+    assignedIds,
+    extraCategoryIds,
+    extraCategoriesData,
+  ]);
+
+  const isMultiCategoryView = extraCategoryIds.length > 0;
+
+  const combinedZoneColumns = useMemo(() => {
+    if (!isMultiCategoryView) {
+      return [];
+    }
+
+    const columns = [];
+
+    allCategoryBlocks.forEach((block) => {
+      block.zones.forEach((zone, zoneIndex) => {
+        const pairs = (zone.registrationIds || [])
+          .map((id) => block.confirmedRegistrations.find((registration) => registration.id === id))
+          .filter(Boolean);
+
+        if (!pairs.length) {
+          return;
+        }
+
+        columns.push({
+          key: `zone:${block.tournamentId}:${zone.id}`,
+          type: "zone",
+          tournamentId: block.tournamentId,
+          categoryLabel: block.categoryLabel,
+          isActive: block.isActive,
+          zoneLabel: zone.label || `Zona ${ZONE_LETTERS[zoneIndex] || zoneIndex + 1}`,
+          pairs,
+        });
+      });
+    });
+
+    return columns;
+  }, [allCategoryBlocks, isMultiCategoryView]);
+
+  const combinedUnassignedColumns = useMemo(() => {
+    if (!isMultiCategoryView) {
+      return [];
+    }
+
+    const columns = [];
+
+    allCategoryBlocks.forEach((block) => {
+      block.confirmedRegistrations.forEach((registration) => {
+        if (block.assignedIds.has(registration.id)) {
+          return;
+        }
+
+        columns.push({
+          key: `pair:${block.tournamentId}:${registration.id}`,
+          type: "pair",
+          tournamentId: block.tournamentId,
+          categoryLabel: block.categoryLabel,
+          isActive: block.isActive,
+          registration,
+        });
+      });
+    });
+
+    return columns;
+  }, [allCategoryBlocks, isMultiCategoryView]);
+
+  const combinedColumns = useMemo(
+    () => [...combinedZoneColumns, ...combinedUnassignedColumns],
+    [combinedZoneColumns, combinedUnassignedColumns]
+  );
+
   const hasUnsavedChanges = useMemo(
     () => !areJsonEqual(zonePlanning, savedPlanningRef.current),
     [zonePlanning]
@@ -1646,6 +1842,49 @@ export default function TournamentZonePlanningScreen({ navigation, route }) {
               </View>
             </ScrollView>
 
+            {categoryOptions.length > 0 ? (
+              <View style={styles.extraCategoriesWrap}>
+                <Text style={styles.extraCategoriesLabel}>
+                  Ver también (solo lectura, {tournamentCategoryLabel || "esta categoria"} sigue siendo la editable)
+                </Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                  <View style={styles.extraCategoriesRow}>
+                    {categoryOptions
+                      .filter((option) => option.value !== tournamentId)
+                      .map((option) => {
+                        const isSelected = extraCategoryIds.includes(option.value);
+
+                        return (
+                          <Pressable
+                            key={option.value}
+                            onPress={() =>
+                              setExtraCategoryIds((current) =>
+                                current.includes(option.value)
+                                  ? current.filter((id) => id !== option.value)
+                                  : [...current, option.value]
+                              )
+                            }
+                            style={[
+                              styles.extraCategoryChip,
+                              isSelected ? styles.extraCategoryChipActive : null,
+                            ]}
+                          >
+                            <Text
+                              style={[
+                                styles.extraCategoryChipText,
+                                isSelected ? styles.extraCategoryChipTextActive : null,
+                              ]}
+                            >
+                              {option.label}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                  </View>
+                </ScrollView>
+              </View>
+            ) : null}
+
             <View style={styles.selectionCard}>
               <Text style={styles.selectionTitle}>
                 {selectedRegistrations.length
@@ -1706,115 +1945,270 @@ export default function TournamentZonePlanningScreen({ navigation, route }) {
             </View>
 
             <View style={styles.gridCard}>
-              <View style={styles.gridHeader}>
-                <View style={styles.timeHeaderCell}>
-                  <Text style={styles.timeHeaderText}>Hora</Text>
-                </View>
-                <ScrollView
-                  horizontal
-                  onScroll={(event) =>
-                    syncHorizontalScroll("header", event.nativeEvent.contentOffset.x)
-                  }
-                  ref={headerScrollRef}
-                  scrollEventThrottle={16}
-                  showsHorizontalScrollIndicator={false}
-                >
-                  <View style={styles.pairHeaderRow}>
-                    {orderedRegistrations.map((registration) => {
-                      const isSelected = selectedRegistrationIds.includes(registration.id);
-                      const availabilityRanges = getAvailabilityRangesForDay(registration, selectedDayKey);
-                      const assignedZoneLetter = assignedZoneLetterByRegistrationId.get(String(registration.id));
-
-                      return (
-                        <Pressable
-                          key={registration.id}
-                          onPress={() => toggleRegistrationSelection(registration.id)}
-                          style={[
-                            styles.pairHeaderCell,
-                            {
-                              backgroundColor: registration.color.bg,
-                              borderColor: registration.color.border,
-                            },
-                            assignedIds.has(registration.id) ? styles.pairHeaderCellAssigned : null,
-                            isSelected ? styles.pairHeaderCellSelected : null,
-                          ]}
-                        >
-                          {assignedZoneLetter ? (
-                            <View style={styles.zoneLetterBadge}>
-                              <Text style={styles.zoneLetterBadgeText}>{assignedZoneLetter}</Text>
-                            </View>
-                          ) : null}
-                          {isSelected ? (
-                            <View style={styles.selectedBadge}>
-                              <Ionicons color={colors.surface} name="checkmark" size={11} />
-                            </View>
-                          ) : null}
-                          <Text
-                            numberOfLines={2}
-                            style={[
-                              styles.pairHeaderText,
-                              { color: registration.color.text },
-                              isSelected ? styles.pairHeaderTextSelected : null,
-                            ]}
-                          >
-                            {registration.shortDisplayLabel || registration.displayLabel}
-                          </Text>
-                          <Text
-                            numberOfLines={2}
-                            style={[styles.pairHeaderAvailabilityText, { color: registration.color.text }]}
-                          >
-                            {availabilityRanges.length ? availabilityRanges.join(" / ") : "Sin horario"}
-                          </Text>
-                        </Pressable>
-                      );
-                    })}
-                  </View>
-                </ScrollView>
-              </View>
-
-              <View style={styles.gridBody}>
-                <View style={styles.timeColumn}>
-                  {TIME_SLOTS.map((slot) => (
-                    <View key={slot.label} style={styles.timeCell}>
-                      <Text style={styles.timeText}>{slot.label}</Text>
+              {!isMultiCategoryView ? (
+                <>
+                  <View style={styles.gridHeader}>
+                    <View style={styles.timeHeaderCell}>
+                      <Text style={styles.timeHeaderText}>Hora</Text>
                     </View>
-                  ))}
-                </View>
-                <ScrollView
-                  horizontal
-                  onScroll={(event) =>
-                    syncHorizontalScroll("body", event.nativeEvent.contentOffset.x)
-                  }
-                  ref={bodyScrollRef}
-                  scrollEventThrottle={16}
-                  showsHorizontalScrollIndicator={false}
-                >
-                  <View style={styles.availabilityColumns}>
-                    {orderedRegistrations.map((registration) => (
-                      <View key={registration.id} style={styles.availabilityColumn}>
-                        {TIME_SLOTS.map((slot) => {
-                          const available = isSlotAvailable(registration, selectedDayKey, slot.minutes);
+                    <ScrollView
+                      horizontal
+                      onScroll={(event) =>
+                        syncHorizontalScroll("header", event.nativeEvent.contentOffset.x)
+                      }
+                      ref={headerScrollRef}
+                      scrollEventThrottle={16}
+                      showsHorizontalScrollIndicator={false}
+                    >
+                      <View style={styles.pairHeaderRow}>
+                        {orderedRegistrations.map((registration) => {
+                          const isSelected = selectedRegistrationIds.includes(registration.id);
+                          const availabilityRanges = getAvailabilityRangesForDay(registration, selectedDayKey);
+                          const assignedZoneLetter = assignedZoneLetterByRegistrationId.get(String(registration.id));
 
                           return (
-                            <View
-                              key={`${registration.id}-${slot.label}`}
+                            <Pressable
+                              key={registration.id}
+                              onPress={() => toggleRegistrationSelection(registration.id)}
                               style={[
-                                styles.availabilityCell,
-                                available
-                                  ? {
-                                      backgroundColor: registration.color.fill,
-                                      borderColor: registration.color.border,
-                                    }
-                                  : null,
+                                styles.pairHeaderCell,
+                                {
+                                  backgroundColor: registration.color.bg,
+                                  borderColor: registration.color.border,
+                                },
+                                assignedIds.has(registration.id) ? styles.pairHeaderCellAssigned : null,
+                                isSelected ? styles.pairHeaderCellSelected : null,
                               ]}
-                            />
+                            >
+                              {assignedZoneLetter ? (
+                                <View style={styles.zoneLetterBadge}>
+                                  <Text style={styles.zoneLetterBadgeText}>{assignedZoneLetter}</Text>
+                                </View>
+                              ) : null}
+                              {isSelected ? (
+                                <View style={styles.selectedBadge}>
+                                  <Ionicons color={colors.surface} name="checkmark" size={11} />
+                                </View>
+                              ) : null}
+                              <Text
+                                numberOfLines={2}
+                                style={[
+                                  styles.pairHeaderText,
+                                  { color: registration.color.text },
+                                  isSelected ? styles.pairHeaderTextSelected : null,
+                                ]}
+                              >
+                                {registration.shortDisplayLabel || registration.displayLabel}
+                              </Text>
+                              <Text
+                                numberOfLines={2}
+                                style={[styles.pairHeaderAvailabilityText, { color: registration.color.text }]}
+                              >
+                                {availabilityRanges.length ? availabilityRanges.join(" / ") : "Sin horario"}
+                              </Text>
+                            </Pressable>
                           );
                         })}
                       </View>
-                    ))}
+                    </ScrollView>
                   </View>
-                </ScrollView>
-              </View>
+
+                  <View style={styles.gridBody}>
+                    <View style={styles.timeColumn}>
+                      {TIME_SLOTS.map((slot) => (
+                        <View key={slot.label} style={styles.timeCell}>
+                          <Text style={styles.timeText}>{slot.label}</Text>
+                        </View>
+                      ))}
+                    </View>
+                    <ScrollView
+                      horizontal
+                      onScroll={(event) =>
+                        syncHorizontalScroll("body", event.nativeEvent.contentOffset.x)
+                      }
+                      ref={bodyScrollRef}
+                      scrollEventThrottle={16}
+                      showsHorizontalScrollIndicator={false}
+                    >
+                      <View style={styles.availabilityColumns}>
+                        {orderedRegistrations.map((registration) => (
+                          <View key={registration.id} style={styles.availabilityColumn}>
+                            {TIME_SLOTS.map((slot) => {
+                              const available = isSlotAvailable(registration, selectedDayKey, slot.minutes);
+
+                              return (
+                                <View
+                                  key={`${registration.id}-${slot.label}`}
+                                  style={[
+                                    styles.availabilityCell,
+                                    available
+                                      ? {
+                                          backgroundColor: registration.color.fill,
+                                          borderColor: registration.color.border,
+                                        }
+                                      : null,
+                                  ]}
+                                />
+                              );
+                            })}
+                          </View>
+                        ))}
+                      </View>
+                    </ScrollView>
+                  </View>
+                </>
+              ) : (
+                <>
+                  <View style={styles.gridHeader}>
+                    <View style={styles.timeHeaderCell}>
+                      <Text style={styles.timeHeaderText}>Hora</Text>
+                    </View>
+                    <ScrollView
+                      horizontal
+                      onScroll={(event) =>
+                        syncHorizontalScroll("header", event.nativeEvent.contentOffset.x)
+                      }
+                      ref={headerScrollRef}
+                      scrollEventThrottle={16}
+                      showsHorizontalScrollIndicator={false}
+                    >
+                      <View style={styles.pairHeaderRow}>
+                        {combinedColumns.map((column) => {
+                          const isPairColumn = column.type === "pair";
+                          const isSelected = isPairColumn && column.isActive && selectedRegistrationIds.includes(column.registration.id);
+                          const canPress = isPairColumn && column.isActive;
+                          const availabilityRanges = isPairColumn
+                            ? getAvailabilityRangesForDay(column.registration, selectedDayKey)
+                            : [];
+
+                          return (
+                            <Pressable
+                              key={column.key}
+                              disabled={!canPress}
+                              onPress={canPress ? () => toggleRegistrationSelection(column.registration.id) : undefined}
+                              style={[
+                                styles.combinedHeaderCell,
+                                isPairColumn
+                                  ? { backgroundColor: column.registration.color.bg, borderColor: column.registration.color.border }
+                                  : { backgroundColor: colors.surfaceAlt || "#EEF3F0", borderColor: colors.border },
+                                !column.isActive ? styles.combinedHeaderCellInactive : null,
+                                isSelected ? styles.pairHeaderCellSelected : null,
+                              ]}
+                            >
+                              <View
+                                style={[
+                                  styles.combinedCategoryBadge,
+                                  !column.isActive ? styles.combinedCategoryBadgeInactive : null,
+                                ]}
+                              >
+                                <Text
+                                  numberOfLines={1}
+                                  style={[
+                                    styles.combinedCategoryBadgeText,
+                                    !column.isActive ? styles.combinedCategoryBadgeTextInactive : null,
+                                  ]}
+                                >
+                                  {column.categoryLabel || "-"}
+                                </Text>
+                              </View>
+                              {isSelected ? (
+                                <View style={styles.selectedBadge}>
+                                  <Ionicons color={colors.surface} name="checkmark" size={11} />
+                                </View>
+                              ) : null}
+                              {isPairColumn ? (
+                                <>
+                                  <Text
+                                    numberOfLines={2}
+                                    style={[
+                                      styles.pairHeaderText,
+                                      { color: column.registration.color.text },
+                                      isSelected ? styles.pairHeaderTextSelected : null,
+                                    ]}
+                                  >
+                                    {column.registration.shortDisplayLabel || column.registration.displayLabel}
+                                  </Text>
+                                  <Text
+                                    numberOfLines={2}
+                                    style={[styles.pairHeaderAvailabilityText, { color: column.registration.color.text }]}
+                                  >
+                                    {availabilityRanges.length ? availabilityRanges.join(" / ") : "Sin horario"}
+                                  </Text>
+                                </>
+                              ) : (
+                                <Text numberOfLines={1} style={styles.combinedZoneLabelText}>
+                                  {column.zoneLabel}
+                                </Text>
+                              )}
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+                    </ScrollView>
+                  </View>
+
+                  <View style={styles.gridBody}>
+                    <View style={styles.timeColumn}>
+                      {TIME_SLOTS.map((slot) => (
+                        <View key={slot.label} style={styles.combinedTimeCell}>
+                          <Text style={styles.timeText}>{slot.label}</Text>
+                        </View>
+                      ))}
+                    </View>
+                    <ScrollView
+                      horizontal
+                      onScroll={(event) =>
+                        syncHorizontalScroll("body", event.nativeEvent.contentOffset.x)
+                      }
+                      ref={bodyScrollRef}
+                      scrollEventThrottle={16}
+                      showsHorizontalScrollIndicator={false}
+                    >
+                      <View style={styles.availabilityColumns}>
+                        {combinedColumns.map((column) => (
+                          <View key={column.key} style={styles.availabilityColumn}>
+                            {TIME_SLOTS.map((slot) => (
+                              <View key={`${column.key}-${slot.label}`} style={styles.combinedSlotCell}>
+                                {column.type === "zone"
+                                  ? column.pairs.map((pair) => {
+                                      const available = isSlotAvailable(pair, selectedDayKey, slot.minutes);
+                                      return (
+                                        <View
+                                          key={`${column.key}-${pair.id}-${slot.label}`}
+                                          style={[
+                                            styles.combinedMiniCell,
+                                            available
+                                              ? { backgroundColor: pair.color.fill, borderColor: pair.color.border }
+                                              : null,
+                                          ]}
+                                        />
+                                      );
+                                    })
+                                  : (() => {
+                                      const available = isSlotAvailable(column.registration, selectedDayKey, slot.minutes);
+                                      return (
+                                        <View
+                                          style={[
+                                            styles.combinedMiniCell,
+                                            available
+                                              ? {
+                                                  backgroundColor: column.registration.color.fill,
+                                                  borderColor: column.registration.color.border,
+                                                }
+                                              : null,
+                                          ]}
+                                        />
+                                      );
+                                    })()}
+                              </View>
+                            ))}
+                          </View>
+                        ))}
+                      </View>
+                    </ScrollView>
+                  </View>
+                </>
+              )}
             </View>
 
             <View style={styles.zoneStack}>
@@ -2740,12 +3134,105 @@ const styles = StyleSheet.create({
   dayChipTextActive: {
     color: colors.surface,
   },
+  extraCategoriesWrap: {
+    gap: spacing.xs,
+    marginBottom: spacing.sm,
+  },
+  extraCategoriesLabel: {
+    color: colors.muted,
+    fontSize: 11,
+    fontFamily: "Inter_700Bold",
+  },
+  extraCategoriesRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.xs,
+    paddingRight: spacing.lg,
+  },
+  extraCategoryChip: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 6,
+  },
+  extraCategoryChipActive: {
+    backgroundColor: colors.secondary,
+    borderColor: colors.primaryDark,
+  },
+  extraCategoryChipText: {
+    color: colors.muted,
+    fontSize: 11,
+    fontFamily: "Inter_700Bold",
+  },
+  extraCategoryChipTextActive: {
+    color: colors.primaryDark,
+  },
   gridCard: {
     backgroundColor: colors.surface,
     borderColor: colors.border,
     borderRadius: 16,
     borderWidth: 1,
     overflow: "hidden",
+  },
+  combinedHeaderCell: {
+    alignItems: "center",
+    borderBottomWidth: 1,
+    borderRightWidth: 1,
+    height: 74,
+    justifyContent: "center",
+    paddingHorizontal: 4,
+    paddingTop: 4,
+    width: 74,
+  },
+  combinedHeaderCellInactive: {
+    opacity: 0.85,
+  },
+  combinedCategoryBadge: {
+    backgroundColor: "rgba(255,255,255,0.88)",
+    borderRadius: 6,
+    marginBottom: 2,
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+  },
+  combinedCategoryBadgeInactive: {
+    backgroundColor: "rgba(120,120,120,0.18)",
+  },
+  combinedCategoryBadgeText: {
+    color: colors.primaryDark,
+    fontSize: 8,
+    fontFamily: "Inter_900Black",
+  },
+  combinedCategoryBadgeTextInactive: {
+    color: colors.muted,
+  },
+  combinedZoneLabelText: {
+    color: colors.text,
+    fontSize: 13,
+    fontFamily: "Inter_900Black",
+  },
+  combinedTimeCell: {
+    alignItems: "center",
+    borderBottomColor: "#E6ECE8",
+    borderBottomWidth: 1,
+    borderRightColor: colors.border,
+    borderRightWidth: 1,
+    height: 88,
+    justifyContent: "center",
+  },
+  combinedSlotCell: {
+    borderBottomColor: "#E6ECE8",
+    borderBottomWidth: 1,
+    borderRightColor: "#E6ECE8",
+    borderRightWidth: 1,
+    height: 88,
+    justifyContent: "center",
+  },
+  combinedMiniCell: {
+    backgroundColor: "#F7FAF8",
+    height: 22,
+    width: "100%",
   },
   gridHeader: {
     flexDirection: "row",
