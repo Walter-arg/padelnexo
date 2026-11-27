@@ -8282,12 +8282,51 @@ export default function TournamentFixtureScreen({ navigation, route }) {
     const currentIndex = tournamentVenueOptions.findIndex((venue) => venue.id === currentVenueId);
     const nextVenue = tournamentVenueOptions[(currentIndex + 1) % tournamentVenueOptions.length];
 
-    if (nextVenue?.id) {
+    if (!nextVenue?.id) {
+      return;
+    }
+
+    const applyVenue = () =>
       updateZonePlanningMatchSchedule(zoneId, matchKey, {
         venueId: nextVenue.id,
         venueLabel: nextVenue.label || nextVenue.name || "",
       });
+
+    const targetZone = (activeZonePlanning?.zones || []).find((zone) => zone.id === zoneId);
+    const existingSchedule = targetZone?.matchSchedules?.[matchKey] || {};
+
+    if (!targetZone || !existingSchedule.startTime || !existingSchedule.dayKey) {
+      applyVenue();
+      return;
     }
+
+    const participantIds = getZoneMatchParticipantIds(targetZone, matchKey, registrationsById);
+    const dependsOn = ["G vs G", "P vs P"].includes(matchKey) ? getZoneOpeningMatchesEndTimes(targetZone) : [];
+    const startMinutes = parseTimeToMinutes(existingSchedule.startTime);
+
+    const result = validateMatchSlot({
+      dayKey: existingSchedule.dayKey,
+      startMinutes,
+      venueId: nextVenue.id,
+      courtIndex: Number(existingSchedule.courtIndex || 0),
+      participantIds,
+      excludeKey: { tournamentId: tournament?.id || "", zoneId, matchKey },
+      occupancy: scheduleOccupancy,
+      matchDurationMinutes: currentZoneMatchDurationMinutes,
+      restMinutes: DEFAULT_REST_MINUTES,
+      dependsOn,
+      pairLabelsById,
+    });
+
+    if (result.hasConflict) {
+      Alert.alert("Horario con conflicto", `${result.conflictReason}. ¿Asignar igual?`, [
+        { style: "cancel", text: "Cancelar" },
+        { onPress: applyVenue, text: "Asignar igual" },
+      ]);
+      return;
+    }
+
+    applyVenue();
   };
 
   const applySelectedZonePlanningSlot = (slot) => {

@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useMemo, useRef, useState } from "react";
+import { Fragment, memo, useCallback, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -29,7 +29,9 @@ import { colors, spacing } from "../config/theme";
 import { useAuth } from "../context/AuthContext";
 import { getQuickSlotDefinitions } from "../services/availabilityService";
 import {
+  addTournamentCustomSlot,
   buildTournamentDayOptions,
+  normalizeTournamentAvailability,
 } from "../services/tournamentAvailabilityService";
 import {
   getTournamentById,
@@ -37,6 +39,7 @@ import {
   listTournamentRegistrations,
   listTournamentsByBatchId,
   updateTournament,
+  updateTournamentRegistration,
 } from "../services/tournamentsService";
 import {
   DEFAULT_MATCH_DURATION_MINUTES,
@@ -56,15 +59,6 @@ const PAIR_COLORS = [
   { bg: "#E8FAFA", border: "#9CD4D1", fill: "#BCE9E7", text: "#146C68" },
   { bg: "#FFF0F4", border: "#E7A9B8", fill: "#F7C7D2", text: "#9B314B" },
 ];
-const TIME_SLOTS = Array.from({ length: 18 }, (_, index) => {
-  const hour = index + 7;
-  const normalizedHour = hour === 24 ? 0 : hour;
-  return {
-    label: `${String(normalizedHour).padStart(2, "0")}:00`,
-    minutes: hour * 60,
-  };
-});
-
 function parseMinutes(value = "") {
   const [hour = "0", minute = "0"] = String(value || "").split(":");
   return Number.parseInt(hour, 10) * 60 + Number.parseInt(minute, 10);
@@ -214,6 +208,201 @@ function getPairLabel(registration = {}, index = 0) {
 function extractCategoryOrderNumber(label = "") {
   const match = String(label || "").match(/(\d+)/);
   return match ? Number(match[1]) : 999;
+}
+
+// Color fijo por categoria (barra de encabezado + casilleros), distinto de
+// PAIR_COLORS que es por pareja dentro de una categoria.
+const CATEGORY_BAR_COLORS = ["#1B5D92", "#0F5F37", "#895A00", "#5B3EA0", "#146C68", "#9B314B"];
+
+function getCategoryColor(index = 0) {
+  return CATEGORY_BAR_COLORS[index % CATEGORY_BAR_COLORS.length];
+}
+
+// Columnas de hora de la grilla nueva: salen de la disponibilidad de sedes
+// configurada para el dia elegido (no de un rango fijo). Si hay mas de una
+// franja sin pisarse, se toma el rango que va desde la mas temprana a la mas
+// tardia (las horas intermedias sin cancha configurada quedan igual como
+// columna, simplemente no van a tener partidos ahi).
+function getHourColumnsForDay(venueSchedules = [], dayKey = "") {
+  const daySchedules = (Array.isArray(venueSchedules) ? venueSchedules : []).filter(
+    (schedule) => schedule.dayKey === dayKey
+  );
+
+  if (!daySchedules.length) {
+    return [];
+  }
+
+  const minFrom = Math.min(...daySchedules.map((schedule) => parseMinutes(schedule.from)));
+  const maxTo = Math.max(...daySchedules.map((schedule) => parseMinutes(schedule.to)));
+  const startHour = Math.floor(minFrom / 60);
+  const endHour = Math.max(startHour + 1, Math.ceil(maxTo / 60));
+  const columns = [];
+
+  for (let hour = startHour; hour < endHour; hour += 1) {
+    const normalizedHour = ((hour % 24) + 24) % 24;
+    columns.push({
+      minutes: hour * 60,
+      label: `${String(normalizedHour).padStart(2, "0")}:00`,
+    });
+  }
+
+  return columns;
+}
+
+// Horas totales cargadas por una pareja, sumando TODOS los dias (no solo el
+// dia seleccionado), para el diagnostico "Sin horario / < 4h / >= 4h".
+function getTotalLoadedHours(registration = {}) {
+  const availability = registration?.availability || {};
+  const quickSlotDefinitions = getQuickSlotDefinitions();
+  let totalMinutes = 0;
+
+  Object.values(availability).forEach((dayValue) => {
+    (dayValue?.quickSlots || []).forEach((slotKey) => {
+      const definition = quickSlotDefinitions.find((slot) => slot.key === slotKey);
+      if (!definition) return;
+      const from = parseMinutes(definition.from);
+      let to = parseMinutes(definition.to);
+      if (to <= from) to += 24 * 60;
+      totalMinutes += to - from;
+    });
+
+    (Array.isArray(dayValue?.customSlots) ? dayValue.customSlots : []).forEach((slot) => {
+      const from = parseMinutes(slot.from);
+      let to = parseMinutes(slot.to);
+      if (to <= from) to += 24 * 60;
+      totalMinutes += Math.max(0, to - from);
+    });
+  });
+
+  return totalMinutes / 60;
+}
+
+function getHoursStatusTag(totalHours = 0) {
+  if (totalHours <= 0) {
+    return { tone: "danger", label: "Sin horario" };
+  }
+
+  if (totalHours < 4) {
+    return { tone: "warning", label: `${totalHours % 1 === 0 ? totalHours : totalHours.toFixed(1)} h` };
+  }
+
+  return { tone: "success", label: `${totalHours % 1 === 0 ? totalHours : totalHours.toFixed(1)} h` };
+}
+
+function buildZoneLetterMapForZones(zones = []) {
+  const map = new Map();
+
+  zones.forEach((zone, zoneIndex) => {
+    const label = String(zone?.label || "").trim();
+    const letterMatch = label.match(/zona\s+([a-z0-9]+)/i);
+    const letter = (letterMatch?.[1] || ZONE_LETTERS[zoneIndex] || `${zoneIndex + 1}`).toUpperCase();
+
+    (zone.registrationIds || []).forEach((registrationId) => {
+      map.set(String(registrationId), letter);
+    });
+  });
+
+  return map;
+}
+
+// Parejas sin zona primero, luego las asignadas agrupadas por letra de zona
+// (igual criterio que la pantalla usaba antes de la grilla nueva).
+function sortRegistrationsUnassignedFirst(registrations = [], assignedIds, zoneLetterMap) {
+  return [...registrations].sort((first, second) => {
+    const firstAssigned = assignedIds.has(first.id);
+    const secondAssigned = assignedIds.has(second.id);
+
+    if (firstAssigned !== secondAssigned) {
+      return firstAssigned ? 1 : -1;
+    }
+
+    if (firstAssigned && secondAssigned) {
+      const firstLetter = zoneLetterMap.get(String(first.id)) || "";
+      const secondLetter = zoneLetterMap.get(String(second.id)) || "";
+      const comparison = firstLetter.localeCompare(secondLetter, "es", { numeric: true, sensitivity: "base" });
+      if (comparison !== 0) {
+        return comparison;
+      }
+    }
+
+    return 0;
+  });
+}
+
+// Pinta o despinta una hora puntual en la disponibilidad de una pareja,
+// partiendo cualquier franja (rapida o personalizada) que la cubra, para no
+// perder el resto de esa franja. Usa normalizeTournamentAvailability /
+// addTournamentCustomSlot, que ya son las funciones del servicio existente.
+function buildAvailabilityAfterCellToggle(registration, dayKey, hourMinutes, tournamentDayOptions) {
+  const availability = registration?.availability || {};
+  const wasAvailable = isSlotAvailable(registration, dayKey, hourMinutes);
+
+  if (!wasAvailable) {
+    return addTournamentCustomSlot(
+      availability,
+      dayKey,
+      { from: formatMinutesToTime(hourMinutes), to: formatMinutesToTime(hourMinutes + 60) },
+      tournamentDayOptions
+    );
+  }
+
+  const normalized = normalizeTournamentAvailability(availability, tournamentDayOptions);
+  const currentDay = normalized[dayKey] || { quickSlots: [], customSlots: [] };
+  const quickSlotDefinitions = getQuickSlotDefinitions();
+  const hourEnd = hourMinutes + 60;
+  const remainingQuickSlots = [];
+  const splitCustomSlots = [];
+
+  const touchesHour = (fromMinutes, toMinutes) => {
+    let normalizedTo = toMinutes;
+    if (normalizedTo <= fromMinutes) normalizedTo += 24 * 60;
+    return hourMinutes < normalizedTo && hourEnd > fromMinutes;
+  };
+
+  currentDay.quickSlots.forEach((slotKey) => {
+    const definition = quickSlotDefinitions.find((slot) => slot.key === slotKey);
+    if (!definition) return;
+    const from = parseMinutes(definition.from);
+    const to = parseMinutes(definition.to);
+
+    if (!touchesHour(from, to)) {
+      remainingQuickSlots.push(slotKey);
+      return;
+    }
+
+    if (from < hourMinutes) {
+      splitCustomSlots.push({ from: definition.from, to: formatMinutesToTime(hourMinutes) });
+    }
+    if (parseMinutes(definition.to) > hourEnd || to <= from) {
+      splitCustomSlots.push({ from: formatMinutesToTime(hourEnd), to: definition.to });
+    }
+  });
+
+  const remainingCustomSlots = [];
+
+  currentDay.customSlots.forEach((slot) => {
+    const from = parseMinutes(slot.from);
+    const to = parseMinutes(slot.to);
+
+    if (!touchesHour(from, to)) {
+      remainingCustomSlots.push(slot);
+      return;
+    }
+
+    if (from < hourMinutes) {
+      splitCustomSlots.push({ from: slot.from, to: formatMinutesToTime(hourMinutes) });
+    }
+    if (to > hourEnd || to <= from) {
+      splitCustomSlots.push({ from: formatMinutesToTime(hourEnd), to: slot.to });
+    }
+  });
+
+  normalized[dayKey] = {
+    quickSlots: remainingQuickSlots,
+    customSlots: [...remainingCustomSlots, ...splitCustomSlots],
+  };
+
+  return normalizeTournamentAvailability(normalized, tournamentDayOptions);
 }
 
 function getShortPersonName(rawName = "") {
@@ -601,6 +790,98 @@ function buildZoneStandings(zone = {}, zoneRegistrations = [], matchFormat = "th
     });
 }
 
+// Celda fija de la izquierda con el nombre de la pareja (columna que no se
+// desplaza horizontalmente). Memoizada: al pintar/despintar una celda de
+// disponibilidad solo cambia el objeto `registration` de ESA pareja (el
+// resto conserva su referencia), asi que las demas filas no se re-renderizan.
+const PairNameCell = memo(function PairNameCell({
+  registration,
+  isEditable,
+  isSelected,
+  zoneLetter,
+  hoursStatus,
+  onPress,
+}) {
+  const statusColor =
+    hoursStatus.tone === "danger" ? colors.danger : hoursStatus.tone === "warning" ? "#B8860B" : "#0F5F37";
+
+  return (
+    <Pressable
+      disabled={!isEditable}
+      onPress={isEditable ? () => onPress(registration.id) : undefined}
+      style={[
+        styles.pairNameCell,
+        { backgroundColor: registration.color?.bg || "#F6FBF8", borderColor: registration.color?.border || colors.border },
+        !isEditable ? styles.pairNameCellReadOnly : null,
+        isSelected ? styles.pairNameCellSelected : null,
+      ]}
+    >
+      <View style={styles.pairNameCellTopRow}>
+        <Text numberOfLines={2} style={[styles.pairNameCellText, { color: registration.color?.text || colors.text }]}>
+          {registration.shortDisplayLabel || registration.displayLabel}
+        </Text>
+        {zoneLetter ? (
+          <View style={styles.pairNameZoneBadge}>
+            <Text style={styles.pairNameZoneBadgeText}>{zoneLetter}</Text>
+          </View>
+        ) : null}
+      </View>
+      <Text numberOfLines={1} style={[styles.pairNameStatusText, { color: statusColor }]}>
+        {hoursStatus.label}
+      </Text>
+      {isSelected ? (
+        <View style={styles.pairNameSelectedBadge}>
+          <Ionicons color={colors.surface} name="checkmark" size={10} />
+        </View>
+      ) : null}
+    </Pressable>
+  );
+},
+(prev, next) =>
+  prev.registration.id === next.registration.id &&
+  prev.registration.availability === next.registration.availability &&
+  prev.registration.color === next.registration.color &&
+  prev.isEditable === next.isEditable &&
+  prev.isSelected === next.isSelected &&
+  prev.zoneLetter === next.zoneLetter &&
+  prev.hoursStatus.label === next.hoursStatus.label &&
+  prev.hoursStatus.tone === next.hoursStatus.tone
+);
+
+// Fila de celdas de disponibilidad de una pareja (dentro del ScrollView
+// horizontal). Tambien memoizada por la misma razon que PairNameCell.
+const PairCellsRow = memo(function PairCellsRow({ registration, hourColumns, selectedDayKey, isEditable, onToggleCell }) {
+  return (
+    <View style={styles.pairCellsRow}>
+      {hourColumns.map((hour) => {
+        const available = isSlotAvailable(registration, selectedDayKey, hour.minutes);
+        return (
+          <Pressable
+            disabled={!isEditable}
+            key={hour.minutes}
+            onPress={isEditable ? () => onToggleCell(registration, hour.minutes) : undefined}
+            style={[
+              styles.hourCell,
+              available
+                ? { backgroundColor: registration.color?.fill || "#BFE8D0", borderColor: registration.color?.border || colors.border }
+                : null,
+              !isEditable ? styles.hourCellReadOnly : null,
+            ]}
+          />
+        );
+      })}
+    </View>
+  );
+},
+(prev, next) =>
+  prev.registration.id === next.registration.id &&
+  prev.registration.availability === next.registration.availability &&
+  prev.registration.color === next.registration.color &&
+  prev.hourColumns === next.hourColumns &&
+  prev.selectedDayKey === next.selectedDayKey &&
+  prev.isEditable === next.isEditable
+);
+
 export default function TournamentZonePlanningScreen({ navigation, route }) {
   const { userData } = useAuth();
   const tournamentId = route?.params?.tournamentId || "";
@@ -621,20 +902,19 @@ export default function TournamentZonePlanningScreen({ navigation, route }) {
   const [resultEditor, setResultEditor] = useState(null);
   const [zoneDeleteTarget, setZoneDeleteTarget] = useState(null);
   const [confirmArmadoPrompt, setConfirmArmadoPrompt] = useState(null);
-  // Categorias hermanas que el organizador tilda para VER junto a esta (solo
-  // lectura: no se puede armar zonas ahi, solo mirar su disponibilidad). Para
-  // armar zonas de otra categoria hay que cambiarla como categoria activa con
-  // el selector de categoria que ya existe (onSelectCategory).
-  const [extraCategoryIds, setExtraCategoryIds] = useState([]);
-  const [extraCategoriesData, setExtraCategoriesData] = useState({});
+  // Datos completos (torneo + parejas + zonas) de TODAS las categorias
+  // hermanas del evento, para mostrarlas en solo lectura debajo de la
+  // categoria activa en la grilla. Para armar zonas de otra categoria hay que
+  // cambiarla como categoria activa con el selector que ya existe
+  // (onSelectCategory), esto es solo para mirar.
+  const [siblingCategoriesData, setSiblingCategoriesData] = useState({});
+  const [collapsedSiblingIds, setCollapsedSiblingIds] = useState(() => new Set());
+  const [gridFilter, setGridFilter] = useState({ type: "all" });
   const { categoryOptions, onSelectCategory } = useTournamentCategorySwitcher(tournament, navigation);
   const [standingsModalZoneId, setStandingsModalZoneId] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const headerScrollRef = useRef(null);
-  const bodyScrollRef = useRef(null);
   const savedPlanningRef = useRef({ confirmed: false, zones: [] });
-  const syncingHorizontalScrollRef = useRef(false);
   const [feedback, setFeedback] = useState({
     visible: false,
     title: "",
@@ -693,74 +973,73 @@ export default function TournamentZonePlanningScreen({ navigation, route }) {
     }, [loadScreen])
   );
 
-  useEffect(() => {
-    const idsToFetch = extraCategoryIds.filter((id) => !extraCategoriesData[id]);
+  useFocusEffect(
+    useCallback(() => {
+      let isMounted = true;
+      const siblingIds = categoryOptions.map((option) => option.value).filter((id) => id && id !== tournamentId);
 
-    if (!idsToFetch.length) {
-      return undefined;
-    }
-
-    let isMounted = true;
-
-    (async () => {
-      try {
-        const entries = await Promise.all(
-          idsToFetch.map(async (id) => {
-            const [tournamentResponse, registrationsResponse] = await Promise.all([
-              getTournamentById(id),
-              listTournamentRegistrations(id),
-            ]);
-            const confirmedRegs = registrationsResponse
-              .filter(isActiveRegistration)
-              .map((registration, index) => ({
-                ...registration,
-                color: PAIR_COLORS[index % PAIR_COLORS.length],
-                displayLabel: getPairLabel(registration, index),
-                shortDisplayLabel: getShortPairLabel(registration, index),
-              }));
-            const planning = normalizeZonePlanning(
-              tournamentResponse?.zonePlanning || tournamentResponse?.fixtureSetup?.zonePlanning || {},
-              confirmedRegs
-            );
-
-            return [
-              id,
-              {
-                tournament: tournamentResponse,
-                confirmedRegistrations: confirmedRegs,
-                zonePlanning: planning,
-              },
-            ];
-          })
-        );
-
-        if (isMounted) {
-          setExtraCategoriesData((current) => {
-            const next = { ...current };
-            entries.forEach(([id, data]) => {
-              next[id] = data;
-            });
-            return next;
-          });
-        }
-      } catch {
-        // Si falla una categoria extra, simplemente no se muestra; no bloquea la pantalla principal.
+      if (!siblingIds.length) {
+        setSiblingCategoriesData({});
+        return () => {
+          isMounted = false;
+        };
       }
-    })();
 
-    return () => {
-      isMounted = false;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [extraCategoryIds]);
+      (async () => {
+        try {
+          const entries = await Promise.all(
+            siblingIds.map(async (id) => {
+              const [tournamentResponse, registrationsResponse] = await Promise.all([
+                getTournamentById(id),
+                listTournamentRegistrations(id),
+              ]);
+              const confirmedRegs = registrationsResponse
+                .filter(isActiveRegistration)
+                .map((registration, index) => ({
+                  ...registration,
+                  color: PAIR_COLORS[index % PAIR_COLORS.length],
+                  displayLabel: getPairLabel(registration, index),
+                  shortDisplayLabel: getShortPairLabel(registration, index),
+                }));
+              const planning = normalizeZonePlanning(
+                tournamentResponse?.zonePlanning || tournamentResponse?.fixtureSetup?.zonePlanning || {},
+                confirmedRegs
+              );
+
+              return [
+                id,
+                {
+                  tournament: tournamentResponse,
+                  confirmedRegistrations: confirmedRegs,
+                  zonePlanning: planning,
+                },
+              ];
+            })
+          );
+
+          if (isMounted) {
+            setSiblingCategoriesData(Object.fromEntries(entries));
+          }
+        } catch {
+          // Si falla, la grilla sigue mostrando solo la categoria activa.
+          if (isMounted) {
+            setSiblingCategoriesData({});
+          }
+        }
+      })();
+
+      return () => {
+        isMounted = false;
+      };
+    }, [categoryOptions, tournamentId])
+  );
 
   // Zonas (con sus matchSchedules) de TODAS las categorias hermanas del
   // evento, solo para saber que canchas ya estan ocupadas por otras
   // categorias (una pareja nunca puede estar en 2 categorias del mismo
   // evento, asi que las hermanas nunca aportan ocupacion por pareja, solo por
-  // cancha). Se trae siempre que haya creationBatchId, independientemente de
-  // que el organizador este "viendo" esas categorias con el selector de
-  // arriba (extraCategoryIds es para mirar, esto es para no pisar canchas).
+  // cancha). Es un fetch liviano (solo zonas), separado de
+  // siblingCategoriesData (que trae ademas las parejas, para la grilla).
   const [siblingZonesForOccupancy, setSiblingZonesForOccupancy] = useState([]);
   const [eventVenueSchedules, setEventVenueSchedules] = useState([]);
 
@@ -1028,168 +1307,242 @@ export default function TournamentZonePlanningScreen({ navigation, route }) {
     () => new Set((zonePlanning.zones || []).flatMap((zone) => zone.registrationIds || [])),
     [zonePlanning.zones]
   );
-  const assignedZoneLetterByRegistrationId = useMemo(() => {
-    const nextMap = new Map();
 
-    (zonePlanning.zones || []).forEach((zone, zoneIndex) => {
-      const label = String(zone?.label || "").trim();
-      const labelLetterMatch = label.match(/zona\s+([a-z])/i);
-      const zoneLetter = (labelLetterMatch?.[1] || ZONE_LETTERS[zoneIndex] || `${zoneIndex + 1}`).toUpperCase();
-
-      (zone.registrationIds || []).forEach((registrationId) => {
-        nextMap.set(String(registrationId), zoneLetter);
-      });
-    });
-
-    return nextMap;
-  }, [zonePlanning.zones]);
-  const orderedRegistrations = useMemo(
-    () =>
-      [...confirmedRegistrations].sort((first, second) => {
-        const firstAssigned = assignedIds.has(first.id);
-        const secondAssigned = assignedIds.has(second.id);
-
-        if (firstAssigned !== secondAssigned) {
-          return firstAssigned ? 1 : -1;
-        }
-
-        if (firstAssigned && secondAssigned) {
-          const firstZoneLetter = assignedZoneLetterByRegistrationId.get(String(first.id)) || "";
-          const secondZoneLetter = assignedZoneLetterByRegistrationId.get(String(second.id)) || "";
-          const zoneComparison = firstZoneLetter.localeCompare(secondZoneLetter, "es", {
-            numeric: true,
-            sensitivity: "base",
-          });
-
-          if (zoneComparison !== 0) {
-            return zoneComparison;
-          }
-        }
-
-        return 0;
-      }),
-    [assignedIds, assignedZoneLetterByRegistrationId, confirmedRegistrations]
-  );
-
-  // Bloques por categoria para la vista combinada (activa + las que se
-  // tildaron para ver solo lectura), ordenados por el numero de la categoria
-  // (5ta antes que 7ma antes que 8va).
+  // Bloques por categoria para la grilla (activa + TODAS las hermanas, en
+  // solo lectura), ordenados por el numero de la categoria (5ta antes que
+  // 7ma antes que 8va). A diferencia de la version anterior, las hermanas ya
+  // no son opcionales: se muestran siempre que existan, plegables.
   const allCategoryBlocks = useMemo(() => {
+    const activeZones = zonePlanning.zones || [];
     const activeBlock = {
       tournamentId,
       categoryLabel: tournamentCategoryLabel,
       isActive: true,
-      confirmedRegistrations,
-      zones: zonePlanning.zones || [],
+      confirmedRegistrations: sortRegistrationsUnassignedFirst(
+        confirmedRegistrations,
+        assignedIds,
+        buildZoneLetterMapForZones(activeZones)
+      ),
+      zones: activeZones,
       assignedIds,
     };
 
-    const extraBlocks = extraCategoryIds
-      .map((id) => {
-        const data = extraCategoriesData[id];
+    const siblingBlocks = Object.entries(siblingCategoriesData).map(([id, data]) => {
+      const label =
+        data.tournament?.compositionConfig?.label ||
+        data.tournament?.compositionLabel ||
+        data.tournament?.categoryLabel ||
+        "";
+      const siblingZones = data.zonePlanning.zones || [];
+      const siblingAssignedIds = new Set(siblingZones.flatMap((zone) => zone.registrationIds || []));
 
-        if (!data) {
-          return null;
-        }
+      return {
+        tournamentId: id,
+        categoryLabel: label,
+        isActive: false,
+        confirmedRegistrations: sortRegistrationsUnassignedFirst(
+          data.confirmedRegistrations,
+          siblingAssignedIds,
+          buildZoneLetterMapForZones(siblingZones)
+        ),
+        zones: siblingZones,
+        assignedIds: siblingAssignedIds,
+      };
+    });
 
-        const label =
-          data.tournament?.compositionConfig?.label ||
-          data.tournament?.compositionLabel ||
-          data.tournament?.categoryLabel ||
-          "";
-        const extraAssignedIds = new Set(
-          (data.zonePlanning.zones || []).flatMap((zone) => zone.registrationIds || [])
-        );
-
-        return {
-          tournamentId: id,
-          categoryLabel: label,
-          isActive: false,
-          confirmedRegistrations: data.confirmedRegistrations,
-          zones: data.zonePlanning.zones || [],
-          assignedIds: extraAssignedIds,
-        };
-      })
-      .filter(Boolean);
-
-    return [activeBlock, ...extraBlocks].sort(
+    return [activeBlock, ...siblingBlocks].sort(
       (first, second) =>
         extractCategoryOrderNumber(first.categoryLabel) - extractCategoryOrderNumber(second.categoryLabel)
     );
-  }, [
-    tournamentId,
-    tournamentCategoryLabel,
-    confirmedRegistrations,
-    zonePlanning.zones,
-    assignedIds,
-    extraCategoryIds,
-    extraCategoriesData,
-  ]);
+  }, [tournamentId, tournamentCategoryLabel, confirmedRegistrations, zonePlanning.zones, assignedIds, siblingCategoriesData]);
 
-  const isMultiCategoryView = extraCategoryIds.length > 0;
+  // ── Grilla nueva (filas = pareja, columnas = hora) ─────────────────────────
+  const hourColumns = useMemo(
+    () => getHourColumnsForDay(effectiveVenueSchedules, selectedDayKey),
+    [effectiveVenueSchedules, selectedDayKey]
+  );
 
-  const combinedZoneColumns = useMemo(() => {
-    if (!isMultiCategoryView) {
-      return [];
-    }
-
-    const columns = [];
-
+  const zoneLetterMapsByBlock = useMemo(() => {
+    const map = new Map();
     allCategoryBlocks.forEach((block) => {
-      block.zones.forEach((zone, zoneIndex) => {
-        const pairs = (zone.registrationIds || [])
-          .map((id) => block.confirmedRegistrations.find((registration) => registration.id === id))
-          .filter(Boolean);
+      map.set(block.tournamentId, buildZoneLetterMapForZones(block.zones));
+    });
+    return map;
+  }, [allCategoryBlocks]);
 
-        if (!pairs.length) {
-          return;
-        }
+  const categoryFilterOptions = useMemo(
+    () =>
+      allCategoryBlocks.map((block, index) => ({
+        tournamentId: block.tournamentId,
+        label: block.categoryLabel || (block.isActive ? "Esta categoria" : "Categoria"),
+        count: block.confirmedRegistrations.length,
+        colorIndex: index,
+      })),
+    [allCategoryBlocks]
+  );
 
-        columns.push({
-          key: `zone:${block.tournamentId}:${zone.id}`,
-          type: "zone",
-          tournamentId: block.tournamentId,
-          categoryLabel: block.categoryLabel,
-          isActive: block.isActive,
-          zoneLabel: zone.label || `Zona ${ZONE_LETTERS[zoneIndex] || zoneIndex + 1}`,
-          pairs,
-        });
+  const gridRows = useMemo(() => {
+    const rows = [];
+
+    allCategoryBlocks.forEach((block, blockIndex) => {
+      if (gridFilter.type === "category" && block.tournamentId !== gridFilter.tournamentId) {
+        return;
+      }
+
+      const isCollapsed = !block.isActive && collapsedSiblingIds.has(block.tournamentId);
+      rows.push({
+        block,
+        colorIndex: blockIndex,
+        isCollapsed,
+        key: `header:${block.tournamentId}`,
+        type: "category-header",
       });
+
+      if (isCollapsed) {
+        return;
+      }
+
+      const zoneLetterMap = zoneLetterMapsByBlock.get(block.tournamentId) || new Map();
+
+      block.confirmedRegistrations
+        .filter((registration) => {
+          if (gridFilter.type === "problems") {
+            return getTotalLoadedHours(registration) < 4;
+          }
+          if (gridFilter.type === "unassigned") {
+            return !block.assignedIds.has(registration.id);
+          }
+          return true;
+        })
+        .forEach((registration) => {
+          rows.push({
+            block,
+            colorIndex: blockIndex,
+            key: `pair:${block.tournamentId}:${registration.id}`,
+            registration,
+            type: "pair",
+            zoneLetter: zoneLetterMap.get(String(registration.id)) || "",
+          });
+        });
+
+      rows.push({ block, colorIndex: blockIndex, key: `coinciden:${block.tournamentId}`, type: "coinciden" });
     });
 
-    return columns;
-  }, [allCategoryBlocks, isMultiCategoryView]);
-
-  const combinedUnassignedColumns = useMemo(() => {
-    if (!isMultiCategoryView) {
-      return [];
+    if (rows.length) {
+      rows.push({ key: "canchas-ocupadas", type: "canchas-ocupadas" });
     }
 
-    const columns = [];
+    return rows;
+  }, [allCategoryBlocks, gridFilter, collapsedSiblingIds, zoneLetterMapsByBlock]);
 
-    allCategoryBlocks.forEach((block) => {
-      block.confirmedRegistrations.forEach((registration) => {
-        if (block.assignedIds.has(registration.id)) {
-          return;
-        }
+  const toggleSiblingCollapsed = useCallback((siblingTournamentId) => {
+    setCollapsedSiblingIds((current) => {
+      const next = new Set(current);
+      if (next.has(siblingTournamentId)) {
+        next.delete(siblingTournamentId);
+      } else {
+        next.add(siblingTournamentId);
+      }
+      return next;
+    });
+  }, []);
 
-        columns.push({
-          key: `pair:${block.tournamentId}:${registration.id}`,
-          type: "pair",
-          tournamentId: block.tournamentId,
-          categoryLabel: block.categoryLabel,
-          isActive: block.isActive,
+  const countPairsAvailableAtHour = useCallback(
+    (block, hourMinutes) =>
+      block.confirmedRegistrations.filter((registration) => isSlotAvailable(registration, selectedDayKey, hourMinutes))
+        .length,
+    [selectedDayKey]
+  );
+
+  const getCourtsAvailableAtHour = useCallback(
+    (hourMinutes) => {
+      let total = 0;
+      effectiveVenueSchedules
+        .filter((schedule) => schedule.dayKey === selectedDayKey)
+        .forEach((schedule) => {
+          const from = parseMinutes(schedule.from);
+          const to = parseMinutes(schedule.to);
+          if (hourMinutes >= from && hourMinutes < to) {
+            total += Array.isArray(schedule.selectedCourtIndices) && schedule.selectedCourtIndices.length
+              ? schedule.selectedCourtIndices.length
+              : Number(schedule.courts || 1);
+          }
+        });
+      return total;
+    },
+    [effectiveVenueSchedules, selectedDayKey]
+  );
+
+  const countMatchesAtHour = useCallback(
+    (hourMinutes) =>
+      scheduledMatchesForOccupancy.filter(
+        (match) =>
+          match.dayKey === selectedDayKey &&
+          match.startMinutes < hourMinutes + 60 &&
+          match.startMinutes + effectiveMatchDurationMinutes > hourMinutes
+      ).length,
+    [scheduledMatchesForOccupancy, selectedDayKey, effectiveMatchDurationMinutes]
+  );
+
+  const handleToggleAvailabilityCell = useCallback(
+    (registration, hourMinutes) => {
+      const wasAvailable = isSlotAvailable(registration, selectedDayKey, hourMinutes);
+      const hasAssignedMatchHere = (scheduleOccupancy.byPair.get(registration.id) || []).some(
+        (entry) =>
+          entry.dayKey === selectedDayKey &&
+          hourMinutes < entry.endMinutes &&
+          hourMinutes + 60 > entry.startMinutes
+      );
+
+      const applyToggle = async () => {
+        const previousAvailability = registration.availability;
+        const nextAvailability = buildAvailabilityAfterCellToggle(
           registration,
-        });
-      });
-    });
+          selectedDayKey,
+          hourMinutes,
+          tournamentDayOptions
+        );
 
-    return columns;
-  }, [allCategoryBlocks, isMultiCategoryView]);
+        setRegistrations((current) =>
+          current.map((entry) =>
+            entry.id === registration.id ? { ...entry, availability: nextAvailability } : entry
+          )
+        );
 
-  const combinedColumns = useMemo(
-    () => [...combinedZoneColumns, ...combinedUnassignedColumns],
-    [combinedZoneColumns, combinedUnassignedColumns]
+        try {
+          await updateTournamentRegistration(tournamentId, registration.id, { availability: nextAvailability });
+        } catch (error) {
+          setRegistrations((current) =>
+            current.map((entry) =>
+              entry.id === registration.id ? { ...entry, availability: previousAvailability } : entry
+            )
+          );
+          setFeedback({
+            visible: true,
+            title: "No pudimos guardar la disponibilidad",
+            message: error?.message || "El cambio se deshizo, intenta nuevamente.",
+            tone: "danger",
+          });
+        }
+      };
+
+      if (wasAvailable && hasAssignedMatchHere) {
+        Alert.alert(
+          "Tiene un partido asignado",
+          `${registration.shortDisplayLabel || registration.displayLabel} tiene un partido asignado el ${getWeekdayLabel(
+            selectedDayKey
+          )} ${formatMinutesToTime(hourMinutes)}. ¿Quitar igual esta disponibilidad?`,
+          [
+            { style: "cancel", text: "Cancelar" },
+            { onPress: () => applyToggle(), text: "Quitar igual" },
+          ]
+        );
+        return;
+      }
+
+      applyToggle();
+    },
+    [selectedDayKey, scheduleOccupancy, tournamentDayOptions, tournamentId]
   );
 
   const hasUnsavedChanges = useMemo(
@@ -1257,19 +1610,6 @@ export default function TournamentZonePlanningScreen({ navigation, route }) {
         ? current.filter((id) => id !== registrationId)
         : [...current, registrationId]
     );
-  };
-
-  const syncHorizontalScroll = (source, offsetX) => {
-    if (syncingHorizontalScrollRef.current) {
-      return;
-    }
-
-    syncingHorizontalScrollRef.current = true;
-    const targetRef = source === "header" ? bodyScrollRef : headerScrollRef;
-    targetRef.current?.scrollTo({ animated: false, x: offsetX });
-    requestAnimationFrame(() => {
-      syncingHorizontalScrollRef.current = false;
-    });
   };
 
   const createZoneFromSelection = () => {
@@ -1891,15 +2231,20 @@ export default function TournamentZonePlanningScreen({ navigation, route }) {
     closeZoneDayPicker();
   };
 
-  const cycleZoneMatchVenue = (zone, matchKey) => {
-    if (!tournamentVenueOptions.length) {
-      return;
-    }
-
+  // Antes esto iba rotando de sede con cada toque, sin avisar si la sede
+  // nueva generaba conflicto. Ahora abre el mismo cartel de "Definir
+  // horario" (con sus chips de sede/cancha y el aviso de conflicto), para
+  // elegir en vez de ir rotando a ciegas.
+  const openZoneVenuePicker = (zone, matchKey) => {
     const schedule = getZoneMatchSchedule(zone, matchKey);
-    const currentIndex = tournamentVenueOptions.findIndex((venue) => venue.id === schedule.venueId);
-    const nextVenue = tournamentVenueOptions[(currentIndex + 1) % tournamentVenueOptions.length];
-    updateZoneMatchSchedule(zone.id, matchKey, { venueId: nextVenue.id });
+    setCustomScheduleModal({
+      zoneId: zone.id,
+      matchKey,
+      dayKey: schedule.dayKey || tournamentDayOptions[0]?.key || "",
+      startTime: schedule.startTime || "19:00",
+      venueId: schedule.venueId || tournamentVenueOptions[0]?.id || "",
+      courtIndex: schedule.courtIndex || 1,
+    });
   };
 
   const removeZone = (zoneId) => {
@@ -2147,48 +2492,226 @@ export default function TournamentZonePlanningScreen({ navigation, route }) {
               </View>
             </ScrollView>
 
-            {categoryOptions.length > 0 ? (
-              <View style={styles.extraCategoriesWrap}>
-                <Text style={styles.extraCategoriesLabel}>
-                  Ver también (solo lectura, {tournamentCategoryLabel || "esta categoria"} sigue siendo la editable)
-                </Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                  <View style={styles.extraCategoriesRow}>
-                    {categoryOptions
-                      .filter((option) => option.value !== tournamentId)
-                      .map((option) => {
-                        const isSelected = extraCategoryIds.includes(option.value);
+            <Text style={styles.instantSaveNote}>
+              Los cambios de horario se guardan al instante.
+            </Text>
 
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.filterChipsContent}
+            >
+              <View style={styles.filterChipsRow}>
+                <Pressable
+                  onPress={() => setGridFilter({ type: "all" })}
+                  style={[styles.filterChip, gridFilter.type === "all" ? styles.filterChipActive : null]}
+                >
+                  <Text style={[styles.filterChipText, gridFilter.type === "all" ? styles.filterChipTextActive : null]}>
+                    Todas
+                  </Text>
+                </Pressable>
+                {categoryFilterOptions.map((option) => {
+                  const isActive = gridFilter.type === "category" && gridFilter.tournamentId === option.tournamentId;
+
+                  return (
+                    <Pressable
+                      key={option.tournamentId}
+                      onPress={() => setGridFilter({ tournamentId: option.tournamentId, type: "category" })}
+                      style={[
+                        styles.filterChip,
+                        { borderColor: getCategoryColor(option.colorIndex) },
+                        isActive ? styles.filterChipActive : null,
+                      ]}
+                    >
+                      <Text style={[styles.filterChipText, isActive ? styles.filterChipTextActive : null]}>
+                        {option.label} ({option.count})
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+                <Pressable
+                  onPress={() => setGridFilter({ type: "problems" })}
+                  style={[styles.filterChip, gridFilter.type === "problems" ? styles.filterChipActive : null]}
+                >
+                  <Text style={[styles.filterChipText, gridFilter.type === "problems" ? styles.filterChipTextActive : null]}>
+                    Con problemas
+                  </Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => setGridFilter({ type: "unassigned" })}
+                  style={[styles.filterChip, gridFilter.type === "unassigned" ? styles.filterChipActive : null]}
+                >
+                  <Text style={[styles.filterChipText, gridFilter.type === "unassigned" ? styles.filterChipTextActive : null]}>
+                    Sin zona
+                  </Text>
+                </Pressable>
+              </View>
+            </ScrollView>
+
+            {!selectedDayKey ? null : hourColumns.length === 0 ? (
+              <View style={styles.gridEmptyWrap}>
+                <Text style={styles.gridEmptyText}>
+                  Configura la disponibilidad de sedes/canchas para este dia en Preferencias para ver la grilla.
+                </Text>
+              </View>
+            ) : (
+              <View style={styles.newGridCard}>
+                <View style={styles.newGridRow}>
+                  <View style={styles.newGridFixedColumn}>
+                    <View style={styles.newGridCornerCell}>
+                      <Text style={styles.newGridCornerText}>PAREJA</Text>
+                    </View>
+                    {gridRows.map((row) => {
+                      if (row.type === "category-header") {
                         return (
                           <Pressable
-                            key={option.value}
-                            onPress={() =>
-                              setExtraCategoryIds((current) =>
-                                current.includes(option.value)
-                                  ? current.filter((id) => id !== option.value)
-                                  : [...current, option.value]
-                              )
-                            }
-                            style={[
-                              styles.extraCategoryChip,
-                              isSelected ? styles.extraCategoryChipActive : null,
-                            ]}
+                            disabled={row.block.isActive}
+                            key={row.key}
+                            onPress={() => toggleSiblingCollapsed(row.block.tournamentId)}
+                            style={[styles.categoryHeaderFixedCell, { borderLeftColor: getCategoryColor(row.colorIndex) }]}
                           >
-                            <Text
-                              style={[
-                                styles.extraCategoryChipText,
-                                isSelected ? styles.extraCategoryChipTextActive : null,
-                              ]}
-                            >
-                              {option.label}
-                            </Text>
+                            <View style={[styles.categoryHeaderBar, { backgroundColor: getCategoryColor(row.colorIndex) }]} />
+                            <View style={styles.categoryHeaderTextWrap}>
+                              <Text numberOfLines={1} style={styles.categoryHeaderTitle}>
+                                {row.block.categoryLabel || (row.block.isActive ? "Esta categoria" : "Categoria")}
+                              </Text>
+                              <Text numberOfLines={1} style={styles.categoryHeaderSubtitle}>
+                                {row.block.confirmedRegistrations.length} pareja
+                                {row.block.confirmedRegistrations.length === 1 ? "" : "s"}
+                                {!row.block.isActive ? " · Solo lectura" : ""}
+                              </Text>
+                            </View>
+                            {!row.block.isActive ? (
+                              <Ionicons
+                                color={colors.muted}
+                                name={row.isCollapsed ? "chevron-down" : "chevron-up"}
+                                size={16}
+                              />
+                            ) : null}
                           </Pressable>
                         );
-                      })}
+                      }
+
+                      if (row.type === "pair") {
+                        return (
+                          <PairNameCell
+                            hoursStatus={getHoursStatusTag(getTotalLoadedHours(row.registration))}
+                            isEditable={row.block.isActive}
+                            isSelected={row.block.isActive && selectedRegistrationIds.includes(row.registration.id)}
+                            key={row.key}
+                            onPress={toggleRegistrationSelection}
+                            registration={row.registration}
+                            zoneLetter={row.zoneLetter}
+                          />
+                        );
+                      }
+
+                      if (row.type === "coinciden") {
+                        return (
+                          <View key={row.key} style={styles.coincidenFixedCell}>
+                            <Text numberOfLines={1} style={styles.coincidenFixedText}>
+                              Coinciden
+                            </Text>
+                          </View>
+                        );
+                      }
+
+                      return (
+                        <View key={row.key} style={styles.canchasOcupadasFixedCell}>
+                          <Text numberOfLines={1} style={styles.canchasOcupadasFixedText}>
+                            Canchas ocupadas
+                          </Text>
+                        </View>
+                      );
+                    })}
                   </View>
-                </ScrollView>
+
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    <View>
+                      <View style={styles.hourHeaderRow}>
+                        {hourColumns.map((hour) => (
+                          <View key={hour.minutes} style={styles.hourHeaderCell}>
+                            <Text style={styles.hourHeaderText}>{hour.label}</Text>
+                          </View>
+                        ))}
+                      </View>
+
+                      {gridRows.map((row) => {
+                        if (row.type === "category-header") {
+                          return <View key={row.key} style={styles.categoryHeaderScrollSpacer} />;
+                        }
+
+                        if (row.type === "pair") {
+                          return (
+                            <PairCellsRow
+                              hourColumns={hourColumns}
+                              isEditable={row.block.isActive}
+                              key={row.key}
+                              onToggleCell={handleToggleAvailabilityCell}
+                              registration={row.registration}
+                              selectedDayKey={selectedDayKey}
+                            />
+                          );
+                        }
+
+                        if (row.type === "coinciden") {
+                          const total = row.block.confirmedRegistrations.length || 1;
+
+                          return (
+                            <View key={row.key} style={styles.coincidenCellsRow}>
+                              {hourColumns.map((hour) => {
+                                const count = countPairsAvailableAtHour(row.block, hour.minutes);
+                                const ratio = count / total;
+
+                                return (
+                                  <View
+                                    key={hour.minutes}
+                                    style={[
+                                      styles.coincidenCell,
+                                      count > 0
+                                        ? { backgroundColor: getCategoryColor(row.colorIndex), opacity: 0.25 + ratio * 0.75 }
+                                        : null,
+                                    ]}
+                                  >
+                                    <Text style={styles.coincidenCellText}>{count || ""}</Text>
+                                  </View>
+                                );
+                              })}
+                            </View>
+                          );
+                        }
+
+                        return (
+                          <View key={row.key} style={styles.canchasOcupadasCellsRow}>
+                            {hourColumns.map((hour) => {
+                              const courts = getCourtsAvailableAtHour(hour.minutes);
+                              const matches = countMatchesAtHour(hour.minutes);
+                              const isFull = courts > 0 && matches >= courts;
+
+                              return (
+                                <View
+                                  key={hour.minutes}
+                                  style={[styles.canchasOcupadasCell, isFull ? styles.canchasOcupadasCellFull : null]}
+                                >
+                                  <Text
+                                    style={[
+                                      styles.canchasOcupadasCellText,
+                                      isFull ? styles.canchasOcupadasCellTextFull : null,
+                                    ]}
+                                  >
+                                    {matches}/{courts}
+                                  </Text>
+                                </View>
+                              );
+                            })}
+                          </View>
+                        );
+                      })}
+                    </View>
+                  </ScrollView>
+                </View>
               </View>
-            ) : null}
+            )}
 
             <View style={styles.selectionCard}>
               <Text style={styles.selectionTitle}>
@@ -2247,273 +2770,6 @@ export default function TournamentZonePlanningScreen({ navigation, route }) {
                   </View>
                 </View>
               ) : null}
-            </View>
-
-            <View style={styles.gridCard}>
-              {!isMultiCategoryView ? (
-                <>
-                  <View style={styles.gridHeader}>
-                    <View style={styles.timeHeaderCell}>
-                      <Text style={styles.timeHeaderText}>Hora</Text>
-                    </View>
-                    <ScrollView
-                      horizontal
-                      onScroll={(event) =>
-                        syncHorizontalScroll("header", event.nativeEvent.contentOffset.x)
-                      }
-                      ref={headerScrollRef}
-                      scrollEventThrottle={16}
-                      showsHorizontalScrollIndicator={false}
-                    >
-                      <View style={styles.pairHeaderRow}>
-                        {orderedRegistrations.map((registration) => {
-                          const isSelected = selectedRegistrationIds.includes(registration.id);
-                          const availabilityRanges = getAvailabilityRangesForDay(registration, selectedDayKey);
-                          const assignedZoneLetter = assignedZoneLetterByRegistrationId.get(String(registration.id));
-
-                          return (
-                            <Pressable
-                              key={registration.id}
-                              onPress={() => toggleRegistrationSelection(registration.id)}
-                              style={[
-                                styles.pairHeaderCell,
-                                {
-                                  backgroundColor: registration.color.bg,
-                                  borderColor: registration.color.border,
-                                },
-                                assignedIds.has(registration.id) ? styles.pairHeaderCellAssigned : null,
-                                isSelected ? styles.pairHeaderCellSelected : null,
-                              ]}
-                            >
-                              {assignedZoneLetter ? (
-                                <View style={styles.zoneLetterBadge}>
-                                  <Text style={styles.zoneLetterBadgeText}>{assignedZoneLetter}</Text>
-                                </View>
-                              ) : null}
-                              {isSelected ? (
-                                <View style={styles.selectedBadge}>
-                                  <Ionicons color={colors.surface} name="checkmark" size={11} />
-                                </View>
-                              ) : null}
-                              <Text
-                                numberOfLines={2}
-                                style={[
-                                  styles.pairHeaderText,
-                                  { color: registration.color.text },
-                                  isSelected ? styles.pairHeaderTextSelected : null,
-                                ]}
-                              >
-                                {registration.shortDisplayLabel || registration.displayLabel}
-                              </Text>
-                              <Text
-                                numberOfLines={2}
-                                style={[styles.pairHeaderAvailabilityText, { color: registration.color.text }]}
-                              >
-                                {availabilityRanges.length ? availabilityRanges.join(" / ") : "Sin horario"}
-                              </Text>
-                            </Pressable>
-                          );
-                        })}
-                      </View>
-                    </ScrollView>
-                  </View>
-
-                  <View style={styles.gridBody}>
-                    <View style={styles.timeColumn}>
-                      {TIME_SLOTS.map((slot) => (
-                        <View key={slot.label} style={styles.timeCell}>
-                          <Text style={styles.timeText}>{slot.label}</Text>
-                        </View>
-                      ))}
-                    </View>
-                    <ScrollView
-                      horizontal
-                      onScroll={(event) =>
-                        syncHorizontalScroll("body", event.nativeEvent.contentOffset.x)
-                      }
-                      ref={bodyScrollRef}
-                      scrollEventThrottle={16}
-                      showsHorizontalScrollIndicator={false}
-                    >
-                      <View style={styles.availabilityColumns}>
-                        {orderedRegistrations.map((registration) => (
-                          <View key={registration.id} style={styles.availabilityColumn}>
-                            {TIME_SLOTS.map((slot) => {
-                              const available = isSlotAvailable(registration, selectedDayKey, slot.minutes);
-
-                              return (
-                                <View
-                                  key={`${registration.id}-${slot.label}`}
-                                  style={[
-                                    styles.availabilityCell,
-                                    available
-                                      ? {
-                                          backgroundColor: registration.color.fill,
-                                          borderColor: registration.color.border,
-                                        }
-                                      : null,
-                                  ]}
-                                />
-                              );
-                            })}
-                          </View>
-                        ))}
-                      </View>
-                    </ScrollView>
-                  </View>
-                </>
-              ) : (
-                <>
-                  <View style={styles.gridHeader}>
-                    <View style={styles.timeHeaderCell}>
-                      <Text style={styles.timeHeaderText}>Hora</Text>
-                    </View>
-                    <ScrollView
-                      horizontal
-                      onScroll={(event) =>
-                        syncHorizontalScroll("header", event.nativeEvent.contentOffset.x)
-                      }
-                      ref={headerScrollRef}
-                      scrollEventThrottle={16}
-                      showsHorizontalScrollIndicator={false}
-                    >
-                      <View style={styles.pairHeaderRow}>
-                        {combinedColumns.map((column) => {
-                          const isPairColumn = column.type === "pair";
-                          const isSelected = isPairColumn && column.isActive && selectedRegistrationIds.includes(column.registration.id);
-                          const canPress = isPairColumn && column.isActive;
-                          const availabilityRanges = isPairColumn
-                            ? getAvailabilityRangesForDay(column.registration, selectedDayKey)
-                            : [];
-
-                          return (
-                            <Pressable
-                              key={column.key}
-                              disabled={!canPress}
-                              onPress={canPress ? () => toggleRegistrationSelection(column.registration.id) : undefined}
-                              style={[
-                                styles.combinedHeaderCell,
-                                isPairColumn
-                                  ? { backgroundColor: column.registration.color.bg, borderColor: column.registration.color.border }
-                                  : { backgroundColor: colors.surfaceAlt || "#EEF3F0", borderColor: colors.border },
-                                !column.isActive ? styles.combinedHeaderCellInactive : null,
-                                isSelected ? styles.pairHeaderCellSelected : null,
-                              ]}
-                            >
-                              <View
-                                style={[
-                                  styles.combinedCategoryBadge,
-                                  !column.isActive ? styles.combinedCategoryBadgeInactive : null,
-                                ]}
-                              >
-                                <Text
-                                  numberOfLines={1}
-                                  style={[
-                                    styles.combinedCategoryBadgeText,
-                                    !column.isActive ? styles.combinedCategoryBadgeTextInactive : null,
-                                  ]}
-                                >
-                                  {column.categoryLabel || "-"}
-                                </Text>
-                              </View>
-                              {isSelected ? (
-                                <View style={styles.selectedBadge}>
-                                  <Ionicons color={colors.surface} name="checkmark" size={11} />
-                                </View>
-                              ) : null}
-                              {isPairColumn ? (
-                                <>
-                                  <Text
-                                    numberOfLines={2}
-                                    style={[
-                                      styles.pairHeaderText,
-                                      { color: column.registration.color.text },
-                                      isSelected ? styles.pairHeaderTextSelected : null,
-                                    ]}
-                                  >
-                                    {column.registration.shortDisplayLabel || column.registration.displayLabel}
-                                  </Text>
-                                  <Text
-                                    numberOfLines={2}
-                                    style={[styles.pairHeaderAvailabilityText, { color: column.registration.color.text }]}
-                                  >
-                                    {availabilityRanges.length ? availabilityRanges.join(" / ") : "Sin horario"}
-                                  </Text>
-                                </>
-                              ) : (
-                                <Text numberOfLines={1} style={styles.combinedZoneLabelText}>
-                                  {column.zoneLabel}
-                                </Text>
-                              )}
-                            </Pressable>
-                          );
-                        })}
-                      </View>
-                    </ScrollView>
-                  </View>
-
-                  <View style={styles.gridBody}>
-                    <View style={styles.timeColumn}>
-                      {TIME_SLOTS.map((slot) => (
-                        <View key={slot.label} style={styles.combinedTimeCell}>
-                          <Text style={styles.timeText}>{slot.label}</Text>
-                        </View>
-                      ))}
-                    </View>
-                    <ScrollView
-                      horizontal
-                      onScroll={(event) =>
-                        syncHorizontalScroll("body", event.nativeEvent.contentOffset.x)
-                      }
-                      ref={bodyScrollRef}
-                      scrollEventThrottle={16}
-                      showsHorizontalScrollIndicator={false}
-                    >
-                      <View style={styles.availabilityColumns}>
-                        {combinedColumns.map((column) => (
-                          <View key={column.key} style={styles.availabilityColumn}>
-                            {TIME_SLOTS.map((slot) => (
-                              <View key={`${column.key}-${slot.label}`} style={styles.combinedSlotCell}>
-                                {column.type === "zone"
-                                  ? column.pairs.map((pair) => {
-                                      const available = isSlotAvailable(pair, selectedDayKey, slot.minutes);
-                                      return (
-                                        <View
-                                          key={`${column.key}-${pair.id}-${slot.label}`}
-                                          style={[
-                                            styles.combinedMiniCell,
-                                            available
-                                              ? { backgroundColor: pair.color.fill, borderColor: pair.color.border }
-                                              : null,
-                                          ]}
-                                        />
-                                      );
-                                    })
-                                  : (() => {
-                                      const available = isSlotAvailable(column.registration, selectedDayKey, slot.minutes);
-                                      return (
-                                        <View
-                                          style={[
-                                            styles.combinedMiniCell,
-                                            available
-                                              ? {
-                                                  backgroundColor: column.registration.color.fill,
-                                                  borderColor: column.registration.color.border,
-                                                }
-                                              : null,
-                                          ]}
-                                        />
-                                      );
-                                    })()}
-                              </View>
-                            ))}
-                          </View>
-                        ))}
-                      </View>
-                    </ScrollView>
-                  </View>
-                </>
-              )}
             </View>
 
             <View style={styles.zoneStack}>
@@ -2656,7 +2912,7 @@ export default function TournamentZonePlanningScreen({ navigation, route }) {
                                     </Text>
                                   </Pressable>
                                   <Pressable
-                                    onPress={() => cycleZoneMatchVenue(zone, matchLabel)}
+                                    onPress={() => openZoneVenuePicker(zone, matchLabel)}
                                     style={[styles.zoneMatchPlaceButton, styles.zoneMatchPlaceColumn]}
                                   >
                                     <Text numberOfLines={1} style={styles.zoneMatchPlaceButtonText}>
@@ -3508,6 +3764,272 @@ const styles = StyleSheet.create({
   },
   extraCategoryChipTextActive: {
     color: colors.primaryDark,
+  },
+  instantSaveNote: {
+    color: colors.muted,
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 11,
+    marginBottom: spacing.sm,
+  },
+  filterChipsContent: {
+    paddingRight: spacing.sm,
+  },
+  filterChipsRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginBottom: spacing.sm,
+  },
+  filterChip: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  filterChipActive: {
+    backgroundColor: colors.primaryDark,
+    borderColor: colors.primaryDark,
+  },
+  filterChipText: {
+    color: colors.text,
+    fontFamily: "Inter_700Bold",
+    fontSize: 11,
+  },
+  filterChipTextActive: {
+    color: colors.surface,
+  },
+  gridEmptyWrap: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 16,
+    borderWidth: 1,
+    marginBottom: spacing.sm,
+    padding: spacing.md,
+  },
+  gridEmptyText: {
+    color: colors.muted,
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 12,
+    textAlign: "center",
+  },
+  newGridCard: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 16,
+    borderWidth: 1,
+    marginBottom: spacing.sm,
+    overflow: "hidden",
+  },
+  newGridRow: {
+    flexDirection: "row",
+  },
+  newGridFixedColumn: {
+    borderRightColor: colors.border,
+    borderRightWidth: 1,
+    width: 152,
+  },
+  newGridCornerCell: {
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderBottomColor: colors.border,
+    borderBottomWidth: 1,
+    height: 40,
+    justifyContent: "center",
+  },
+  newGridCornerText: {
+    color: colors.muted,
+    fontFamily: "Inter_900Black",
+    fontSize: 10,
+  },
+  categoryHeaderFixedCell: {
+    alignItems: "center",
+    backgroundColor: colors.surfaceAlt || "#F6FBF8",
+    borderBottomColor: colors.border,
+    borderBottomWidth: 1,
+    borderLeftWidth: 4,
+    flexDirection: "row",
+    gap: 6,
+    height: 40,
+    paddingHorizontal: 8,
+  },
+  categoryHeaderBar: {
+    borderRadius: 3,
+    height: 20,
+    width: 4,
+  },
+  categoryHeaderTextWrap: {
+    flex: 1,
+  },
+  categoryHeaderTitle: {
+    color: colors.text,
+    fontFamily: "Inter_900Black",
+    fontSize: 11,
+  },
+  categoryHeaderSubtitle: {
+    color: colors.muted,
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 9,
+  },
+  categoryHeaderScrollSpacer: {
+    backgroundColor: colors.surfaceAlt || "#F6FBF8",
+    borderBottomColor: colors.border,
+    borderBottomWidth: 1,
+    height: 40,
+  },
+  pairNameCell: {
+    borderBottomWidth: 1,
+    borderRightWidth: 3,
+    height: 56,
+    justifyContent: "center",
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+  },
+  pairNameCellReadOnly: {
+    opacity: 0.75,
+  },
+  pairNameCellSelected: {
+    borderColor: colors.primaryDark,
+    borderRightWidth: 3,
+  },
+  pairNameCellTopRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 6,
+  },
+  pairNameCellText: {
+    flex: 1,
+    fontFamily: "Inter_800ExtraBold",
+    fontSize: 11,
+    lineHeight: 13,
+  },
+  pairNameZoneBadge: {
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.85)",
+    borderColor: "rgba(31,93,146,0.36)",
+    borderRadius: 999,
+    borderWidth: 1,
+    height: 16,
+    justifyContent: "center",
+    width: 16,
+  },
+  pairNameZoneBadgeText: {
+    color: "#1B5D92",
+    fontFamily: "Inter_900Black",
+    fontSize: 9,
+  },
+  pairNameStatusText: {
+    fontFamily: "Inter_800ExtraBold",
+    fontSize: 10,
+    marginTop: 2,
+  },
+  pairNameSelectedBadge: {
+    alignItems: "center",
+    backgroundColor: colors.primaryDark,
+    borderRadius: 999,
+    height: 14,
+    justifyContent: "center",
+    position: "absolute",
+    right: 4,
+    top: 4,
+    width: 14,
+  },
+  coincidenFixedCell: {
+    alignItems: "center",
+    backgroundColor: colors.surfaceAlt || "#F6FBF8",
+    borderBottomColor: colors.border,
+    borderBottomWidth: 1,
+    height: 30,
+    justifyContent: "center",
+  },
+  coincidenFixedText: {
+    color: colors.muted,
+    fontFamily: "Inter_800ExtraBold",
+    fontSize: 9,
+  },
+  canchasOcupadasFixedCell: {
+    alignItems: "center",
+    backgroundColor: colors.surfaceAlt || "#F6FBF8",
+    height: 30,
+    justifyContent: "center",
+  },
+  canchasOcupadasFixedText: {
+    color: colors.muted,
+    fontFamily: "Inter_800ExtraBold",
+    fontSize: 9,
+  },
+  hourHeaderRow: {
+    flexDirection: "row",
+  },
+  hourHeaderCell: {
+    alignItems: "center",
+    borderBottomColor: colors.border,
+    borderBottomWidth: 1,
+    borderRightColor: colors.border,
+    borderRightWidth: 1,
+    height: 40,
+    justifyContent: "center",
+    width: 56,
+  },
+  hourHeaderText: {
+    color: colors.muted,
+    fontFamily: "Inter_900Black",
+    fontSize: 10,
+  },
+  pairCellsRow: {
+    flexDirection: "row",
+  },
+  hourCell: {
+    backgroundColor: "#F7FAF8",
+    borderBottomColor: "#E6ECE8",
+    borderBottomWidth: 1,
+    borderRightColor: "#E6ECE8",
+    borderRightWidth: 1,
+    height: 56,
+    width: 56,
+  },
+  hourCellReadOnly: {
+    opacity: 0.75,
+  },
+  coincidenCellsRow: {
+    flexDirection: "row",
+  },
+  coincidenCell: {
+    alignItems: "center",
+    borderBottomColor: colors.border,
+    borderBottomWidth: 1,
+    borderRightColor: "#E6ECE8",
+    borderRightWidth: 1,
+    height: 30,
+    justifyContent: "center",
+    width: 56,
+  },
+  coincidenCellText: {
+    color: colors.text,
+    fontFamily: "Inter_800ExtraBold",
+    fontSize: 10,
+  },
+  canchasOcupadasCellsRow: {
+    flexDirection: "row",
+  },
+  canchasOcupadasCell: {
+    alignItems: "center",
+    borderRightColor: "#E6ECE8",
+    borderRightWidth: 1,
+    height: 30,
+    justifyContent: "center",
+    width: 56,
+  },
+  canchasOcupadasCellFull: {
+    backgroundColor: "rgba(176,64,64,0.14)",
+  },
+  canchasOcupadasCellText: {
+    color: colors.muted,
+    fontFamily: "Inter_800ExtraBold",
+    fontSize: 9,
+  },
+  canchasOcupadasCellTextFull: {
+    color: colors.danger,
   },
   gridCard: {
     backgroundColor: colors.surface,
