@@ -24,7 +24,8 @@
     "ios": "set EXPO_NO_DEPENDENCY_VALIDATION=1&& expo start --ios",
     "web": "set EXPO_NO_DEPENDENCY_VALIDATION=1&& expo start --web",
     "update:preview": "eas update --channel preview",
-    "update:production": "eas update --channel production"
+    "update:production": "eas update --channel production",
+    "test": "node --test \"src/**/*.test.js\""
   },
   "dependencies": {
     "@expo-google-fonts/inter": "^0.4.2",
