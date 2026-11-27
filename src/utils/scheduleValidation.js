@@ -1,3 +1,9 @@
+// GEMELO: D:\PROYECTO-APP\padelnexo-web\lib\scheduleValidation.ts (version
+// web, TypeScript). Cualquier cambio de regla o de mensaje aca tiene que
+// replicarse tambien alla, y viceversa, para que app y web validen
+// exactamente igual. Los tests (casos a-f) tienen que ser los mismos en los
+// dos: src/utils/__tests__/scheduleValidation.test.js <-> lib/__tests__/scheduleValidation.test.ts.
+//
 // Modulo unico de validacion de horarios de partidos de zona, usado por
 // TournamentZonePlanningScreen.js y TournamentFixtureScreen.js. No decide nada
 // sobre como se arman las zonas ni sobre los cruces (eso sigue en cada
